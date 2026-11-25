@@ -123,3 +123,29 @@ export async function uploadReelToInstagram(
 
   return { mediaId: pubJson.id, containerId: initJson.id };
 }
+
+/**
+ * Yayınlanan Instagram Reels videosuna otomatik ilk yorum (A/B anketi) atar.
+ */
+export async function postInstagramComment(
+  mediaId: string,
+  message: string,
+  creds: InstagramCredentials,
+): Promise<string> {
+  const body = new URLSearchParams({
+    message: message.slice(0, 1000),
+    access_token: creds.accessToken,
+  });
+  const res = await fetch(`${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+    signal: AbortSignal.timeout(20_000),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Instagram yorum hatası (${res.status}): ${text.slice(0, 400)}`);
+  }
+  const json = JSON.parse(text) as { id?: string };
+  return json.id || "";
+}

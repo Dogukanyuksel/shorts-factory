@@ -49,6 +49,8 @@ async function main() {
   const fps = Math.max(30, Math.min(60, Number(parseArg("fps", "60")) || 60));
   const width = Number(parseArg("width", "720")) || 720;
   const height = Number(parseArg("height", "1280")) || 1280;
+  const epBadge = parseArg("ep-badge", "").trim();
+  const pollLine = parseArg("poll", "").trim();
 
   const scenePath = resolve("niches", "how-it-works", "episodes", `${episode}.html`);
   if (!existsSync(scenePath)) throw new Error(`Bölüm bulunamadı: ${scenePath}`);
@@ -101,6 +103,72 @@ async function main() {
       (cfg) => (globalThis as unknown as { init: (c: unknown) => void }).init(cfg),
       { width, height, fps, duration: totalSec, lines: timed },
     );
+
+    if (epBadge || pollLine) {
+      await page.evaluate(
+        ({ fpsVal, durVal, badgeText, pollText }) => {
+          let frameIdx = 0;
+          const orig = HTMLCanvasElement.prototype.toDataURL;
+          HTMLCanvasElement.prototype.toDataURL = function (...args: Parameters<typeof orig>) {
+            if (this.id === "c") {
+              const tSec = frameIdx / fpsVal;
+              frameIdx++;
+              const ctx = this.getContext("2d");
+              if (ctx) {
+                const W = this.width;
+                const H = this.height;
+                const S = W / 720;
+                ctx.save();
+                // Sol üst seri rozeti (EP. 03 — profil binge-watch için)
+                if (badgeText) {
+                  const bw = 122 * S;
+                  const bh = 42 * S;
+                  const bx = 28 * S;
+                  const by = H * 0.055;
+                  ctx.fillStyle = "rgba(8, 15, 34, 0.84)";
+                  ctx.beginPath();
+                  ctx.roundRect(bx, by, bw, bh, 21 * S);
+                  ctx.fill();
+                  ctx.strokeStyle = "#fbbf24";
+                  ctx.lineWidth = 2.2 * S;
+                  ctx.stroke();
+                  ctx.textAlign = "center";
+                  ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+                  ctx.fillStyle = "#fde68a";
+                  ctx.fillText(badgeText, bx + bw * 0.5, by + 28 * S);
+                }
+                // Son 3.0 sn: A) / B) sonraki bölüm oylama kartı (altyazının hemen üstünde)
+                if (pollText && tSec >= durVal - 3.0) {
+                  const alpha = Math.min(1, (tSec - (durVal - 3.0)) / 0.35);
+                  ctx.globalAlpha = Math.max(0, alpha);
+                  const boxW = W * 0.9;
+                  const boxH = 98 * S;
+                  const bx = (W - boxW) * 0.5;
+                  const by = H * 0.725;
+                  ctx.fillStyle = "rgba(5, 10, 24, 0.92)";
+                  ctx.beginPath();
+                  ctx.roundRect(bx, by, boxW, boxH, 20 * S);
+                  ctx.fill();
+                  ctx.strokeStyle = "#fbbf24";
+                  ctx.lineWidth = 3 * S;
+                  ctx.stroke();
+                  ctx.textAlign = "center";
+                  ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+                  ctx.fillStyle = "#fde047";
+                  ctx.fillText("VOTE NEXT EPISODE IN COMMENTS", W * 0.5, by + 35 * S);
+                  ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+                  ctx.fillStyle = "#ffffff";
+                  ctx.fillText(pollText, W * 0.5, by + 72 * S);
+                }
+                ctx.restore();
+              }
+            }
+            return orig.apply(this, args);
+          };
+        },
+        { fpsVal: fps, durVal: totalSec, badgeText: epBadge, pollText: pollLine },
+      );
+    }
 
     const totalFrames = Math.ceil(totalSec * fps);
     console.log(`[explainer] ${totalSec.toFixed(1)}s @ ${fps}fps (${totalFrames} kare) çiziliyor...`);

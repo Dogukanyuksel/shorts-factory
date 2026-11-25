@@ -46,6 +46,8 @@ async function main() {
   const height = Number(parseArg("height", "1280")) || 1280;
   const hook = parseArg("hook", "CAN IT ESCAPE ALL 7 RINGS?");
   const narration = parseArg("narration", "").trim();
+  const introCta = parseArg("cta", "").trim();
+  const pollLine = parseArg("poll", "").trim();
 
   const scenePath = resolve("niches", niche, "scene.html");
   if (!existsSync(scenePath)) {
@@ -74,6 +76,73 @@ async function main() {
       (cfg) => (globalThis as unknown as { init: (c: unknown) => void }).init(cfg),
       { width, height, fps, seconds, seed, hook },
     );
+
+    if (introCta || pollLine) {
+      await page.evaluate(
+        ({ fpsVal, durVal, ctaText, pollText }) => {
+          let frameIdx = 0;
+          const orig = HTMLCanvasElement.prototype.toDataURL;
+          HTMLCanvasElement.prototype.toDataURL = function (...args: Parameters<typeof orig>) {
+            if (this.id === "c") {
+              const t = frameIdx / fpsVal;
+              frameIdx++;
+              const ctx = this.getContext("2d");
+              if (ctx) {
+                const W = this.width;
+                const H = this.height;
+                const S = W / 720;
+                ctx.save();
+                ctx.textAlign = "center";
+                // İlk 3.5 sn: tahmin/yorum tetikleyici rozet
+                if (ctaText && t <= 3.5) {
+                  const alpha = t < 0.3 ? t / 0.3 : t > 3.0 ? (3.5 - t) / 0.5 : 1;
+                  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+                  const boxW = Math.min(W * 0.88, Math.max(420 * S, ctaText.length * 16.5 * S + 44 * S));
+                  const boxH = 54 * S;
+                  const bx = (W - boxW) * 0.5;
+                  const by = H * 0.162;
+                  ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
+                  ctx.beginPath();
+                  ctx.roundRect(bx, by, boxW, boxH, 27 * S);
+                  ctx.fill();
+                  ctx.strokeStyle = "#38bdf8";
+                  ctx.lineWidth = 2.5 * S;
+                  ctx.stroke();
+                  ctx.font = `800 ${Math.round(23 * S)}px -apple-system, sans-serif`;
+                  ctx.fillStyle = "#e0f2fe";
+                  ctx.fillText(ctaText, W * 0.5, by + 35 * S);
+                }
+                // Son 3.4 sn: A) / B) sonraki video oylama kartı
+                if (pollText && t >= durVal - 3.4) {
+                  const alpha = Math.min(1, (t - (durVal - 3.4)) / 0.35);
+                  ctx.globalAlpha = Math.max(0, alpha);
+                  const boxW = W * 0.9;
+                  const boxH = 112 * S;
+                  const bx = (W - boxW) * 0.5;
+                  const by = H * 0.835;
+                  ctx.fillStyle = "rgba(5, 10, 24, 0.92)";
+                  ctx.beginPath();
+                  ctx.roundRect(bx, by, boxW, boxH, 22 * S);
+                  ctx.fill();
+                  ctx.strokeStyle = "#facc15";
+                  ctx.lineWidth = 3 * S;
+                  ctx.stroke();
+                  ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+                  ctx.fillStyle = "#fde047";
+                  ctx.fillText("VOTE NEXT VIDEO IN COMMENTS", W * 0.5, by + 40 * S);
+                  ctx.font = `800 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+                  ctx.fillStyle = "#ffffff";
+                  ctx.fillText(pollText, W * 0.5, by + 82 * S);
+                }
+                ctx.restore();
+              }
+            }
+            return orig.apply(this, args);
+          };
+        },
+        { fpsVal: fps, durVal: seconds, ctaText: introCta, pollText: pollLine },
+      );
+    }
 
     const totalFrames = Math.ceil(seconds * fps);
     const ff = spawn(

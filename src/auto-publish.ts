@@ -2,8 +2,15 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, pickNextJob, type ChannelId, type PublishJob } from "./catalog.js";
-import { buildInstagramCaption, uploadReelToInstagram } from "./instagram.js";
+import {
+  CURATED_PHYSICS_JOBS,
+  EXPLAINER_JOBS,
+  getEngagementKit,
+  pickNextJob,
+  type ChannelId,
+  type PublishJob,
+} from "./catalog.js";
+import { buildInstagramCaption, postInstagramComment, uploadReelToInstagram } from "./instagram.js";
 import { uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
 
 export type PublishedRecord = {
@@ -52,6 +59,7 @@ export async function saveState(state: PublishState, statePath = STATE_PATH): Pr
 }
 
 async function renderJob(job: PublishJob): Promise<string> {
+  const kit = getEngagementKit(job);
   if (job.channel === "physics") {
     await runTsx([
       "src/render.ts",
@@ -61,6 +69,8 @@ async function renderJob(job: PublishJob): Promise<string> {
       "--fps", "60",
       "--hook", job.hook,
       "--narration", job.narration,
+      "--cta", kit.introCta,
+      "--poll", kit.pollLine,
     ]);
     return resolve("out", `${job.niche}-seed${job.seed}.mp4`);
   }
@@ -69,6 +79,8 @@ async function renderJob(job: PublishJob): Promise<string> {
     "src/render-explainer.ts",
     "--episode", job.episode,
     "--fps", "60",
+    "--ep-badge", kit.introCta,
+    "--poll", kit.pollLine,
   ]);
   return resolve("out", `how-it-works-${job.episode}.mp4`);
 }
@@ -163,12 +175,14 @@ async function main() {
     );
   }
 
+  const kit = getEngagementKit(job);
+
   console.log(`[auto-publish] YouTube'a yükleniyor (${privacyStatus})...`);
   const result = await uploadVideoToYouTube(
     mp4Path,
     {
       title: job.title,
-      description: job.description,
+      description: kit.enrichedDescription,
       tags: job.tags,
       categoryId: job.categoryId,
       privacyStatus,
@@ -178,7 +192,7 @@ async function main() {
 
   console.log(`\n✅ [auto-publish] YOUTUBE YAYINLANDI: ${result.url}`);
 
-  // İsteğe bağlı: Meta API secret'ları tanımlıysa aynı MP4'ü Instagram Reels'e de yayınla
+  // İsteğe bağlı: Meta API secret'ları tanımlıysa aynı MP4'ü Instagram Reels'e de yayınla + A/B ilk yorum at
   const igUserId =
     process.env.IG_USER_ID?.trim() ||
     (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
@@ -189,13 +203,17 @@ async function main() {
   if (igUserId && metaToken) {
     try {
       console.log("[auto-publish] Instagram Reels'e yükleniyor...");
-      const igCaption = buildInstagramCaption(job.title, job.description);
-      const igRes = await uploadReelToInstagram(mp4Path, igCaption, {
-        igUserId,
-        accessToken: metaToken,
-      });
+      const igCaption = buildInstagramCaption(job.title, kit.enrichedDescription);
+      const igCreds = { igUserId, accessToken: metaToken };
+      const igRes = await uploadReelToInstagram(mp4Path, igCaption, igCreds);
       instagramMediaId = igRes.mediaId;
       console.log(`✅ [auto-publish] INSTAGRAM REELS YAYINLANDI: mediaId=${igRes.mediaId}`);
+      try {
+        const commentId = await postInstagramComment(igRes.mediaId, kit.commentPrompt, igCreds);
+        console.log(`💬 [auto-publish] INSTAGRAM A/B ANKET YORUMU ATILDI: ${commentId}`);
+      } catch (cErr) {
+        console.warn("[auto-publish] Instagram otomatik yorum uyarısı:", cErr);
+      }
     } catch (igErr) {
       // Instagram hatası YouTube yayın kaydını engellemesin
       console.error("[auto-publish] Instagram Reels uyarısı (YouTube başarılı):", igErr);

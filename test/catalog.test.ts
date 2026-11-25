@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, pickNextJob } from "../src/catalog.js";
+import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, getEngagementKit, pickNextJob } from "../src/catalog.js";
 import { buildInstagramCaption } from "../src/instagram.js";
 import { buildYouTubeVideoPayload } from "../src/youtube.js";
 
@@ -60,4 +60,16 @@ test("buildInstagramCaption: #shorts etiketini #reels olarak dönüştürür ve 
   assert.ok(!caption.includes("#shorts"));
   assert.ok(caption.includes("#reels"));
   assert.ok(caption.length <= 2200);
+});
+
+test("getEngagementKit: her video için A/B oylaması, ilk yorum ve seri rozeti üretir", () => {
+  const physKit = getEngagementKit(CURATED_PHYSICS_JOBS[0]);
+  assert.notEqual(physKit.optionA, physKit.optionB);
+  assert.ok(physKit.pollLine.includes("A)") && physKit.pollLine.includes("B)"));
+  assert.ok(physKit.enrichedDescription.includes("VOTE NEXT SIMULATION"));
+
+  const expKit = getEngagementKit(EXPLAINER_JOBS[2]);
+  assert.equal(expKit.introCta, "EP. 03");
+  assert.notEqual(expKit.optionA, expKit.optionB);
+  assert.ok(expKit.commentPrompt.includes("VOTE NEXT EPISODE"));
 });

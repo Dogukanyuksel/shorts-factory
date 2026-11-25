@@ -705,3 +705,96 @@ export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): Publ
   }
   return null;
 }
+
+export type EngagementKit = {
+  episodeNumber: number;
+  introCta: string;
+  optionA: string;
+  optionB: string;
+  pollLine: string;
+  commentPrompt: string;
+  enrichedDescription: string;
+};
+
+const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
+  "physics-ring": "7-Ring Escape",
+  "duel-balls": "Chaos Arena Duel",
+  "sorting-race": "Sorting Race",
+  "marble-drop": "Marble Drop",
+  "pendulum-wave": "Pendulum Wave",
+  "ball-grow": "Growing Ball",
+  "double-pendulum": "Double Pendulum",
+  "gravity-orbit": "3-Body Gravity",
+  "maze-race": "A* Maze Race",
+  "domino-chain": "Giant Dominoes",
+  "wave-interference": "Wave Interference",
+  "fourier-draw": "Fourier Epicycles",
+};
+
+const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
+  "physics-ring": "PREDICT: WILL IT BREAK RING 7?",
+  "duel-balls": "PICK YOUR COLOR: CYAN OR MAGENTA?",
+  "sorting-race": "GUESS WHICH ALGORITHM WINS",
+  "marble-drop": "PICK YOUR WINNING MARBLE COLOR",
+  "pendulum-wave": "WATCH UNTIL THE FINAL SYNC",
+  "ball-grow": "GUESS HOW MANY BOUNCES IT TAKES",
+  "double-pendulum": "SPOT THE EXACT MOMENT CHAOS HITS",
+  "gravity-orbit": "WAIT FOR THE GRAVITY SLINGSHOT",
+  "maze-race": "CAN BLIND SEARCH BEAT A* AI?",
+  "domino-chain": "WAIT FOR THE FINAL MONOLITH",
+  "wave-interference": "WAIT FOR PERFECT RESONANCE",
+  "fourier-draw": "GUESS THE SHAPE BEFORE 50%",
+};
+
+function formatEpisodeLabel(slug: string): string {
+  return slug
+    .split("-")
+    .map((w) => (w === "mri" || w === "gps" || w === "qr" ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
+/**
+ * Her video için etkileşim & algoritma güçlendirme paketi üretir:
+ * - İlk 3 sn tahmin/yorum CTA'sı
+ * - Son 3 sn A) / B) sonraki video oylaması
+ * - Instagram otomatik ilk yorum + YouTube açıklama anketi
+ * - Clear Mechanics seri bölüm numarası (EP. 03 vb.)
+ */
+export function getEngagementKit(job: PublishJob): EngagementKit {
+  if (job.channel === "physics") {
+    const idx = PHYSICS_ROTATION.indexOf(job.niche);
+    const optA = PHYSICS_LABELS[PHYSICS_ROTATION[(idx + 1) % PHYSICS_ROTATION.length]];
+    const optB = PHYSICS_LABELS[PHYSICS_ROTATION[(idx + 3) % PHYSICS_ROTATION.length]];
+    const pollLine = `A) ${optA}  •  B) ${optB}`;
+    const commentPrompt = `VOTE NEXT SIMULATION 👇\nA) ${optA}\nB) ${optB}\nComment A or B — most votes wins! ⚡`;
+    const enrichedDescription = `${job.description}\n\n${commentPrompt}`;
+    const epNum = Math.max(1, job.seed - 100);
+    return {
+      episodeNumber: epNum,
+      introCta: PHYSICS_CTAS[job.niche],
+      optionA: optA,
+      optionB: optB,
+      pollLine,
+      commentPrompt,
+      enrichedDescription,
+    };
+  }
+
+  const epIdx = Math.max(0, EXPLAINER_JOBS.findIndex((e) => e.id === job.id));
+  const nextA = EXPLAINER_JOBS[(epIdx + 1) % EXPLAINER_JOBS.length];
+  const nextB = EXPLAINER_JOBS[(epIdx + 2) % EXPLAINER_JOBS.length];
+  const optA = formatEpisodeLabel(nextA.episode);
+  const optB = formatEpisodeLabel(nextB.episode);
+  const pollLine = `A) ${optA}  •  B) ${optB}`;
+  const commentPrompt = `VOTE NEXT EPISODE 👇\nA) ${optA}\nB) ${optB}\nComment A or B (or suggest any machine)! ⚙️`;
+  const enrichedDescription = `${job.description}\n\n${commentPrompt}`;
+  return {
+    episodeNumber: epIdx + 1,
+    introCta: `EP. ${String(epIdx + 1).padStart(2, "0")}`,
+    optionA: optA,
+    optionB: optB,
+    pollLine,
+    commentPrompt,
+    enrichedDescription,
+  };
+}
