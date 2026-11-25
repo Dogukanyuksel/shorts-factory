@@ -71,7 +71,7 @@ Bu dosya iki amaç için hazırlanmıştır:
 25. `barcode-scanner` — Lazer barkod okuyucu
 26. `induction-cooktop` — İndüksiyon ocak (fuko/eddy akımları)
 27. `suspension-bridge` — Asma köprü yük dağılımı
-28. `maglev-train` — 600 km/s Maglev tren
+28. `maglev-train` — 600 km/h Maglev tren
 29. `heart-pacemaker` — Kalp pili & EKG ritmi
 30. `lidar-sensor` — Otonom araç LiDAR 3D lazer haritalama
 
@@ -92,10 +92,23 @@ Bu dosya iki amaç için hazırlanmıştır:
 14. `wind-turbine` — Rüzgar türbini fırtınada kırılmamak için kanat açısını nasıl ayarlar?
 15. `nuclear-control-rods` — Nükleer reaktörde kontrol çubukları zincirleme reaksiyonu nasıl frenler?
 16. `espresso-machine` — 9 bar basınçlı espresso makinesi kremayı nasıl oluşturur?
-17. `car-muffler` — Araba egzoz susturucusu motor gürültüsünü ses dalgalarıyla nasıl iptal eder?
-18. `parachute-physics` — Paraşüt açılırken insanı parçalamadan hızı nasıl 200'den 20 km/s'ye düşürür?
+17. `car-muffler` — Araba egzoz susturucusu odacıklar ve delikli borularla motor gürültüsünü nasıl sönümler?
+18. `parachute-physics` — Paraşüt açılırken insanı parçalamadan hızı nasıl 200'den 20 km/h'ye düşürür?
 19. `oled-vs-lcd` — OLED ekran gerçek siyahı LCD'den farklı olarak nasıl üretir?
 20. `ballpoint-pen` — Tükenmez kalem ucundaki 0.7 mm bilya mürekkebi akıtmadan nasıl yazar?
+
+---
+
+## 2.5 Çapraz Kanal Sinerji Tablosu (Aynı Hafta, İki Farklı Açı)
+
+| Bilimsel İlke | Kanal 1: Kinetic Lab (Simülasyon) | Kanal 2: Clear Mechanics (Mühendislik) |
+|---|---|---|
+| Dalga Girişimi | `wave-interference` | `noise-canceling` |
+| Manyetizma | `magnetic-pendulum` | `maglev-train` / `induction-cooktop` |
+| Akışkanlar | `maze-flood` | `hydraulic-press` / `submarine` |
+| Algoritma & AI | `maze-race` (BFS vs A*) | `lidar-sensor` / `robot-vacuum` |
+| Işık & Optik | `laser-bounce` | `fiber-optic` / `barcode-scanner` |
+| Enerji & Kaos | `double-pendulum` / `domino-chain` | `electric-motor` / `tuned-mass-damper` |
 
 ---
 

@@ -1,0 +1,43 @@
+name: Weekly YouTube Analytics Report
+
+on:
+  schedule:
+    # Her Pazar 18:00 UTC (TR 21:00) haftalık izlenme/beğeni/yorum raporu
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  analytics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Repo indir
+        uses: actions/checkout@v4
+
+      - name: Node.js 22 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bağımlılıklar
+        run: npm ci --ignore-scripts
+
+      - name: YouTube analitiklerini çek
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: npm run analytics
+
+      - name: state/analytics.json kaydet
+        run: |
+          if ! git diff --quiet state/analytics.json || [ -n "$(git ls-files --others --exclude-standard state/analytics.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state/analytics.json
+            git commit -m "chore(analytics): haftalik YouTube performans raporu guncellendi"
+            git pull --rebase origin main
+            git push origin main
+          fi

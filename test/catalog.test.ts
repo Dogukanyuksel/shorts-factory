@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, getEngagementKit, pickJobByKey, pickNextJob } from "../src/catalog.js";
 import { buildInstagramCaption, tallyABVotes } from "../src/instagram.js";
+import { parseFfmpegProbe } from "../src/qc.js";
 import { buildYouTubeVideoPayload } from "../src/youtube.js";
 
 test("pickNextJob (physics): ardışık iki video asla aynı simülasyon mekaniğini tekrarlamaz ve tüm sahneler mevcuttur", () => {
@@ -95,4 +96,24 @@ test("tallyABVotes & pickJobByKey: yorumlardaki A/B oylarını doğru sayar ve k
 
   const pickedExp = pickJobByKey("explainer", "jet-engine", new Set());
   assert.ok(pickedExp && pickedExp.channel === "explainer" && pickedExp.episode === "jet-engine");
+});
+
+test("parseFfmpegProbe (QC Gate) ve teknik birim doğruluğu kontrolü", () => {
+  const sampleStderr = `
+    Duration: 00:00:32.04, start: 0.000000, bitrate: 3450 kb/s
+    Stream #0:0: Video: h264 (Main), yuv420p, 1080x1920 [SAR 1:1 DAR 9:16], 60 fps
+    Stream #0:1: Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s
+  `;
+  const parsed = parseFfmpegProbe(sampleStderr);
+  assert.equal(parsed.width, 1080);
+  assert.equal(parsed.height, 1920);
+  assert.equal(parsed.hasH264Video, true);
+  assert.equal(parsed.hasAacAudio, true);
+  assert.ok(parsed.durationSec > 31 && parsed.durationSec < 33);
+
+  // İngilizce metinlerde yanlış "km/s" (saniyede km) birim hatası olmamalı
+  for (const j of [...CURATED_PHYSICS_JOBS, ...EXPLAINER_JOBS]) {
+    const allText = `${j.title} ${j.description}`;
+    assert.ok(!/\b\d+\s*km\/s\b/i.test(allText), `Birim hatası (km/s yerine km/h olmalı): ${j.id}`);
+  }
 });

@@ -11,6 +11,7 @@ import {
   type ChannelId,
   type PublishJob,
 } from "./catalog.js";
+export type { ChannelId };
 import {
   buildInstagramCaption,
   fetchInstagramComments,
@@ -18,6 +19,7 @@ import {
   tallyABVotes,
   uploadReelToInstagram,
 } from "./instagram.js";
+import { runVideoQc } from "./qc.js";
 import { fetchYouTubeComments, uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
 
 export type PublishedRecord = {
@@ -232,6 +234,15 @@ async function main() {
   if (!existsSync(mp4Path)) {
     throw new Error(`Render sonrası MP4 bulunamadı: ${mp4Path}`);
   }
+
+  console.log("[qc] Yayın öncesi kalite kontrolü çalışıyor...");
+  const qc = await runVideoQc(mp4Path);
+  if (!qc.ok) {
+    throw new Error(`QC Gate REDDETTİ (yayın durduruldu): ${qc.errors.join(" | ")}`);
+  }
+  console.log(
+    `✅ [qc] GEÇTİ: ${qc.width}x${qc.height}, ${qc.durationSec.toFixed(1)}s, ${(qc.fileSizeBytes / 1024 / 1024).toFixed(1)} MB, H.264+AAC`,
+  );
 
   if (dryRun) {
     console.log(`\n[auto-publish] DRY-RUN tamamlandı (YouTube'a yüklenmedi).`);
