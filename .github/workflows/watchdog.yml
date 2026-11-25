@@ -1,0 +1,52 @@
+name: Publish Watchdog (Video Saatleri Hata Kontrolü)
+
+on:
+  schedule:
+    # Video saatlerinden ~18 dk sonra kontrol et (Physics :07 -> :25, Explainer :37 -> :55)
+    - cron: "25,55 11,17,23 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: publish-watchdog
+  cancel-in-progress: true
+
+jobs:
+  check-recent-runs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Son Physics ve Explainer çalışmalarını denetle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+        run: |
+          FAILED_LINES=""
+          for WF in auto-publish-physics.yml auto-publish-explainer.yml; do
+            ROW=$(gh run list -R "$REPO" --workflow="$WF" --limit 1 --json databaseId,conclusion,status,url,createdAt --jq '.[0] | "\(.status)|\(.conclusion)|\(.createdAt)|\(.url)"')
+            STATUS=$(echo "$ROW" | cut -d'|' -f1)
+            CONC=$(echo "$ROW" | cut -d'|' -f2)
+            CREATED=$(echo "$ROW" | cut -d'|' -f3)
+            URL=$(echo "$ROW" | cut -d'|' -f4)
+            echo "[watchdog] $WF -> status=$STATUS conclusion=$CONC created=$CREATED"
+            if [ "$STATUS" = "completed" ] && [ "$CONC" != "success" ] && [ "$CONC" != "skipped" ]; then
+              FAILED_LINES="${FAILED_LINES}\n• <b>${WF}</b> (${CONC}) — ${URL}"
+            fi
+          done
+
+          if [ -n "$FAILED_LINES" ]; then
+            echo "::warning::Başarısız yayın tespit edildi!"
+            if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+              MSG="🚨 <b>Shorts Factory Watchdog Uyarısı</b>\nSon video saatinde hata tespit edildi:${FAILED_LINES}"
+              curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -H "Content-Type: application/json" \
+                -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$MSG" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" || true
+            fi
+          else
+            echo "✅ [watchdog] Tüm son yayınlar sağlıklı."
+          fi

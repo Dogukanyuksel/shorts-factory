@@ -33,6 +33,9 @@ function main() {
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
       runGit(["fetch", "origin", "main"]);
+      // --mixed: HEAD + index'i origin/main'e hizalar, boylece eski commit'ten kalan
+      // hicbir alakasiz dosya (or. .github/workflows/*) asla stage edilmez.
+      runGit(["reset", "--mixed", "origin/main"]);
       if (isPublishedJson) {
         let remotePublished: MinimalPublishedRecord[] = [];
         try {
@@ -45,10 +48,11 @@ function main() {
         const localParsed = JSON.parse(localContent) as { published?: MinimalPublishedRecord[] };
         const merged = mergePublishedRecords(remotePublished, localParsed.published || []);
         writeFileSync(abs, `${JSON.stringify({ published: merged }, null, 2)}\n`, "utf8");
+      } else {
+        writeFileSync(abs, localContent, "utf8");
       }
 
-      runGit(["reset", "--soft", "origin/main"]);
-      runGit(["add", filePath]);
+      runGit(["add", "--", filePath]);
       const staged = runGit(["diff", "--cached", "--name-only"]);
       if (!staged) {
         console.log(`[safe-git-push] Uzakla zaten eşit: ${filePath}`);
