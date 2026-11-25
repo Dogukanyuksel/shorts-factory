@@ -1,0 +1,350 @@
+<!doctype html>
+<!-- How It Actually Works — Why Rocket Nozzles Are Bell-Shaped -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: 'Why is every rocket engine shaped like a giant metal bell?', caption: 'WHY A BELL?' },
+  { id: 'chamber', text: 'Inside the combustion chamber, burning fuel creates extreme pressure and blistering heat.', caption: 'EXTREME PRESSURE' },
+  { id: 'throat', text: 'The gas squeezes through a narrow throat, accelerating until it hits Mach 1 — the speed of sound.', caption: 'THROAT: MACH 1' },
+  { id: 'bell', text: 'Once supersonic, physics flips: widening the bell makes the exhaust expand and go even faster.', caption: 'SUPERSONIC EXPANSION' },
+  { id: 'plume', text: 'Exhaust blasts downward at Mach 5, forming glowing shock diamonds in the fiery plume.', caption: 'MACH 5 EXHAUST!' },
+  { id: 'outro', text: 'That sculpted bell turns raw explosion into focused thrust that launches rockets to orbit.', caption: 'LIFTOFF THRUST!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('chamber').start + 0.25, type: 'bounce', pitchIndex: 2, intensity: 0.6 },
+    { t: byId('throat').start + 0.3, type: 'bounce', pitchIndex: 6, intensity: 0.75 },
+    { t: byId('bell').start + 0.25, type: 'break', pitchIndex: 8, intensity: 0.85 },
+    { t: byId('plume').start + 0.2, type: 'break', pitchIndex: 10, intensity: 0.9 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+// Nozzle half-width profile as function of normalized y (0 = chamber top, 1 = bell exit)
+function nozzleHalfW(u, S) {
+  if (u < 0.28) {
+    // Combustion chamber (wide cylinder)
+    return 118 * S;
+  } else if (u < 0.48) {
+    // Converging section to throat
+    const k = (u - 0.28) / 0.20;
+    const ease = k * k * (3 - 2 * k);
+    return lerp(118, 44, ease) * S;
+  } else {
+    // Diverging parabolic bell
+    const k = (u - 0.48) / 0.52;
+    const bell = Math.pow(k, 0.72);
+    return lerp(44, 178, bell) * S;
+  }
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const pChamber = smooth(byId('chamber').start, byId('chamber').start + 0.7, t);
+  const pThroat = smooth(byId('throat').start, byId('throat').start + 0.7, t);
+  const pBell = smooth(byId('bell').start, byId('bell').start + 0.7, t);
+  const pPlume = smooth(byId('plume').start, byId('plume').start + 0.6, t);
+  const pOutro = smooth(byId('outro').start, byId('outro').end, t);
+
+  // Blueprint dark radial background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.68);
+  bg.addColorStop(0, '#102342'); bg.addColorStop(0.55, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // Subtle vibration during full thrust + liftoff rise on outro
+  const shakeX = pPlume * Math.sin(t * 72) * 2.5 * S;
+  const shakeY = pPlume * Math.cos(t * 85) * 2.0 * S;
+  const liftY = pOutro * 55 * S;
+
+  const cx = W * 0.5 + shakeX;
+  const topY = H * 0.20 - liftY + shakeY;
+  const nozH = 445 * S;
+  const botY = topY + nozH;
+  const throatY = topY + nozH * 0.48;
+
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(W * 0.5, H * 0.5); ctx.scale(zoom, zoom); ctx.translate(-W * 0.5, -H * 0.5);
+
+  // 1) Supersonic exhaust plume below bell exit
+  const plumeStrength = 0.25 + 0.75 * Math.max(pBell * 0.6, pPlume);
+  const plumeLen = (180 + 230 * plumeStrength + Math.sin(t * 40) * 14) * S;
+  ctx.save();
+  const outerG = ctx.createLinearGradient(cx, botY, cx, botY + plumeLen);
+  outerG.addColorStop(0, `rgba(251,146,60,${(0.75 * plumeStrength).toFixed(2)})`);
+  outerG.addColorStop(0.35, `rgba(239,68,68,${(0.55 * plumeStrength).toFixed(2)})`);
+  outerG.addColorStop(0.75, `rgba(168,85,247,${(0.25 * plumeStrength).toFixed(2)})`);
+  outerG.addColorStop(1, 'rgba(56,189,248,0)');
+  ctx.fillStyle = outerG;
+  ctx.beginPath();
+  ctx.moveTo(cx - 165 * S, botY);
+  ctx.quadraticCurveTo(cx - 145 * S, botY + plumeLen * 0.5, cx, botY + plumeLen);
+  ctx.quadraticCurveTo(cx + 145 * S, botY + plumeLen * 0.5, cx + 165 * S, botY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner hot core
+  const coreG = ctx.createLinearGradient(cx, botY, cx, botY + plumeLen * 0.8);
+  coreG.addColorStop(0, `rgba(254,249,195,${(0.95 * plumeStrength).toFixed(2)})`);
+  coreG.addColorStop(0.4, `rgba(56,189,248,${(0.55 * pPlume).toFixed(2)})`);
+  coreG.addColorStop(1, 'rgba(56,189,248,0)');
+  ctx.fillStyle = coreG;
+  ctx.beginPath();
+  ctx.moveTo(cx - 95 * S, botY);
+  ctx.quadraticCurveTo(cx - 65 * S, botY + plumeLen * 0.4, cx, botY + plumeLen * 0.82);
+  ctx.quadraticCurveTo(cx + 65 * S, botY + plumeLen * 0.4, cx + 95 * S, botY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Mach shock diamonds (visible when supersonic plume kicks in)
+  if (pPlume > 0.05) {
+    ctx.globalAlpha = pPlume * 0.9;
+    for (let d = 0; d < 4; d++) {
+      const dy = botY + (52 + d * 68) * S + Math.sin(t * 28 + d) * 3 * S;
+      const dw = (54 - d * 9) * S;
+      const dh = (28 - d * 3) * S;
+      const dg = ctx.createRadialGradient(cx, dy, 2 * S, cx, dy, dw);
+      dg.addColorStop(0, '#ffffff');
+      dg.addColorStop(0.4, '#fef08a');
+      dg.addColorStop(0.8, 'rgba(56,189,248,0.5)');
+      dg.addColorStop(1, 'rgba(56,189,248,0)');
+      ctx.fillStyle = dg;
+      ctx.beginPath();
+      ctx.moveTo(cx, dy - dh);
+      ctx.lineTo(cx + dw, dy);
+      ctx.lineTo(cx, dy + dh);
+      ctx.lineTo(cx - dw, dy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+
+  // 2) Interior cavity hot gas gradient
+  ctx.save();
+  ctx.beginPath();
+  const steps = 48;
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps;
+    const x = cx - nozzleHalfW(u, S);
+    const y = topY + u * nozH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  for (let i = steps; i >= 0; i--) {
+    const u = i / steps;
+    const x = cx + nozzleHalfW(u, S);
+    const y = topY + u * nozH;
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  const gasG = ctx.createLinearGradient(cx, topY, cx, botY);
+  gasG.addColorStop(0, `rgba(239,68,68,${(0.45 + pChamber * 0.45).toFixed(2)})`);
+  gasG.addColorStop(0.32, `rgba(249,115,22,${(0.55 + pChamber * 0.4).toFixed(2)})`);
+  gasG.addColorStop(0.48, `rgba(254,240,138,${(0.65 + pThroat * 0.35).toFixed(2)})`);
+  gasG.addColorStop(0.75, `rgba(251,146,60,${(0.45 + pBell * 0.4).toFixed(2)})`);
+  gasG.addColorStop(1, `rgba(56,189,248,${(0.25 + pPlume * 0.45).toFixed(2)})`);
+  ctx.fillStyle = gasG;
+  ctx.fill();
+
+  // Clip to nozzle interior for flowing gas streamlines & particles
+  ctx.clip();
+
+  // Gas flow particles accelerating dramatically after throat (u > 0.48)
+  const numParticles = 54;
+  for (let i = 0; i < numParticles; i++) {
+    const seed = (i * 0.6180339887) % 1;
+    const lane = ((i % 9) - 4) / 4.6; // -0.87 .. +0.87
+    // Non-linear vertical progress: slow in chamber, rockets after throat
+    const speed = 0.45 + 0.35 * pChamber + 0.45 * pBell;
+    const raw = (t * speed + seed) % 1;
+    // Map raw [0..1] so particles spend more time in chamber and zip through bell
+    const u = raw < 0.55 ? (raw / 0.55) * 0.48 : 0.48 + Math.pow((raw - 0.55) / 0.45, 0.65) * 0.55;
+    const hw = nozzleHalfW(clamp(u, 0, 1), S) * 0.86;
+    const px = cx + lane * hw + (u < 0.3 ? Math.sin(t * 14 + i * 2.1) * 5 * S : 0);
+    const py = topY + u * nozH;
+    const streakLen = u < 0.42 ? 10 * S : lerp(14, 52, clamp((u - 0.42) / 0.58, 0, 1)) * S;
+    ctx.strokeStyle = u < 0.44 ? '#fde047' : (u < 0.55 ? '#ffffff' : '#38bdf8');
+    ctx.globalAlpha = 0.75;
+    ctx.lineWidth = (u < 0.45 ? 3.5 : 4.2) * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(px, py - streakLen * 0.5);
+    ctx.lineTo(px, py + streakLen * 0.5);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Mach 1 glowing choke line at throat
+  if (pThroat > 0.05) {
+    ctx.strokeStyle = `rgba(255,255,255,${(0.75 * pThroat).toFixed(2)})`;
+    ctx.lineWidth = 4 * S;
+    ctx.setLineDash([8 * S, 6 * S]);
+    ctx.beginPath();
+    ctx.moveTo(cx - 46 * S, throatY);
+    ctx.lineTo(cx + 46 * S, throatY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+
+  // 3) Metallic rocket engine cutaway walls (left and right thick walls with cooling channels)
+  const wallT = 22 * S;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps;
+      const x = cx + side * nozzleHalfW(u, S);
+      const y = topY + u * nozH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    for (let i = steps; i >= 0; i--) {
+      const u = i / steps;
+      const x = cx + side * (nozzleHalfW(u, S) + wallT);
+      const y = topY + u * nozH;
+      ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    const wg = ctx.createLinearGradient(cx + side * 40 * S, topY, cx + side * 200 * S, botY);
+    wg.addColorStop(0, '#cbd5e1'); wg.addColorStop(0.5, '#64748b'); wg.addColorStop(1, '#334155');
+    ctx.fillStyle = wg;
+    ctx.fill();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 3 * S;
+    ctx.stroke();
+
+    // Regenerative cooling rib dots along the cutaway wall
+    ctx.fillStyle = '#0f172a';
+    for (let r = 1; r < 14; r++) {
+      const u = r / 14;
+      const rx = cx + side * (nozzleHalfW(u, S) + wallT * 0.5);
+      const ry = topY + u * nozH;
+      ctx.beginPath(); ctx.arc(rx, ry, 3.2 * S, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Top injector plate cap
+  ctx.fillStyle = '#475569';
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.roundRect(cx - (118 + 22) * S, topY - 26 * S, (118 + 22) * 2 * S, 28 * S, 6 * S);
+  ctx.fill(); ctx.stroke();
+
+  // Fuel & Oxidizer injector ports
+  for (const ix of [-65 * S, 0, 65 * S]) {
+    ctx.fillStyle = ix === 0 ? '#38bdf8' : '#fb923c';
+    ctx.beginPath();
+    ctx.roundRect(cx + ix - 14 * S, topY - 48 * S, 28 * S, 24 * S, 4 * S);
+    ctx.fill();
+  }
+
+  // 4) Callout labels & Mach telemetry badges
+  ctx.textAlign = 'left';
+  ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+
+  if (pChamber > 0.05) {
+    ctx.globalAlpha = pChamber;
+    const yC = topY + nozH * 0.14;
+    ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 2.5 * S;
+    ctx.beginPath(); ctx.moveTo(cx + 142 * S, yC); ctx.lineTo(cx + 185 * S, yC); ctx.stroke();
+    ctx.fillStyle = '#fb923c';
+    ctx.fillText('CHAMBER', cx + 192 * S, yC - 4 * S);
+    ctx.font = `700 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText('SUBSONIC', cx + 192 * S, yC + 16 * S);
+    ctx.fillText('300 BAR', cx + 192 * S, yC + 35 * S);
+  }
+
+  if (pThroat > 0.05) {
+    ctx.globalAlpha = pThroat;
+    ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+    ctx.strokeStyle = '#fef08a'; ctx.lineWidth = 2.5 * S;
+    ctx.beginPath(); ctx.moveTo(cx + 68 * S, throatY); ctx.lineTo(cx + 185 * S, throatY); ctx.stroke();
+    ctx.fillStyle = '#fef08a';
+    ctx.fillText('THROAT', cx + 192 * S, throatY - 4 * S);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('MACH 1.0', cx + 192 * S, throatY + 19 * S);
+  }
+
+  if (pBell > 0.05) {
+    ctx.globalAlpha = pBell;
+    const yB = topY + nozH * 0.78;
+    ctx.textAlign = 'right';
+    ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5 * S;
+    ctx.beginPath(); ctx.moveTo(cx - 158 * S, yB); ctx.lineTo(cx - 195 * S, yB); ctx.stroke();
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('BELL', cx - 202 * S, yB - 4 * S);
+    ctx.fillStyle = '#bae6fd';
+    ctx.fillText('MACH 5+', cx - 202 * S, yB + 19 * S);
+  }
+
+  // Upward Thrust Arrows on Outro
+  if (pOutro > 0.05) {
+    ctx.globalAlpha = Math.min(1, pOutro * 2.5);
+    const arrowH = (75 + 18 * Math.sin(t * 7)) * S;
+    for (const ox of [-185 * S, 185 * S]) {
+      ctx.strokeStyle = '#4ade80'; ctx.fillStyle = '#4ade80';
+      ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 14 * S;
+      ctx.lineWidth = 7 * S; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx + ox, topY + 90 * S); ctx.lineTo(cx + ox, topY + 90 * S - arrowH); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx + ox, topY + 72 * S - arrowH);
+      ctx.lineTo(cx + ox - 13 * S, topY + 96 * S - arrowH);
+      ctx.lineTo(cx + ox + 13 * S, topY + 96 * S - arrowH);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(28 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('↑ MASSIVE THRUST', cx, topY - 62 * S);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // Top Title + Animated Bottom Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(30 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('WHY ROCKET NOZZLES ARE BELL-SHAPED', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'plume' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

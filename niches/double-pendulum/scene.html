@@ -1,0 +1,275 @@
+<!doctype html>
+<!-- Double Pendulum Chaos: Two pendulums 0.001 rad apart (Cyan vs Magenta) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = '0.001 RAD APART... WATCH CHAOS!';
+let rng = 1, simTime = 0, events = [];
+let pA = null, pB = null, trailA = [], trailB = [];
+let divergeTriggered = false, finaleTriggered = false, maxDiv = 0;
+let lastBounceA = -1, lastBounceB = -1, prevSignA = 1, prevSignB = 1;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+const G = 9.81, L1 = 1.0, L2 = 1.0, M1 = 1.0, M2 = 1.0;
+
+function deriv(s) {
+  const [a1, a2, w1, w2] = s;
+  const d = a1 - a2;
+  const sinD = Math.sin(d), cosD = Math.cos(d);
+  const den = 2 * M1 + M2 - M2 * Math.cos(2 * d);
+  const dw1 = (-G * (2 * M1 + M2) * Math.sin(a1)
+    - M2 * G * Math.sin(a1 - 2 * a2)
+    - 2 * sinD * M2 * (w2 * w2 * L2 + w1 * w1 * L1 * cosD)) / (L1 * den);
+  const dw2 = (2 * sinD * (w1 * w1 * L1 * (M1 + M2)
+    + G * (M1 + M2) * Math.cos(a1)
+    + w2 * w2 * L2 * M2 * cosD)) / (L2 * den);
+  return [w1, w2, dw1, dw2];
+}
+
+function rk4(s, dt) {
+  const k1 = deriv(s);
+  const s2 = s.map((v, i) => v + 0.5 * dt * k1[i]);
+  const k2 = deriv(s2);
+  const s3 = s.map((v, i) => v + 0.5 * dt * k2[i]);
+  const k3 = deriv(s3);
+  const s4 = s.map((v, i) => v + dt * k3[i]);
+  const k4 = deriv(s4);
+  return s.map((v, i) => v + (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]));
+}
+
+function tipPos(s, cx, py, arm) {
+  const x1 = cx + Math.sin(s[0]) * arm;
+  const y1 = py + Math.cos(s[0]) * arm;
+  const x2 = x1 + Math.sin(s[1]) * arm;
+  const y2 = y1 + Math.cos(s[1]) * arm;
+  return { x1, y1, x2, y2 };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 32;
+  HOOK = cfg.hook || '0.001 RAD APART... WATCH CHAOS!';
+  cv.width = W; cv.height = H;
+  rng = ((cfg.seed || 1) * 2654435761 + 17) >>> 0;
+  // High-energy initial angles guaranteed to exhibit dramatic chaos divergence
+  const th1 = Math.PI * (0.76 + rand() * 0.16);
+  const th2 = Math.PI * (0.68 + rand() * 0.24);
+  pA = [th1, th2, 0, 0];
+  pB = [th1 + 0.001, th2, 0, 0];
+  trailA = []; trailB = [];
+  events = []; simTime = 0;
+  divergeTriggered = false; finaleTriggered = false; maxDiv = 0;
+  lastBounceA = -1; lastBounceB = -1;
+  prevSignA = Math.sin(th2) >= 0 ? 1 : -1;
+  prevSignB = prevSignA;
+};
+
+function step(dt) {
+  simTime += dt;
+  const finaleStart = DUR - 2.6;
+  const isFinale = simTime >= finaleStart;
+  // Slow-mo smoothly during finale reveal
+  const timeScale = isFinale ? 0.18 : 1.18;
+  const sub = 6;
+  const h = (dt * timeScale) / sub;
+  for (let i = 0; i < sub; i++) {
+    pA = rk4(pA, h);
+    pB = rk4(pB, h);
+  }
+
+  const S = W / 720, cx = W * 0.5, py = H * 0.43, arm = 152 * S;
+  const posA = tipPos(pA, cx, py, arm);
+  const posB = tipPos(pB, cx, py, arm);
+  trailA.push({ x: posA.x2, y: posA.y2 });
+  trailB.push({ x: posB.x2, y: posB.y2 });
+  if (trailA.length > 260) trailA.shift();
+  if (trailB.length > 260) trailB.shift();
+
+  const dAng = Math.abs(Math.atan2(Math.sin(pA[1] - pB[1]), Math.cos(pA[1] - pB[1])));
+  if (dAng > maxDiv) maxDiv = dAng;
+
+  if (!divergeTriggered && dAng > 0.45 && simTime > 2.0) {
+    divergeTriggered = true;
+    events.push({ t: simTime, type: 'break', pitchIndex: 9, intensity: 0.9 });
+  }
+
+  // Musical zero-crossing / swing pings
+  const sA = posA.x2 >= cx ? 1 : -1;
+  const sB = posB.x2 >= cx ? 1 : -1;
+  if (!isFinale && sA !== prevSignA) {
+    prevSignA = sA;
+    if (simTime - lastBounceA > 0.18) {
+      lastBounceA = simTime;
+      const spd = Math.min(1, Math.abs(pA[3]) / 12);
+      events.push({ t: simTime, type: 'bounce', pitchIndex: Math.floor(spd * 10) + 2, intensity: 0.42 + spd * 0.25 });
+    }
+  }
+  if (!isFinale && sB !== prevSignB) {
+    prevSignB = sB;
+    if (simTime - lastBounceB > 0.18 && dAng > 0.12) {
+      lastBounceB = simTime;
+      const spd = Math.min(1, Math.abs(pB[3]) / 12);
+      events.push({ t: simTime, type: 'bounce', pitchIndex: Math.floor(spd * 10) + 4, intensity: 0.42 + spd * 0.25 });
+    }
+  }
+
+  if (isFinale && !finaleTriggered) {
+    finaleTriggered = true;
+    events.push({ t: simTime, type: 'win', pitchIndex: 11, intensity: 1.0 });
+  }
+}
+
+function drawTrail(trail, colorRgb, S) {
+  if (trail.length < 2) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  const n = trail.length;
+  for (let i = 1; i < n; i++) {
+    const f = i / n;
+    ctx.strokeStyle = `rgba(${colorRgb},${(f * f * 0.85).toFixed(3)})`;
+    ctx.lineWidth = (1.5 + f * 5.5) * S;
+    ctx.beginPath();
+    ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+    ctx.lineTo(trail[i].x, trail[i].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawPendulum(pos, cx, py, col, S) {
+  ctx.save();
+  ctx.strokeStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 14 * S;
+  ctx.lineWidth = 4.5 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx, py);
+  ctx.lineTo(pos.x1, pos.y1);
+  ctx.lineTo(pos.x2, pos.y2);
+  ctx.stroke();
+
+  // Joint 1
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(pos.x1, pos.y1, 9 * S, 0, Math.PI * 2); ctx.fill();
+  // Tip bob
+  ctx.shadowBlur = 24 * S;
+  ctx.beginPath(); ctx.arc(pos.x2, pos.y2, 14 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(pos.x2 - 3 * S, pos.y2 - 3 * S, 4 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function draw() {
+  const S = W / 720, cx = W * 0.5, py = H * 0.43, arm = 152 * S;
+  const isFinale = simTime >= DUR - 2.6;
+
+  // Background with subtle radial vignette
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+  const grad = ctx.createRadialGradient(cx, py, 20 * S, cx, py, 390 * S);
+  grad.addColorStop(0, 'rgba(34,211,238,0.08)');
+  grad.addColorStop(0.55, 'rgba(244,114,182,0.04)');
+  grad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Outer range reference rings
+  ctx.save();
+  ctx.strokeStyle = 'rgba(148,163,184,0.12)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(cx, py, arm * 2, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([6 * S, 10 * S]);
+  ctx.beginPath(); ctx.arc(cx, py, arm, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+
+  // Trails
+  drawTrail(trailA, '34,211,238', S);
+  drawTrail(trailB, '244,114,182', S);
+
+  // Pendulums
+  const posA = tipPos(pA, cx, py, arm);
+  const posB = tipPos(pB, cx, py, arm);
+  drawPendulum(posA, cx, py, '#22d3ee', S);
+  drawPendulum(posB, cx, py, '#f472b6', S);
+
+  // Pivot hub
+  ctx.save();
+  ctx.fillStyle = '#e2e8f0'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 12 * S;
+  ctx.beginPath(); ctx.arc(cx, py, 8 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Top HOOK
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(36 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(HOOK, W * 0.5, H * 0.11);
+
+  // Legend pills
+  ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillText('● CYAN: θ₀', W * 0.30, H * 0.165);
+  ctx.fillStyle = '#f472b6';
+  ctx.fillText('● MAGENTA: θ₀ + 0.001 rad', W * 0.67, H * 0.165);
+
+  // Bottom divergence HUD
+  const dAng = Math.abs(Math.atan2(Math.sin(pA[1] - pB[1]), Math.cos(pA[1] - pB[1])));
+  const deg = (dAng * 180 / Math.PI).toFixed(1);
+  const ratio = Math.min(1, dAng / Math.PI);
+  const boxX = W * 0.10, boxY = H * 0.82, boxW = W * 0.80, boxH = 112 * S;
+  ctx.fillStyle = 'rgba(15,23,42,0.82)';
+  ctx.strokeStyle = divergeTriggered ? '#f472b6' : 'rgba(148,163,184,0.35)';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.roundRect(boxX, boxY, boxW, boxH, 20 * S); ctx.fill(); ctx.stroke();
+
+  ctx.textAlign = 'left';
+  ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('ANGULAR DIVERGENCE', boxX + 24 * S, boxY + 38 * S);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = divergeTriggered ? '#fde047' : '#22d3ee';
+  ctx.fillText(`${deg}°`, boxX + boxW - 24 * S, boxY + 38 * S);
+
+  // Meter bar
+  const barX = boxX + 24 * S, barY = boxY + 60 * S, barW = boxW - 48 * S, barH = 24 * S;
+  ctx.fillStyle = 'rgba(30,41,59,0.9)';
+  ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 12 * S); ctx.fill();
+  const barGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  barGrad.addColorStop(0, '#22d3ee');
+  barGrad.addColorStop(0.5, '#f472b6');
+  barGrad.addColorStop(1, '#facc15');
+  ctx.fillStyle = barGrad;
+  ctx.beginPath(); ctx.roundRect(barX, barY, Math.max(12 * S, barW * ratio), barH, 12 * S); ctx.fill();
+
+  // Finale banner
+  if (isFinale) {
+    ctx.fillStyle = 'rgba(2,6,18,0.88)';
+    ctx.beginPath(); ctx.roundRect(W * 0.08, H * 0.42, W * 0.84, 152 * S, 26 * S); ctx.fill();
+    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 5 * S; ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('CHAOS THEORY PROVEN! 🦋', W * 0.5, H * 0.482);
+    ctx.font = `700 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(`0.001 rad → ${(maxDiv * 180 / Math.PI).toFixed(0)}° TOTAL DIVERGENCE`, W * 0.5, H * 0.525);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (_startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    step(1 / FPS);
+    draw();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

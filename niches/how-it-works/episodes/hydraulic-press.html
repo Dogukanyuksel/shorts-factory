@@ -1,0 +1,286 @@
+<!doctype html>
+<!-- How It Actually Works — Hydraulic Press -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'How can one tiny push crush a solid steel block flat?', caption: 'CRUSH SOLID STEEL!' },
+  { id: 'pascal', text: 'Hydraulic presses use Pascal\'s law with sealed, incompressible hydraulic oil.', caption: 'PASCAL\'S LAW' },
+  { id: 'small', text: 'Push down on the narrow piston with just 10 pounds of force.', caption: '10 LBS INPUT' },
+  { id: 'pressure', text: 'Oil cannot compress, so that exact same pressure spreads equally everywhere.', caption: 'EQUAL PRESSURE' },
+  { id: 'multiply', text: 'Against a piston ten times wider, the force multiplies to 100 pounds — or 100 tons!', caption: '10X FORCE BOOST!' },
+  { id: 'outro', text: 'Small push in, monstrous crushing power out — pure fluid physics!', caption: 'PURE FLUID POWER!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('pascal').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.55 },
+    { t: byId('small').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.65 },
+    { t: byId('pressure').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.7 },
+    { t: byId('multiply').start + 0.2, type: 'break', pitchIndex: 9, intensity: 0.9 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const pPascal = smooth(byId('pascal').start, byId('pascal').start + 0.6, t);
+  const pSmall = smooth(byId('small').start, byId('small').end, t);
+  const pPress = smooth(byId('pressure').start, byId('pressure').start + 0.6, t);
+  const pMult = smooth(byId('multiply').start, byId('multiply').end, t);
+  const pOutro = smooth(byId('outro').start, byId('outro').end - 0.4, t);
+
+  // Blueprint background + grid
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.55;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Piston motion coupled by volume conservation
+  const stroke = clamp(pSmall * 0.45 + pMult * 0.4 + pOutro * 0.15, 0, 1);
+  const leftDrop = stroke * 120 * S;
+  const rightRise = stroke * 42 * S;
+
+  // Geometry of U-shaped hydraulic chamber
+  const lx1 = cx - 225 * S, lx2 = cx - 155 * S; // Narrow cylinder (width = 70*S)
+  const rx1 = cx + 15 * S, rx2 = cx + 225 * S;  // Wide cylinder (width = 210*S, 3x width -> ~9-10x area!)
+  const topLeftY = cy - 95 * S;
+  const topRightY = cy - 60 * S;
+  const pipeTopY = cy + 125 * S;
+  const pipeBotY = cy + 185 * S;
+
+  const leftPistonY = topLeftY + 25 * S + leftDrop;
+  const rightPistonY = topRightY + 95 * S - rightRise;
+
+  // Heavy top anvil frame above the wide piston
+  const anvilY = cy - 178 * S;
+  ctx.fillStyle = '#334155';
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 4 * S;
+  ctx.fillRect(rx1 - 22 * S, anvilY, (rx2 - rx1) + 44 * S, 36 * S);
+  ctx.strokeRect(rx1 - 22 * S, anvilY, (rx2 - rx1) + 44 * S, 36 * S);
+  // Vertical steel frame support pillars
+  ctx.fillRect(rx1 - 22 * S, anvilY + 36 * S, 18 * S, topRightY - (anvilY + 36 * S));
+  ctx.fillRect(rx2 + 4 * S, anvilY + 36 * S, 18 * S, topRightY - (anvilY + 36 * S));
+
+  // Hydraulic fluid (incompressible royal-blue oil) filling U-chamber
+  const oilG = ctx.createLinearGradient(0, cy - 60 * S, 0, pipeBotY);
+  oilG.addColorStop(0, pPress > 0.2 ? '#38bdf8' : '#0ea5e9');
+  oilG.addColorStop(1, '#0369a1');
+  ctx.fillStyle = oilG;
+  ctx.beginPath();
+  ctx.moveTo(lx1, leftPistonY);
+  ctx.lineTo(lx1, pipeBotY);
+  ctx.lineTo(rx2, pipeBotY);
+  ctx.lineTo(rx2, rightPistonY);
+  ctx.lineTo(rx1, rightPistonY);
+  ctx.lineTo(rx1, pipeTopY);
+  ctx.lineTo(lx2, pipeTopY);
+  ctx.lineTo(lx2, leftPistonY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Animated fluid pressure flow dots along the bottom connecting pipe
+  if (pSmall > 0.05 || pPress > 0.05) {
+    for (let i = 0; i < 8; i++) {
+      const u = ((t * 0.55 + i / 8) % 1);
+      const fx = lx1 + 35 * S + u * (rx1 + 105 * S - (lx1 + 35 * S));
+      const fy = (pipeTopY + pipeBotY) * 0.5 + Math.sin(u * 12 + t * 5) * 6 * S;
+      ctx.fillStyle = 'rgba(224,242,254,0.85)';
+      ctx.beginPath(); ctx.arc(fx, fy, 4.5 * S, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Equal pressure arrows inside the oil when 'pressure' activates
+  if (pPress > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pPress;
+    ctx.fillStyle = '#fef08a';
+    ctx.font = `900 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('P = 10 PSI', (lx2 + rx1) * 0.5, (pipeTopY + pipeBotY) * 0.5 + 6 * S);
+    // Upward equal pressure arrows pushing under the wide piston
+    for (let k = 0; k < 5; k++) {
+      const ax = rx1 + (26 + k * 39) * S;
+      const ay = rightPistonY + 42 * S;
+      const bob = Math.sin(t * 7 + k) * 4 * S;
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = 3.5 * S;
+      ctx.beginPath(); ctx.moveTo(ax, ay + 16 * S); ctx.lineTo(ax, ay - 12 * S + bob); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ax, ay - 22 * S + bob);
+      ctx.lineTo(ax - 7 * S, ay - 9 * S + bob);
+      ctx.lineTo(ax + 7 * S, ay - 9 * S + bob);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Steel cylinder walls (U-shaped heavy casing)
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 8 * S;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(lx1, topLeftY);
+  ctx.lineTo(lx1, pipeBotY);
+  ctx.lineTo(rx2, pipeBotY);
+  ctx.lineTo(rx2, topRightY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(lx2, topLeftY);
+  ctx.lineTo(lx2, pipeTopY);
+  ctx.lineTo(rx1, pipeTopY);
+  ctx.lineTo(rx1, topRightY);
+  ctx.stroke();
+
+  // Small Left Piston head + rod
+  const lMid = (lx1 + lx2) * 0.5;
+  ctx.fillStyle = '#94a3b8';
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 3 * S;
+  ctx.fillRect(lx1 + 4 * S, leftPistonY - 22 * S, (lx2 - lx1) - 8 * S, 22 * S);
+  ctx.strokeRect(lx1 + 4 * S, leftPistonY - 22 * S, (lx2 - lx1) - 8 * S, 22 * S);
+  ctx.fillRect(lMid - 10 * S, leftPistonY - 120 * S, 20 * S, 98 * S);
+
+  // Wide Right Piston head + platform
+  const rMid = (rx1 + rx2) * 0.5;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillRect(rx1 + 4 * S, rightPistonY - 26 * S, (rx2 - rx1) - 8 * S, 26 * S);
+  ctx.strokeRect(rx1 + 4 * S, rightPistonY - 26 * S, (rx2 - rx1) - 8 * S, 26 * S);
+  ctx.fillRect(rMid - 22 * S, rightPistonY - 96 * S, 44 * S, 70 * S);
+  // Press platen
+  const platenY = rightPistonY - 110 * S;
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(rx1 + 14 * S, platenY, (rx2 - rx1) - 28 * S, 16 * S);
+  ctx.strokeRect(rx1 + 14 * S, platenY, (rx2 - rx1) - 28 * S, 16 * S);
+
+  // Steel block being crushed between platen and top anvil
+  const crush = clamp((pMult * 0.65 + pOutro * 0.35), 0, 1);
+  const blockH = Math.max(20 * S, (platenY - (anvilY + 36 * S)));
+  const blockW = (92 + crush * 54) * S;
+  const blockG = ctx.createLinearGradient(rMid - blockW * 0.5, anvilY + 36 * S, rMid + blockW * 0.5, platenY);
+  blockG.addColorStop(0, crush > 0.3 ? '#fb923c' : '#cbd5e1');
+  blockG.addColorStop(0.5, crush > 0.3 ? '#ef4444' : '#64748b');
+  blockG.addColorStop(1, crush > 0.3 ? '#b91c1c' : '#334155');
+  ctx.fillStyle = blockG;
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 3 * S;
+  ctx.fillRect(rMid - blockW * 0.5, anvilY + 36 * S, blockW, blockH);
+  ctx.strokeRect(rMid - blockW * 0.5, anvilY + 36 * S, blockW, blockH);
+
+  // Crushing sparks when block flattens
+  if (crush > 0.25) {
+    for (let s = 0; s < 8; s++) {
+      const side = s % 2 === 0 ? -1 : 1;
+      const su = (t * 2.5 + s * 0.21) % 1;
+      const sx = rMid + side * (blockW * 0.5 + su * 42 * S);
+      const sy = anvilY + 36 * S + blockH * 0.5 + (Math.sin(s * 2.3) * 18 - su * 20) * S;
+      ctx.fillStyle = `rgba(254,240,138,${(1 - su).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, 3.5 * S, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Analog Pressure Gauge on connecting pipe
+  const gx = (lx2 + rx1) * 0.5, gy = pipeTopY - 46 * S;
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 5 * S;
+  ctx.beginPath(); ctx.moveTo(gx, pipeTopY); ctx.lineTo(gx, gy + 26 * S); ctx.stroke();
+  ctx.fillStyle = '#0f172a';
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.arc(gx, gy, 30 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  const needleA = -Math.PI * 0.8 + (pSmall * 0.45 + pPress * 0.35 + pMult * 0.55) * Math.PI * 1.1;
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + Math.cos(needleA) * 21 * S, gy + Math.sin(needleA) * 21 * S); ctx.stroke();
+
+  // Small Input Force Arrow (amber)
+  if (pSmall > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = clamp(pSmall * 2, 0, 1);
+    const ay = leftPistonY - 195 * S;
+    ctx.strokeStyle = '#fb923c'; ctx.fillStyle = '#fb923c';
+    ctx.lineWidth = 6 * S;
+    ctx.beginPath(); ctx.moveTo(lMid, ay); ctx.lineTo(lMid, ay + 54 * S); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(lMid, ay + 70 * S);
+    ctx.lineTo(lMid - 12 * S, ay + 48 * S);
+    ctx.lineTo(lMid + 12 * S, ay + 48 * S);
+    ctx.closePath(); ctx.fill();
+    ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('F₁ = 10 LBS', lMid, ay - 14 * S);
+    ctx.restore();
+  }
+
+  // Massive Output Force Arrow (green)
+  if (pMult > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = clamp(pMult * 2, 0, 1);
+    ctx.fillStyle = '#4ade80';
+    ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 14 * S;
+    ctx.font = `900 ${Math.round(28 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('↑ F₂ = 100 LBS (10X!)', rMid, anvilY - 22 * S);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  // Formula footer inside diagram
+  if (pPascal > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pPascal;
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = `800 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('PASCAL\'S LAW:  F₂ = F₁ × (A₂ / A₁)', cx, pipeBotY + 46 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top title + animated bottom caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A HYDRAULIC PRESS WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'multiply' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

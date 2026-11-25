@@ -1,0 +1,323 @@
+<!doctype html>
+<!-- BFS vs A* Pathfinding Race: Blind Flood-Fill (Orange) vs Heuristic AI (Cyan) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = 'AI (A*) VS BLIND FLOOD (BFS)!';
+let rng = 1, simTime = 0, events = [];
+const COLS = 25, ROWS = 15;
+let grid = []; // 0 = wall, 1 = open
+let astar = null, bfs = null, winTriggered = false;
+let stepRate = 10, lastPingT = -1;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+function generateMaze() {
+  grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  const stack = [[1, 1]];
+  grid[1][1] = 1;
+  const dirs = [[2, 0], [-2, 0], [0, 2], [0, -2]];
+  while (stack.length) {
+    const [cx, cy] = stack[stack.length - 1];
+    const avail = [];
+    for (const [dx, dy] of dirs) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx > 0 && nx < COLS - 1 && ny > 0 && ny < ROWS - 1 && grid[ny][nx] === 0) {
+        avail.push([nx, ny, cx + dx / 2, cy + dy / 2]);
+      }
+    }
+    if (!avail.length) { stack.pop(); continue; }
+    const pick = avail[Math.floor(rand() * avail.length)];
+    grid[pick[3]][pick[2]] = 1;
+    grid[pick[1]][pick[0]] = 1;
+    stack.push([pick[0], pick[1]]);
+  }
+  // Add ~14% braid loops so A* has rich heuristic advantage over BFS
+  for (let y = 1; y < ROWS - 1; y++) {
+    for (let x = 1; x < COLS - 1; x++) {
+      if (grid[y][x] === 0 && ((x % 2 === 1 && y % 2 === 0) || (x % 2 === 0 && y % 2 === 1))) {
+        if (rand() < 0.14) grid[y][x] = 1;
+      }
+    }
+  }
+  grid[1][1] = 1;
+  grid[ROWS - 2][COLS - 2] = 1;
+}
+
+function key(x, y) { return y * COLS + x; }
+
+function solveBFS(sx, sy, gx, gy) {
+  const q = [[sx, sy]];
+  const parent = new Map();
+  const seen = new Set([key(sx, sy)]);
+  const visitedOrder = [];
+  const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  while (q.length) {
+    const [x, y] = q.shift();
+    visitedOrder.push([x, y]);
+    if (x === gx && y === gy) break;
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx, ny = y + dy;
+      const k = key(nx, ny);
+      if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && grid[ny][nx] === 1 && !seen.has(k)) {
+        seen.add(k);
+        parent.set(k, [x, y]);
+        q.push([nx, ny]);
+      }
+    }
+  }
+  const path = [];
+  let cur = [gx, gy];
+  while (cur) {
+    path.push(cur);
+    if (cur[0] === sx && cur[1] === sy) break;
+    cur = parent.get(key(cur[0], cur[1]));
+  }
+  path.reverse();
+  return { visitedOrder, path };
+}
+
+function solveAStar(sx, sy, gx, gy) {
+  const open = [[sx, sy, 0, Math.abs(gx - sx) + Math.abs(gy - sy)]];
+  const gScore = new Map([[key(sx, sy), 0]]);
+  const parent = new Map();
+  const closed = new Set();
+  const visitedOrder = [];
+  const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+
+  while (open.length) {
+    let bestIdx = 0;
+    for (let i = 1; i < open.length; i++) {
+      if (open[i][3] < open[bestIdx][3]) bestIdx = i;
+    }
+    const [x, y, g] = open.splice(bestIdx, 1)[0];
+    const k = key(x, y);
+    if (closed.has(k)) continue;
+    closed.add(k);
+    visitedOrder.push([x, y]);
+    if (x === gx && y === gy) break;
+
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx, ny = y + dy;
+      const nk = key(nx, ny);
+      if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS || grid[ny][nx] === 0 || closed.has(nk)) continue;
+      const ng = g + 1;
+      if (!gScore.has(nk) || ng < gScore.get(nk)) {
+        gScore.set(nk, ng);
+        parent.set(nk, [x, y]);
+        const h = (Math.abs(gx - nx) + Math.abs(gy - ny)) * 1.15;
+        open.push([nx, ny, ng, ng + h]);
+      }
+    }
+  }
+  const path = [];
+  let cur = [gx, gy];
+  while (cur) {
+    path.push(cur);
+    if (cur[0] === sx && cur[1] === sy) break;
+    cur = parent.get(key(cur[0], cur[1]));
+  }
+  path.reverse();
+  return { visitedOrder, path };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 32;
+  HOOK = cfg.hook || 'AI (A*) VS BLIND FLOOD (BFS)!';
+  cv.width = W; cv.height = H;
+  rng = ((cfg.seed || 1) * 1597334677 + 7) >>> 0;
+  generateMaze();
+  const sx = 1, sy = 1, gx = COLS - 2, gy = ROWS - 2;
+  const aRes = solveAStar(sx, sy, gx, gy);
+  const bRes = solveBFS(sx, sy, gx, gy);
+
+  astar = {
+    name: 'A* HEURISTIC AI',
+    col: '#22d3ee',
+    rgb: '34,211,238',
+    visited: aRes.visitedOrder,
+    path: aRes.path,
+    idx: 0,
+    pathProgress: 0,
+    done: false,
+    doneTime: 0,
+  };
+  bfs = {
+    name: 'BFS FLOOD-FILL',
+    col: '#fb923c',
+    rgb: '251,146,60',
+    visited: bRes.visitedOrder,
+    path: bRes.path,
+    idx: 0,
+    pathProgress: 0,
+    done: false,
+    doneTime: 0,
+  };
+  // Both explore at the EXACT same nodes/sec rate, paced so BFS finishes near DUR - 3.0s
+  const maxNodes = Math.max(astar.visited.length, bfs.visited.length);
+  stepRate = maxNodes / ((DUR - 3.2) * FPS);
+  events = []; simTime = 0; winTriggered = false; lastPingT = -1;
+};
+
+function step(dt) {
+  simTime += dt;
+  for (const r of [astar, bfs]) {
+    if (!r.done) {
+      const prev = Math.floor(r.idx);
+      r.idx = Math.min(r.visited.length - 1, r.idx + stepRate);
+      const cur = Math.floor(r.idx);
+      if (cur !== prev && simTime - lastPingT > 0.085) {
+        lastPingT = simTime;
+        const [cx, cy] = r.visited[cur];
+        const dist = Math.abs(COLS - 2 - cx) + Math.abs(ROWS - 2 - cy);
+        const maxD = COLS + ROWS;
+        const pitch = Math.max(0, Math.min(13, Math.floor((1 - dist / maxD) * 13)));
+        events.push({ t: simTime, type: 'bounce', pitchIndex: pitch, intensity: 0.36 });
+      }
+      if (cur >= r.visited.length - 1) {
+        r.done = true;
+        r.doneTime = simTime;
+        if (r === bfs) winTriggered = true;
+        events.push({
+          t: simTime,
+          type: r === astar ? 'break' : 'win',
+          pitchIndex: r === astar ? 10 : 12,
+          intensity: 0.95,
+        });
+      }
+    } else if (r.pathProgress < r.path.length) {
+      r.pathProgress = Math.min(r.path.length, r.pathProgress + 0.85);
+    }
+  }
+  if (!winTriggered && simTime >= DUR - 2.6) {
+    winTriggered = true;
+    events.push({ t: simTime, type: 'win', pitchIndex: 11, intensity: 1.0 });
+  }
+}
+
+function drawMazeCard(r, topY, S) {
+  const padX = 44 * S;
+  const cardW = W - padX * 2;
+  const cell = Math.floor((cardW - 24 * S) / COLS);
+  const mazeW = cell * COLS;
+  const mazeH = cell * ROWS;
+  const cardH = mazeH + 74 * S;
+  const mx = (W - mazeW) * 0.5;
+  const my = topY + 54 * S;
+
+  // Card frame
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.82)';
+  ctx.strokeStyle = r.done ? '#facc15' : `rgba(${r.rgb},0.45)`;
+  ctx.lineWidth = (r.done ? 4 : 2.5) * S;
+  ctx.beginPath(); ctx.roundRect(padX, topY, cardW, cardH, 22 * S); ctx.fill(); ctx.stroke();
+
+  // Header
+  ctx.textAlign = 'left';
+  ctx.font = `900 ${Math.round(23 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = r.done ? '#fde047' : r.col;
+  const badge = r.done ? (r === astar ? '  🏆 1ST PLACE!' : '  ✓ FINISHED') : '';
+  ctx.fillText(r.name + badge, padX + 20 * S, topY + 36 * S);
+
+  const curIdx = Math.floor(r.idx);
+  ctx.textAlign = 'right';
+  ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText(`NODES: ${curIdx + 1}`, padX + cardW - 20 * S, topY + 36 * S);
+
+  // Maze walls & corridors
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      ctx.fillStyle = grid[y][x] === 1 ? '#0b1124' : '#1e293b';
+      ctx.fillRect(mx + x * cell, my + y * cell, cell - 0.5, cell - 0.5);
+    }
+  }
+
+  // Explored cells
+  for (let i = 0; i <= curIdx; i++) {
+    const [vx, vy] = r.visited[i];
+    const age = (curIdx - i) / Math.max(1, curIdx);
+    const isFrontier = i > curIdx - 6 && !r.done;
+    ctx.fillStyle = isFrontier ? '#ffffff' : `rgba(${r.rgb},${(0.28 + (1 - age) * 0.45).toFixed(2)})`;
+    ctx.fillRect(mx + vx * cell + 1, my + vy * cell + 1, cell - 2, cell - 2);
+  }
+
+  // Optimal glowing gold path once solved
+  if (r.done && r.pathProgress > 1) {
+    ctx.save();
+    ctx.strokeStyle = '#facc15';
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 14 * S;
+    ctx.lineWidth = Math.max(4, cell * 0.42);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const limit = Math.floor(r.pathProgress);
+    for (let i = 0; i < limit; i++) {
+      const [px, py] = r.path[i];
+      const cx = mx + (px + 0.5) * cell;
+      const cy = my + (py + 0.5) * cell;
+      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Start (Green) and Goal (Gold pulsing) markers
+  ctx.fillStyle = '#4ade80';
+  ctx.beginPath(); ctx.arc(mx + 1.5 * cell, my + 1.5 * cell, cell * 0.38, 0, Math.PI * 2); ctx.fill();
+  const pulse = 0.36 + 0.08 * Math.sin(simTime * 7);
+  ctx.fillStyle = '#facc15';
+  ctx.shadowColor = '#facc15'; ctx.shadowBlur = 12 * S;
+  ctx.beginPath(); ctx.arc(mx + (COLS - 1.5) * cell, my + (ROWS - 1.5) * cell, cell * pulse, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function draw() {
+  const S = W / 720;
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(38 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(HOOK, W * 0.5, H * 0.095);
+  ctx.restore();
+
+  drawMazeCard(astar, H * 0.135, S);
+  drawMazeCard(bfs, H * 0.525, S);
+
+  // Finale winner banner
+  if (winTriggered || (astar.done && bfs.done)) {
+    const savedPct = Math.max(1, Math.round((1 - astar.visited.length / Math.max(1, bfs.visited.length)) * 100));
+    ctx.save();
+    ctx.fillStyle = 'rgba(2,6,18,0.88)';
+    ctx.beginPath(); ctx.roundRect(W * 0.08, H * 0.43, W * 0.84, 146 * S, 26 * S); ctx.fill();
+    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 5 * S; ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#22d3ee';
+    ctx.fillText('A* HEURISTIC WINS! 🏆', W * 0.5, H * 0.49);
+    ctx.font = `800 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`EXPLORED ${savedPct}% FEWER NODES THAN BFS`, W * 0.5, H * 0.528);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (_startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    step(1 / FPS);
+    draw();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

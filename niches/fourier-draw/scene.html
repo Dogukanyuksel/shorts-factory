@@ -1,0 +1,261 @@
+<!doctype html>
+<!-- Fourier Epicycles Art: Rotating harmonic circles tracing a glowing neon curve -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = 'CIRCLES DRAWING IMPOSSIBLE ART!';
+let rng = 1, simTime = 0, events = [];
+let epicycles = [], traced = [], sparks = [];
+let shapeName = 'COSMIC STAR', lastTick = -1, finaleTriggered = false;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+function sampleShape(kind, M) {
+  const pts = [];
+  for (let i = 0; i < M; i++) {
+    const t = (i / M) * Math.PI * 2;
+    let x = 0, y = 0;
+    if (kind === 0) {
+      // Neon Heart
+      x = 16 * Math.pow(Math.sin(t), 3) / 17.5;
+      y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 17.5;
+    } else if (kind === 1) {
+      // Cosmic 5-Point Star
+      const r = 0.62 + 0.34 * Math.cos(5 * t);
+      x = r * Math.cos(t - Math.PI * 0.5);
+      y = r * Math.sin(t - Math.PI * 0.5);
+    } else if (kind === 2) {
+      // Infinity Butterfly / Rose
+      const r = 0.55 + 0.40 * Math.cos(2 * t) + 0.14 * Math.sin(6 * t);
+      x = r * Math.cos(t);
+      y = r * Math.sin(t) * 0.92;
+    } else {
+      // Harmonic Lissajous Knot
+      x = 0.88 * Math.sin(3 * t + Math.PI * 0.25);
+      y = 0.88 * Math.sin(4 * t);
+    }
+    pts.push({ re: x, im: y });
+  }
+  return pts;
+}
+
+function computeDFT(pts) {
+  const N = pts.length;
+  const out = [];
+  for (let k = -24; k <= 24; k++) {
+    let re = 0, im = 0;
+    for (let n = 0; n < N; n++) {
+      const phi = (2 * Math.PI * k * n) / N;
+      const c = Math.cos(phi), s = Math.sin(phi);
+      re += pts[n].re * c + pts[n].im * s;
+      im += pts[n].im * c - pts[n].re * s;
+    }
+    re /= N; im /= N;
+    const amp = Math.hypot(re, im);
+    const phase = Math.atan2(im, re);
+    if (amp > 0.004) out.push({ freq: k, amp, phase });
+  }
+  out.sort((a, b) => b.amp - a.amp);
+  return out.slice(0, 28);
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 32;
+  HOOK = cfg.hook || 'CIRCLES DRAWING IMPOSSIBLE ART!';
+  cv.width = W; cv.height = H;
+  rng = ((cfg.seed || 1) * 1664525 + 1013904223) >>> 0;
+  const shapes = ['NEON HEART', 'COSMIC STAR', 'INFINITY ROSE', 'HARMONIC KNOT'];
+  const kind = Math.abs(cfg.seed || 1) % shapes.length;
+  shapeName = shapes[kind];
+
+  const samples = sampleShape(kind, 256);
+  epicycles = computeDFT(samples);
+  traced = []; sparks = [];
+  events = []; simTime = 0; lastTick = -1; finaleTriggered = false;
+};
+
+function evalEpicycles(angle, cx, cy, rad) {
+  let x = cx, y = cy;
+  const chain = [{ x, y, r: 0 }];
+  for (const ep of epicycles) {
+    const r = ep.amp * rad;
+    const a = ep.freq * angle + ep.phase;
+    const nx = x + r * Math.cos(a);
+    const ny = y + r * Math.sin(a);
+    chain.push({ cx: x, cy: y, x: nx, y: ny, r });
+    x = nx; y = ny;
+  }
+  return { tipX: x, tipY: y, chain };
+}
+
+function step(dt) {
+  simTime += dt;
+  const S = W / 720, cx = W * 0.5, cy = H * 0.47, rad = 255 * S;
+  const drawDur = DUR - 2.8;
+  const prog = Math.min(1, simTime / drawDur);
+  const angle = prog * Math.PI * 2;
+  const isFinale = simTime >= drawDur;
+
+  const res = evalEpicycles(angle, cx, cy, rad);
+  if (!isFinale) {
+    traced.push({ x: res.tipX, y: res.tipY, p: prog });
+    // Subtle trailing sparks from pen tip
+    if (rand() < 0.45) {
+      const a = rand() * Math.PI * 2;
+      const v = 18 + rand() * 55;
+      sparks.push({ x: res.tipX, y: res.tipY, vx: Math.cos(a) * v * S, vy: Math.sin(a) * v * S, life: 1.0 });
+    }
+    const tick = Math.floor(simTime / 0.22);
+    if (tick !== lastTick && simTime > 0.1) {
+      lastTick = tick;
+      const normY = Math.max(0, Math.min(1, 1 - (res.tipY - (cy - rad)) / (rad * 2)));
+      events.push({ t: simTime, type: 'bounce', pitchIndex: Math.floor(normY * 13), intensity: 0.36 });
+    }
+  } else if (!finaleTriggered) {
+    finaleTriggered = true;
+    // Close the curve cleanly
+    if (traced.length > 0) traced.push({ x: traced[0].x, y: traced[0].y, p: 1 });
+    events.push({ t: simTime, type: 'win', pitchIndex: 11, intensity: 1.0 });
+  }
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    sparks[i].x += sparks[i].vx * dt;
+    sparks[i].y += sparks[i].vy * dt;
+    sparks[i].life -= dt * 1.9;
+    if (sparks[i].life <= 0) sparks.splice(i, 1);
+  }
+}
+
+function draw() {
+  const S = W / 720, cx = W * 0.5, cy = H * 0.47, rad = 255 * S;
+  const drawDur = DUR - 2.8;
+  const prog = Math.min(1, simTime / drawDur);
+  const isFinale = simTime >= drawDur;
+  const res = evalEpicycles(prog * Math.PI * 2, cx, cy, rad);
+
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle ambient glow
+  const bg = ctx.createRadialGradient(cx, cy, 20 * S, cx, cy, 380 * S);
+  bg.addColorStop(0, isFinale ? 'rgba(250,204,21,0.14)' : 'rgba(34,211,238,0.08)');
+  bg.addColorStop(0.6, 'rgba(168,85,247,0.04)');
+  bg.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw epicycle circles and rotating vector arms (fade gently during finale)
+  const epiAlpha = isFinale ? Math.max(0.12, 1 - (simTime - drawDur) * 0.65) : 1.0;
+  ctx.save();
+  ctx.globalAlpha = epiAlpha;
+  for (let i = 1; i < res.chain.length; i++) {
+    const seg = res.chain[i];
+    if (seg.r > 2 * S) {
+      ctx.strokeStyle = 'rgba(56,189,248,0.22)';
+      ctx.lineWidth = 1.6 * S;
+      ctx.beginPath(); ctx.arc(seg.cx, seg.cy, seg.r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(226,232,240,0.52)';
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath(); ctx.moveTo(seg.cx, seg.cy); ctx.lineTo(seg.x, seg.y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Draw traced neon Fourier curve
+  if (traced.length > 1) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const pulse = isFinale ? (1 + 0.18 * Math.sin((simTime - drawDur) * 8)) : 1;
+    for (let i = 1; i < traced.length; i++) {
+      const p0 = traced[i - 1], p1 = traced[i];
+      const hue = isFinale ? (45 + p1.p * 165) % 360 : (185 + p1.p * 145) % 360;
+      ctx.strokeStyle = `hsl(${hue}, 98%, ${isFinale ? 65 : 60}%)`;
+      ctx.lineWidth = 6 * S * pulse;
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+    }
+    // Bright neon bloom pass on finale
+    if (isFinale) {
+      ctx.strokeStyle = 'rgba(253,224,71,0.45)';
+      ctx.shadowColor = '#facc15';
+      ctx.shadowBlur = 24 * S;
+      ctx.lineWidth = 9 * S;
+      ctx.beginPath();
+      traced.forEach((p, idx) => { if (idx === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Pen sparks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.fillStyle = '#fde047';
+    ctx.globalAlpha = Math.max(0, sp.life);
+    ctx.beginPath(); ctx.arc(sp.x, sp.y, 3 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Glowing pen tip
+  if (!isFinale) {
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = 22 * S;
+    ctx.beginPath(); ctx.arc(res.tipX, res.tipY, 8 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Top HOOK
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(37 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(HOOK, W * 0.5, H * 0.105);
+
+  // Bottom HUD
+  const boxX = W * 0.08, boxY = H * 0.82, boxW = W * 0.84, boxH = 104 * S;
+  ctx.fillStyle = 'rgba(15,23,42,0.84)';
+  ctx.strokeStyle = isFinale ? '#facc15' : 'rgba(56,189,248,0.4)';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.roundRect(boxX, boxY, boxW, boxH, 20 * S); ctx.fill(); ctx.stroke();
+
+  ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('EPICYCLES', W * 0.28, boxY + 34 * S);
+  ctx.fillText('COMPLETION', W * 0.72, boxY + 34 * S);
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillText(`${epicycles.length} CIRCLES`, W * 0.28, boxY + 76 * S);
+  ctx.fillStyle = isFinale ? '#fde047' : '#f472b6';
+  ctx.fillText(`${Math.round(prog * 100)}%`, W * 0.72, boxY + 76 * S);
+
+  if (isFinale) {
+    ctx.fillStyle = 'rgba(2,6,18,0.88)';
+    ctx.beginPath(); ctx.roundRect(W * 0.08, H * 0.42, W * 0.84, 144 * S, 26 * S); ctx.fill();
+    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 5 * S; ctx.stroke();
+    ctx.font = `900 ${Math.round(40 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('FOURIER MASTERPIECE! ✨', W * 0.5, H * 0.482);
+    ctx.font = `800 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(`${shapeName} · ${epicycles.length} HARMONIC CIRCLES`, W * 0.5, H * 0.522);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (_startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    step(1 / FPS);
+    draw();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

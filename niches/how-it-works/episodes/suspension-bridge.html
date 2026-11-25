@@ -1,0 +1,310 @@
+<!doctype html>
+<!-- How It Actually Works — Episode: How Suspension Bridges Hold Thousands of Tons -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+function drawArrow(x1, y1, x2, y2, color, lw, head) {
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = lw; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - head * Math.cos(ang - 0.5), y2 - head * Math.sin(ang - 0.5));
+  ctx.lineTo(x2 - head * Math.cos(ang + 0.5), y2 - head * Math.sin(ang + 0.5));
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a thin steel bridge hold thousands of tons of traffic?', caption: 'THOUSANDS OF TONS?' },
+  { id: 'deck', text: 'Every car and truck pushes downward on the roadway deck, creating a massive gravity load.', caption: 'HEAVY ROADWAY LOAD' },
+  { id: 'suspenders', text: 'Vertical steel suspender cables catch that weight and pull it straight up into the main cables.', caption: 'VERTICAL SUSPENDERS' },
+  { id: 'tension', text: 'Those giant parabolic main cables stretch tight under immense tension across the entire span.', caption: 'MASSIVE CABLE TENSION' },
+  { id: 'towers', text: 'The towers channel that force straight down under compression, while concrete anchorages lock the ends.', caption: 'TOWERS IN COMPRESSION' },
+  { id: 'outro', text: 'Tension and compression balance perfectly — turning steel cables into an unbreakable roadway!', caption: 'PERFECT FORCE BALANCE!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('deck').start + 0.25, type: 'bounce', pitchIndex: 2, intensity: 0.65 },
+    { t: byId('suspenders').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.7 },
+    { t: byId('tension').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.75 },
+    { t: byId('towers').start + 0.2, type: 'break', pitchIndex: 9, intensity: 0.85 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const showDeck = smooth(byId('deck').start, byId('deck').start + 0.6, t);
+  const showSusp = smooth(byId('suspenders').start, byId('suspenders').start + 0.6, t);
+  const showTens = smooth(byId('tension').start, byId('tension').start + 0.6, t);
+  const showTowers = smooth(byId('towers').start, byId('towers').start + 0.6, t);
+  const showOutro = smooth(byId('outro').start, byId('outro').start + 0.6, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.65);
+  bg.addColorStop(0, '#0f2342'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.52;
+  const zoom = 1 + smooth(0, DUR, t) * 0.06;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Bridge key coordinates
+  const deckY = cy + 68 * S;
+  const waterY = cy + 168 * S;
+  const towerL = cx - 185 * S, towerR = cx + 185 * S;
+  const towerTopY = cy - 175 * S;
+  const anchL = cx - 332 * S, anchR = cx + 332 * S;
+  const anchY = deckY + 26 * S;
+
+  // Parabolic cable Y helper
+  function cableY(x) {
+    if (x >= towerL && x <= towerR) {
+      const u = (x - cx) / (towerR - cx); // -1..1
+      return deckY - 26 * S - (1 - u * u) * 0 + (u * u) * (towerTopY - (deckY - 26 * S));
+    } else if (x < towerL) {
+      const u = (towerL - x) / (towerL - anchL); // 0..1
+      return towerTopY + Math.pow(u, 1.35) * (anchY - towerTopY);
+    } else {
+      const u = (x - towerR) / (anchR - towerR);
+      return towerTopY + Math.pow(u, 1.35) * (anchY - towerTopY);
+    }
+  }
+
+  // 1. Water & Bedrock Foundations
+  const wg = ctx.createLinearGradient(0, waterY, 0, waterY + 120 * S);
+  wg.addColorStop(0, 'rgba(14,165,233,0.28)'); wg.addColorStop(1, 'rgba(2,6,23,0.0)');
+  ctx.fillStyle = wg;
+  ctx.fillRect(0, waterY, W, 120 * S);
+  ctx.strokeStyle = 'rgba(56,189,248,0.45)'; ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 16 * S) {
+    const wy = waterY + Math.sin(t * 2.5 + x * 0.03) * 3.5 * S;
+    if (x === 0) ctx.moveTo(x, wy); else ctx.lineTo(x, wy);
+  }
+  ctx.stroke();
+
+  // 2. Concrete Anchorages (left & right)
+  for (const ax of [anchL, anchR]) {
+    ctx.save();
+    ctx.fillStyle = showTowers > 0.2 ? '#14532d' : '#334155';
+    ctx.strokeStyle = showTowers > 0.2 ? '#4ade80' : '#94a3b8';
+    ctx.lineWidth = 3 * S;
+    if (showTowers > 0.2) { ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 14 * S * showTowers; }
+    ctx.beginPath();
+    ctx.rect(ax - 30 * S, anchY - 22 * S, 60 * S, 92 * S);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // 3. Vertical Suspender Cables
+  const suspCount = 15;
+  for (let i = 1; i < suspCount; i++) {
+    const sx = towerL + (i / suspCount) * (towerR - towerL);
+    const syTop = cableY(sx);
+    ctx.save();
+    ctx.strokeStyle = showSusp > 0.1 ? `rgba(56,189,248,${(0.45 + showSusp * 0.55).toFixed(2)})` : 'rgba(148,163,184,0.45)';
+    ctx.lineWidth = (2 + showSusp * 1.5) * S;
+    ctx.beginPath(); ctx.moveTo(sx, syTop); ctx.lineTo(sx, deckY); ctx.stroke();
+
+    // Upward tension pulses on suspenders
+    if (showSusp > 0.15) {
+      const p = (t * 1.2 + i * 0.17) % 1;
+      const py = deckY - p * (deckY - syTop);
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 8 * S;
+      ctx.beginPath(); ctx.arc(sx, py, 3.8 * S * showSusp, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // Side-span suspenders
+  for (const span of [[anchL + 26 * S, towerL - 18 * S], [towerR + 18 * S, anchR - 26 * S]]) {
+    for (let i = 0; i < 4; i++) {
+      const sx = span[0] + (i / 3) * (span[1] - span[0]);
+      ctx.strokeStyle = showSusp > 0.1 ? 'rgba(56,189,248,0.65)' : 'rgba(148,163,184,0.35)';
+      ctx.lineWidth = 2 * S;
+      ctx.beginPath(); ctx.moveTo(sx, cableY(sx)); ctx.lineTo(sx, deckY); ctx.stroke();
+    }
+  }
+
+  // 4. Giant Parabolic Main Cables
+  ctx.save();
+  ctx.strokeStyle = showTens > 0.1 ? '#facc15' : '#e2e8f0';
+  if (showTens > 0.1) { ctx.shadowColor = '#facc15'; ctx.shadowBlur = 18 * S * showTens; }
+  ctx.lineWidth = (6 + showTens * 3) * S;
+  ctx.beginPath();
+  for (let x = anchL; x <= anchR; x += 6 * S) {
+    const y = cableY(x);
+    if (x === anchL) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Animated tension energy pulses traveling outward along main cable
+  if (showTens > 0.1) {
+    ctx.shadowBlur = 12 * S;
+    for (let k = 0; k < 6; k++) {
+      const p = (t * 0.55 + k / 6) % 1;
+      for (const dir of [-1, 1]) {
+        const px = cx + dir * p * (anchR - cx);
+        const py = cableY(px);
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath(); ctx.arc(px, py, 5.5 * S * showTens, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+
+  // 5. Massive Steel Towers (under Compression!)
+  for (const tx of [towerL, towerR]) {
+    ctx.save();
+    const tw = 24 * S;
+    const th = (waterY + 42 * S) - towerTopY;
+    const tg = ctx.createLinearGradient(tx - tw, 0, tx + tw, 0);
+    tg.addColorStop(0, showTowers > 0.2 ? '#ef4444' : '#64748b');
+    tg.addColorStop(0.5, showTowers > 0.2 ? '#f87171' : '#cbd5e1');
+    tg.addColorStop(1, showTowers > 0.2 ? '#b91c1c' : '#475569');
+    ctx.fillStyle = tg;
+    if (showTowers > 0.2) { ctx.shadowColor = '#ef4444'; ctx.shadowBlur = 18 * S * showTowers; }
+    ctx.fillRect(tx - tw * 0.5, towerTopY, tw, th);
+    ctx.shadowBlur = 0;
+
+    // Cross bracing lines
+    ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2.5 * S;
+    for (let y = towerTopY + 24 * S; y < waterY + 20 * S; y += 38 * S) {
+      ctx.beginPath(); ctx.moveTo(tx - tw * 0.5, y); ctx.lineTo(tx + tw * 0.5, y + 26 * S); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(tx + tw * 0.5, y); ctx.lineTo(tx - tw * 0.5, y + 26 * S); ctx.stroke();
+    }
+    // Tower saddle cap
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(tx - 18 * S, towerTopY - 8 * S, 36 * S, 10 * S);
+    // Underwater pier base
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(tx - 24 * S, waterY - 8 * S, 48 * S, 55 * S);
+    ctx.restore();
+
+    // Downward compression arrows along tower
+    if (showTowers > 0.1) {
+      ctx.save();
+      ctx.globalAlpha = showTowers;
+      const shift = (t * 50 * S) % (48 * S);
+      for (let k = 0; k < 3; k++) {
+        const ay = towerTopY + 30 * S + k * 75 * S + shift * 0.4;
+        const side = tx < cx ? -34 * S : 34 * S;
+        drawArrow(tx + side, ay, tx + side, ay + 42 * S, '#f87171', 5.5 * S, 13 * S);
+      }
+      ctx.restore();
+    }
+  }
+
+  // 6. Roadway Deck & Moving Traffic
+  ctx.save();
+  ctx.fillStyle = '#334155';
+  ctx.strokeStyle = showDeck > 0.1 ? '#fb923c' : '#94a3b8';
+  ctx.lineWidth = 3 * S;
+  ctx.fillRect(anchL - 10 * S, deckY, (anchR - anchL) + 20 * S, 16 * S);
+  ctx.strokeRect(anchL - 10 * S, deckY, (anchR - anchL) + 20 * S, 16 * S);
+
+  // Moving miniature vehicles on roadway
+  for (let i = 0; i < 6; i++) {
+    const dir = i % 2 === 0 ? 1 : -1;
+    const speed = (65 + (i % 3) * 18) * S;
+    const spanW = anchR - anchL;
+    const vx = anchL + (((t * speed * dir + i * 115 * S) % spanW) + spanW) % spanW;
+    ctx.fillStyle = i % 3 === 0 ? '#facc15' : '#38bdf8';
+    ctx.fillRect(vx - 11 * S, deckY - 9 * S, 22 * S, 8 * S);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(dir > 0 ? vx + 8 * S : vx - 11 * S, deckY - 7 * S, 3 * S, 3 * S);
+  }
+  ctx.restore();
+
+  // Force Labels & Arrows
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+
+  if (showDeck > 0.05) {
+    ctx.globalAlpha = showDeck;
+    for (const ox of [-90 * S, 0, 90 * S]) {
+      drawArrow(cx + ox, deckY + 24 * S, cx + ox, deckY + 62 * S, '#fb923c', 5 * S, 12 * S);
+    }
+    ctx.fillStyle = '#fb923c';
+    ctx.fillText('↓ GRAVITY LOAD (TRAFFIC)', cx, deckY + 88 * S);
+  }
+  if (showSusp > 0.05) {
+    ctx.globalAlpha = showSusp;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('↑ SUSPENDERS PULL UP', cx, deckY - 62 * S);
+  }
+  if (showTens > 0.05) {
+    ctx.globalAlpha = showTens;
+    ctx.fillStyle = '#facc15';
+    ctx.font = `900 ${Math.round(23 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('← MAIN CABLE TENSION →', cx, towerTopY - 30 * S);
+  }
+  if (showTowers > 0.05) {
+    ctx.globalAlpha = showTowers;
+    ctx.font = `800 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#f87171';
+    ctx.fillText('TOWER COMPRESSION', towerL, towerTopY - 58 * S);
+    ctx.fillText('TOWER COMPRESSION', towerR, towerTopY - 58 * S);
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('ANCHOR', anchL + 6 * S, anchY + 92 * S);
+    ctx.fillText('ANCHOR', anchR - 6 * S, anchY + 92 * S);
+  }
+  if (showOutro > 0.05) {
+    ctx.globalAlpha = showOutro;
+    ctx.font = `900 ${Math.round(26 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#4ade80';
+    ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 16 * S;
+    ctx.fillText('✓ TENSION = COMPRESSION · BALANCED', cx, waterY + 86 * S);
+  }
+  ctx.restore();
+
+  ctx.restore();
+
+  // Top title + Bottom animated caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A SUSPENSION BRIDGE WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'towers' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

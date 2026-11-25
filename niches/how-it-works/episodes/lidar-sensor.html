@@ -1,0 +1,332 @@
+<!doctype html>
+<!-- How It Actually Works — Episode: How Self-Driving Cars See With LiDAR -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+function rrect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a self-driving car see everything around it in pitch darkness?', caption: 'SEEING IN THE DARK?' },
+  { id: 'spin', text: 'Mounted on the roof, a spinning LiDAR turret fires millions of invisible laser pulses every second.', caption: 'MILLIONS OF LASER PULSES' },
+  { id: 'bounce', text: 'Each beam shoots outward, hits cars, buildings, or pedestrians, and bounces straight back.', caption: 'LIGHT BOUNCES BACK' },
+  { id: 'tof', text: 'The sensor times each round trip to the nanosecond, calculating exact distance using light speed.', caption: 'NANOSECOND TIME-OF-FLIGHT' },
+  { id: 'cloud', text: 'Millions of distance measurements merge in real time into a glowing 3D point-cloud map.', caption: 'LIVE 3D POINT CLOUD' },
+  { id: 'outro', text: 'Updated twenty times a second, the car navigates the world with millimeter precision!', caption: 'MILLIMETER 3D VISION!' },
+];
+
+// Deterministic 3D scene point cloud targets (relative to car center, in 720-scale units)
+const CLOUD_PTS = [];
+function addRectPts(x0, y0, w, h, step, color, group) {
+  for (let x = x0; x <= x0 + w; x += step) {
+    CLOUD_PTS.push({ x, y: y0, c: color, g: group });
+    CLOUD_PTS.push({ x, y: y0 + h, c: color, g: group });
+  }
+  for (let y = y0 + step; y < y0 + h; y += step) {
+    CLOUD_PTS.push({ x: x0, y, c: color, g: group });
+    CLOUD_PTS.push({ x: x0 + w, y, c: color, g: group });
+  }
+}
+// Ahead-right vehicle
+addRectPts(82, -235, 76, 132, 11, '#fb923c', 'car');
+// Left pedestrian / cyclist
+for (let a = 0; a < 18; a++) {
+  const ang = (a / 18) * Math.PI * 2;
+  CLOUD_PTS.push({ x: -138 + Math.cos(ang) * 20, y: -78 + Math.sin(ang) * 20, c: '#f43f5e', g: 'ped' });
+}
+CLOUD_PTS.push({ x: -138, y: -78, c: '#fda4af', g: 'ped' });
+// Left & right roadside building/curb edges
+for (let y = -280; y <= 240; y += 16) {
+  CLOUD_PTS.push({ x: -268, y, c: '#38bdf8', g: 'wall' });
+  CLOUD_PTS.push({ x: -248, y, c: '#0ea5e9', g: 'wall' });
+  CLOUD_PTS.push({ x: 268, y, c: '#38bdf8', g: 'wall' });
+  CLOUD_PTS.push({ x: 248, y, c: '#0ea5e9', g: 'wall' });
+}
+// Rear-left vehicle
+addRectPts(-175, 118, 72, 118, 12, '#facc15', 'car2');
+// Roadway concentric LiDAR scan rings
+for (let r = 85; r <= 235; r += 50) {
+  for (let a = 0; a < 36; a++) {
+    const ang = (a / 36) * Math.PI * 2;
+    const px = Math.cos(ang) * r;
+    const py = Math.sin(ang) * r;
+    if (Math.abs(px) < 235) CLOUD_PTS.push({ x: px, y: py, c: '#22c55e', g: 'road' });
+  }
+}
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('spin').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.65 },
+    { t: byId('bounce').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.7 },
+    { t: byId('tof').start + 0.25, type: 'bounce', pitchIndex: 8, intensity: 0.75 },
+    { t: byId('cloud').start + 0.2, type: 'break', pitchIndex: 10, intensity: 0.85 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const showSpin = smooth(byId('spin').start, byId('spin').start + 0.6, t);
+  const showBounce = smooth(byId('bounce').start, byId('bounce').start + 0.6, t);
+  const showTof = smooth(byId('tof').start, byId('tof').start + 0.6, t);
+  const showCloud = smooth(byId('cloud').start, byId('cloud').start + 0.9, t);
+  const showOutro = smooth(byId('outro').start, byId('outro').start + 0.6, t);
+
+  // Dark engineering radar background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.49, 30 * S, W * 0.5, H * 0.49, H * 0.65);
+  bg.addColorStop(0, '#091c34'); bg.addColorStop(0.6, '#050c1a'); bg.addColorStop(1, '#02050b');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.055)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.50;
+  const zoom = 1 + smooth(0, DUR, t) * 0.06;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Subtle dark silhouettes of unseen obstacles in the dark (faint until LiDAR hits)
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.75)';
+  ctx.strokeStyle = 'rgba(51,65,85,0.45)';
+  ctx.lineWidth = 2 * S;
+  // Ahead-right car silhouette
+  rrect(cx + 82 * S, cy - 235 * S, 76 * S, 132 * S, 14 * S); ctx.fill(); ctx.stroke();
+  // Rear-left car silhouette
+  rrect(cx - 175 * S, cy + 118 * S, 72 * S, 118 * S, 14 * S); ctx.fill(); ctx.stroke();
+  // Left pedestrian silhouette
+  ctx.beginPath(); ctx.arc(cx - 138 * S, cy - 78 * S, 20 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Concentric LiDAR range rings
+  ctx.save();
+  for (let i = 1; i <= 3; i++) {
+    const r = i * 95 * S;
+    ctx.strokeStyle = `rgba(34,211,238,${(0.12 + showSpin * 0.14).toFixed(2)})`;
+    ctx.lineWidth = 1.5 * S;
+    ctx.setLineDash([6 * S, 8 * S]);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Spinning LiDAR Laser Sweep Fan
+  const sweepAngle = (t * (1.8 + showSpin * 2.2)) % (Math.PI * 2);
+  if (showSpin > 0.05) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(sweepAngle);
+    const fanG = ctx.createRadialGradient(0, 0, 12 * S, 0, 0, 310 * S);
+    fanG.addColorStop(0, `rgba(34,211,238,${(0.55 * showSpin).toFixed(2)})`);
+    fanG.addColorStop(1, 'rgba(34,211,238,0)');
+    ctx.fillStyle = fanG;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, 310 * S, -0.55, 0);
+    ctx.closePath();
+    ctx.fill();
+    // Leading bright laser ray
+    ctx.strokeStyle = '#22d3ee';
+    ctx.shadowColor = '#22d3ee'; ctx.shadowBlur = 14 * S;
+    ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(310 * S, 0); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Outgoing & Bouncing Laser Pulses hitting targets
+  const targets = [
+    { x: cx + 120 * S, y: cy - 169 * S, col: '#fb923c', dist: '14.2 m', ns: '94.7 ns', label: 'VEHICLE' },
+    { x: cx - 138 * S, y: cy - 78 * S, col: '#f43f5e', dist: '6.4 m', ns: '42.6 ns', label: 'PEDESTRIAN' },
+    { x: cx - 139 * S, y: cy + 177 * S, col: '#facc15', dist: '11.8 m', ns: '78.7 ns', label: 'CAR' },
+  ];
+
+  if (showBounce > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showBounce;
+    for (let i = 0; i < targets.length; i++) {
+      const tg = targets[i];
+      // Faint laser path
+      ctx.strokeStyle = 'rgba(34,211,238,0.32)';
+      ctx.lineWidth = 2 * S;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tg.x, tg.y); ctx.stroke();
+
+      // Round-trip photon packet (0..0.5 outbound cyan, 0.5..1.0 return echo pink/amber)
+      const p = (t * 1.45 + i * 0.33) % 1;
+      const out = p < 0.5;
+      const frac = out ? p * 2 : (1 - (p - 0.5) * 2);
+      const px = cx + (tg.x - cx) * frac;
+      const py = cy + (tg.y - cy) * frac;
+
+      ctx.fillStyle = out ? '#22d3ee' : tg.col;
+      ctx.shadowColor = out ? '#22d3ee' : tg.col;
+      ctx.shadowBlur = 16 * S;
+      ctx.beginPath(); ctx.arc(px, py, 6.5 * S, 0, Math.PI * 2); ctx.fill();
+
+      // Hit ripple on obstacle
+      if (Math.abs(p - 0.5) < 0.14) {
+        ctx.strokeStyle = tg.col; ctx.lineWidth = 2.5 * S;
+        ctx.beginPath(); ctx.arc(tg.x, tg.y, (12 + (0.14 - Math.abs(p - 0.5)) * 120) * S, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Live 3D Neon Point Cloud Map
+  if (showCloud > 0.05 || showBounce > 0.2) {
+    ctx.save();
+    const cloudStrength = Math.max(showCloud, showBounce * 0.25);
+    for (let i = 0; i < CLOUD_PTS.length; i++) {
+      const pt = CLOUD_PTS[i];
+      const ang = (Math.atan2(pt.y, pt.x) + Math.PI * 2) % (Math.PI * 2);
+      let diff = (sweepAngle - ang + Math.PI * 2) % (Math.PI * 2);
+      const fresh = Math.exp(-diff * 1.1);
+      const alpha = clamp((0.28 + fresh * 0.72) * cloudStrength, 0, 1);
+      if (alpha < 0.05) continue;
+      ctx.fillStyle = pt.c;
+      ctx.globalAlpha = alpha;
+      const rad = (pt.g === 'road' ? 2.4 : 3.6 + fresh * 1.8) * S;
+      ctx.beginPath();
+      ctx.arc(cx + pt.x * S, cy + pt.y * S, rad, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // 3D Detection Bounding Boxes & Distance Tags (at cloud & outro)
+  if (showCloud > 0.25) {
+    ctx.save();
+    ctx.globalAlpha = showCloud;
+    // Vehicle box
+    ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 2.5 * S;
+    ctx.strokeRect(cx + 76 * S, cy - 242 * S, 88 * S, 146 * S);
+    ctx.fillStyle = '#fb923c';
+    ctx.font = `800 ${Math.round(16 * S)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('CAR · 14.2m', cx + 120 * S, cy - 252 * S);
+
+    // Pedestrian box
+    ctx.strokeStyle = '#f43f5e';
+    ctx.strokeRect(cx - 166 * S, cy - 106 * S, 56 * S, 56 * S);
+    ctx.fillStyle = '#f43f5e';
+    ctx.fillText('PEDESTRIAN', cx - 138 * S, cy - 116 * S);
+    ctx.fillText('6.4m', cx - 138 * S, cy - 30 * S);
+    ctx.restore();
+  }
+
+  // Ego Self-Driving Car (center) + Roof Spinning LiDAR Turret
+  ctx.save();
+  const carW = 68 * S, carH = 128 * S;
+  const cg = ctx.createLinearGradient(cx - carW * 0.5, cy, cx + carW * 0.5, cy);
+  cg.addColorStop(0, '#1e293b'); cg.addColorStop(0.5, '#475569'); cg.addColorStop(1, '#1e293b');
+  ctx.fillStyle = cg;
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 3 * S;
+  rrect(cx - carW * 0.5, cy - carH * 0.5, carW, carH, 18 * S);
+  ctx.fill(); ctx.stroke();
+  // Windshield
+  ctx.fillStyle = '#0f172a';
+  rrect(cx - 24 * S, cy - 38 * S, 48 * S, 24 * S, 6 * S);
+  ctx.fill();
+  // Headlight beams
+  ctx.fillStyle = 'rgba(250,204,21,0.12)';
+  ctx.beginPath();
+  ctx.moveTo(cx - 24 * S, cy - carH * 0.5);
+  ctx.lineTo(cx - 56 * S, cy - carH * 0.5 - 75 * S);
+  ctx.lineTo(cx + 56 * S, cy - carH * 0.5 - 75 * S);
+  ctx.lineTo(cx + 24 * S, cy - carH * 0.5);
+  ctx.closePath(); ctx.fill();
+
+  // Spinning Roof LiDAR Turret
+  ctx.fillStyle = '#0f172a';
+  ctx.strokeStyle = '#22d3ee';
+  ctx.lineWidth = 3 * S;
+  ctx.shadowColor = '#22d3ee'; ctx.shadowBlur = 18 * S;
+  ctx.beginPath(); ctx.arc(cx, cy, 18 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#22d3ee';
+  ctx.beginPath(); ctx.arc(cx + Math.cos(sweepAngle) * 8 * S, cy + Math.sin(sweepAngle) * 8 * S, 4.5 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Time-of-Flight (ToF) Live Formula HUD (top of scene)
+  if (showTof > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showTof;
+    const hudX = cx - 250 * S, hudY = cy - 348 * S, hudW = 500 * S, hudH = 74 * S;
+    ctx.fillStyle = 'rgba(6,13,28,0.92)';
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 2.5 * S;
+    rrect(hudX, hudY, hudW, hudH, 14 * S);
+    ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(19 * S)}px monospace`;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('TIME-OF-FLIGHT:  d = c × Δt / 2', cx, hudY + 29 * S);
+    ctx.font = `900 ${Math.round(21 * S)}px monospace`;
+    ctx.fillStyle = '#4ade80';
+    const activeT = targets[Math.floor(t * 1.1) % targets.length];
+    ctx.fillText(`Δt = ${activeT.ns}  →  ${activeT.label}: ${activeT.dist}`, cx, hudY + 58 * S);
+    ctx.restore();
+  }
+
+  // Outro status footer
+  if (showOutro > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showOutro;
+    ctx.font = `900 ${Math.round(23 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#4ade80';
+    ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 14 * S;
+    ctx.fillText('✓ 20 FPS · 1.2M POINTS/SEC · 360° 3D MAP', cx, cy + 318 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top title + Bottom animated caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW LIDAR SEES THE WORLD', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'cloud' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

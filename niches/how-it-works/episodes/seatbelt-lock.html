@@ -1,0 +1,300 @@
+<!doctype html>
+<!-- How It Actually Works — Seatbelt Instant Lock Mechanism -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does your seatbelt slide smoothly when you lean forward, yet lock like steel in a crash?', caption: 'SOFT TO STEEL?' },
+  { id: 'spool', text: 'The belt wraps around a spring-loaded spool attached to a toothed metal ratchet wheel.', caption: 'RATCHET SPOOL' },
+  { id: 'slow', text: 'When you pull slowly, the spool spins freely while a weighted pendulum hangs quietly below.', caption: 'SLOW PULL: FREE SPIN' },
+  { id: 'crash', text: 'During sudden braking, inertia swings the weighted pendulum forward in milliseconds!', caption: 'SUDDEN DECELERATION!' },
+  { id: 'lock', text: 'That motion flips a steel locking pawl straight into the ratchet teeth, halting the spool dead.', caption: 'PAWL LOCKS TEETH!' },
+  { id: 'outro', text: 'Pure mechanical physics — no batteries or sensors needed — locking in under one hundredth of a second.', caption: 'LOCKED IN 0.01s!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('spool').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.55 },
+    { t: byId('slow').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.55 },
+    { t: byId('crash').start + 0.2, type: 'break', pitchIndex: 8, intensity: 0.85 },
+    { t: byId('lock').start + 0.15, type: 'break', pitchIndex: 10, intensity: 0.95 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.9 },
+  ];
+};
+
+function drawRatchetWheel(cx, cy, rOut, rIn, teeth, angle, lockedGlow) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  const step = (Math.PI * 2) / teeth;
+  ctx.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a0 = i * step;
+    const a1 = a0 + step * 0.78;
+    const a2 = a0 + step * 0.86;
+    if (i === 0) ctx.moveTo(Math.cos(a0) * rIn, Math.sin(a0) * rIn);
+    ctx.lineTo(Math.cos(a1) * rOut, Math.sin(a1) * rOut);
+    ctx.lineTo(Math.cos(a2) * rIn, Math.sin(a2) * rIn);
+  }
+  ctx.closePath();
+  const g = ctx.createRadialGradient(-rOut * 0.2, -rOut * 0.2, rOut * 0.1, 0, 0, rOut);
+  g.addColorStop(0, '#e2e8f0'); g.addColorStop(0.65, '#64748b'); g.addColorStop(1, '#334155');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = lockedGlow > 0.2 ? '#f87171' : '#f8fafc';
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+
+  // Inner spool webbing coil
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(0, 0, rIn * 0.68, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Spool hub & spokes
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 6;
+  for (let k = 0; k < 4; k++) {
+    const a = (k * Math.PI) / 2;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * rIn * 0.62, Math.sin(a) * rIn * 0.62); ctx.stroke();
+  }
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath(); ctx.arc(0, 0, rIn * 0.22, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const tSlow = byId('slow').start;
+  const tCrash = byId('crash').start;
+  const tLock = byId('lock').start;
+
+  const pSpool = smooth(byId('spool').start, byId('spool').start + 0.6, t);
+  const pCrash = smooth(tCrash, tCrash + 0.35, t);
+  const pLock = smooth(tLock, tLock + 0.16, t); // ultra-snappy lock!
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.68);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // Deterministic spool rotation: spins smoothly until lock time, then halts dead with tiny spring recoil
+  const lockTime = tLock + 0.08;
+  let spoolAngle;
+  if (t < lockTime) {
+    // Slow steady spin, speeding up slightly right as crash yank starts
+    const yankBoost = Math.max(0, t - tCrash) * 2.2;
+    spoolAngle = t * 1.45 + yankBoost * yankBoost * 0.8;
+  } else {
+    const yankBoostAtLock = Math.max(0, lockTime - tCrash) * 2.2;
+    const baseAtLock = lockTime * 1.45 + yankBoostAtLock * yankBoostAtLock * 0.8;
+    const dtLock = t - lockTime;
+    // Tiny metallic stop-vibration recoil
+    spoolAngle = baseAtLock + Math.sin(dtLock * 45) * Math.exp(-dtLock * 14) * 0.04;
+  }
+
+  // Impact camera jolt right at lock
+  const dtLock = Math.max(0, t - lockTime);
+  const jolt = t >= lockTime ? Math.sin(dtLock * 60) * Math.exp(-dtLock * 16) * 8 * S : 0;
+
+  const cx = W * 0.48 + jolt, cy = H * 0.44;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(W * 0.5, H * 0.5); ctx.scale(zoom, zoom); ctx.translate(-W * 0.5, -H * 0.5);
+
+  // 1) Seatbelt Webbing Strap extending vertically from the left tangent of the spool
+  const rOut = 152 * S, rIn = 122 * S;
+  const strapX = cx - rIn * 0.68;
+  const strapW = 36 * S;
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = pLock > 0.5 ? '#ef4444' : '#38bdf8';
+  ctx.lineWidth = 3.5 * S;
+  ctx.fillRect(strapX - strapW * 0.5, H * 0.16, strapW, cy - H * 0.16);
+  ctx.strokeRect(strapX - strapW * 0.5, H * 0.16, strapW, cy - H * 0.16);
+
+  // Moving chevron marks on webbing to show belt sliding up -> stopping dead!
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(strapX - strapW * 0.5, H * 0.16, strapW, cy - H * 0.16);
+  ctx.clip();
+  const beltOffset = (spoolAngle * rIn * 0.68) % (34 * S);
+  ctx.strokeStyle = pLock > 0.5 ? '#fca5a5' : '#7dd3fc';
+  ctx.lineWidth = 3 * S;
+  for (let y = cy + 34 * S; y >= H * 0.14; y -= 34 * S) {
+    const yy = y - beltOffset;
+    ctx.beginPath();
+    ctx.moveTo(strapX - 10 * S, yy + 7 * S);
+    ctx.lineTo(strapX, yy - 4 * S);
+    ctx.lineTo(strapX + 10 * S, yy + 7 * S);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Upward tension arrow next to strap
+  const arrowY = H * 0.24;
+  ctx.save();
+  ctx.strokeStyle = pLock > 0.5 ? '#ef4444' : '#4ade80';
+  ctx.fillStyle = pLock > 0.5 ? '#ef4444' : '#4ade80';
+  ctx.lineWidth = 5 * S; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(strapX - 42 * S, arrowY + 42 * S); ctx.lineTo(strapX - 42 * S, arrowY - 12 * S); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(strapX - 42 * S, arrowY - 26 * S);
+  ctx.lineTo(strapX - 52 * S, arrowY - 6 * S);
+  ctx.lineTo(strapX - 32 * S, arrowY - 6 * S);
+  ctx.closePath(); ctx.fill();
+  ctx.font = `900 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(pLock > 0.5 ? 'HALTED!' : 'PULL', strapX - 60 * S, arrowY + 18 * S);
+  ctx.restore();
+
+  // 2) Toothed Ratchet Wheel & Spool
+  drawRatchetWheel(cx, cy, rOut, rIn, 16, -spoolAngle, pLock);
+
+  // 3) Weighted Inertia Pendulum + Pivoting Steel Locking Pawl (mounted below-right)
+  const pendPivotX = cx + 105 * S;
+  const pendPivotY = cy + 178 * S;
+  // Pendulum swings sharply left/forward during sudden deceleration
+  const pendAngle = lerp(Math.sin(t * 2.2) * 0.05, 0.58, pCrash);
+
+  // Steel Locking Pawl arm pivoting from right housing into ratchet teeth
+  const pawlPivotX = cx + 175 * S;
+  const pawlPivotY = cy + 68 * S;
+  const pawlAngle = lerp(0.32, -0.18, pLock); // snaps upward into teeth!
+
+  // Connecting linkage rod from pendulum top cam to locking pawl
+  ctx.save();
+  ctx.translate(pendPivotX, pendPivotY);
+  ctx.rotate(pendAngle);
+  // Pendulum rod
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 9 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0, -18 * S); ctx.lineTo(0, 92 * S); ctx.stroke();
+  // Heavy brass/gold inertia bob weight
+  const bobG = ctx.createRadialGradient(-8 * S, 86 * S, 4 * S, 0, 96 * S, 34 * S);
+  bobG.addColorStop(0, '#fef08a'); bobG.addColorStop(0.6, '#eab308'); bobG.addColorStop(1, '#a16207');
+  ctx.fillStyle = bobG;
+  ctx.strokeStyle = '#fef9c3'; ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.arc(0, 96 * S, 30 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#020617';
+  ctx.font = `900 ${Math.round(14 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('MASS', 0, 101 * S);
+  ctx.restore();
+
+  // Pendulum pivot pin
+  ctx.fillStyle = '#94a3b8';
+  ctx.beginPath(); ctx.arc(pendPivotX, pendPivotY, 9 * S, 0, Math.PI * 2); ctx.fill();
+
+  // Locking Pawl Steel Lever
+  ctx.save();
+  ctx.translate(pawlPivotX, pawlPivotY);
+  ctx.rotate(pawlAngle);
+  ctx.fillStyle = pLock > 0.4 ? '#ef4444' : '#f59e0b';
+  ctx.strokeStyle = pLock > 0.4 ? '#fecaca' : '#fef3c7';
+  ctx.lineWidth = 3.5 * S;
+  ctx.shadowColor = pLock > 0.4 ? '#ef4444' : 'transparent';
+  ctx.shadowBlur = pLock > 0.4 ? 18 * S : 0;
+  ctx.beginPath();
+  ctx.moveTo(16 * S, -14 * S);
+  ctx.lineTo(-96 * S, -6 * S);
+  ctx.lineTo(-108 * S, 12 * S); // sharp locking tooth tip
+  ctx.lineTo(-76 * S, 20 * S);
+  ctx.lineTo(16 * S, 14 * S);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Pivot bolt
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath(); ctx.arc(0, 0, 8 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Impact Shockwave Ring right at the tooth engagement point
+  if (t >= lockTime && dtLock < 0.75) {
+    const u = dtLock / 0.75;
+    const ix = cx + 92 * S, iy = cy + 92 * S;
+    ctx.save();
+    ctx.strokeStyle = `rgba(248,113,113,${(1 - u).toFixed(2)})`;
+    ctx.lineWidth = (6 * (1 - u) + 1) * S;
+    ctx.beginPath(); ctx.arc(ix, iy, (14 + u * 88) * S, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // G-Force Deceleration Arrow during crash
+  if (pCrash > 0.1) {
+    ctx.save();
+    ctx.globalAlpha = pCrash;
+    const gx = cx - 190 * S, gy = pendPivotY + 85 * S;
+    ctx.strokeStyle = '#fb923c'; ctx.fillStyle = '#fb923c';
+    ctx.lineWidth = 6 * S; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(gx + 95 * S, gy); ctx.lineTo(gx, gy); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(gx - 18 * S, gy); ctx.lineTo(gx + 8 * S, gy - 14 * S); ctx.lineTo(gx + 8 * S, gy + 14 * S);
+    ctx.closePath(); ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('SUDDEN BRAKE (G-FORCE)', gx + 48 * S, gy - 22 * S);
+    ctx.restore();
+  }
+
+  // Status Badge
+  if (pSpool > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pSpool;
+    const locked = pLock > 0.5;
+    const by = H * 0.73;
+    ctx.fillStyle = locked ? 'rgba(127,29,29,0.85)' : 'rgba(15,23,42,0.85)';
+    ctx.strokeStyle = locked ? '#ef4444' : '#4ade80';
+    ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.roundRect(W * 0.5 - 205 * S, by - 28 * S, 410 * S, 56 * S, 12 * S); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = locked ? '#fca5a5' : '#4ade80';
+    ctx.fillText(locked ? '🔒 SPOOL LOCKED · 0.01 SEC' : '✓ FREE SPOOL · SMOOTH PULL', W * 0.5, by + 9 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top Title + Animated Bottom Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(31 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A SEATBELT LOCKS INSTANTLY', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'lock' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

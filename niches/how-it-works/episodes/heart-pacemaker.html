@@ -1,0 +1,347 @@
+<!doctype html>
+<!-- How It Actually Works — Episode: How a Heart Pacemaker Works -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+function rrect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// Realistic P-QRS-T ECG beat waveform for phase p in [0, 1)
+function ecgBeat(p, paced) {
+  let y = 0;
+  if (paced && p > 0.24 && p < 0.28) return -1.15; // sharp pacing spike
+  // P wave
+  y += 0.14 * Math.exp(-Math.pow((p - 0.18) / 0.035, 2));
+  // Q dip
+  y -= 0.16 * Math.exp(-Math.pow((p - 0.29) / 0.012, 2));
+  // R tall peak
+  y += 1.05 * Math.exp(-Math.pow((p - 0.32) / 0.015, 2));
+  // S dip
+  y -= 0.28 * Math.exp(-Math.pow((p - 0.355) / 0.014, 2));
+  // T wave
+  y += 0.28 * Math.exp(-Math.pow((p - 0.54) / 0.055, 2));
+  return y;
+}
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a tiny device inside your chest keep a failing heart beating?', caption: 'TINY LIFE SAVER' },
+  { id: 'implant', text: 'A pacemaker sits just beneath the collarbone, sending a thin insulated wire into the heart.', caption: 'GENERATOR & HEART LEAD' },
+  { id: 'monitor', text: 'Its microchip constantly listens to your heart\'s natural electrical rhythm beat by beat.', caption: '24/7 ECG MONITORING' },
+  { id: 'miss', text: 'The instant a beat slows down or skips, the sensor catches the dangerous pause.', caption: 'MISSED BEAT DETECTED!' },
+  { id: 'pulse', text: 'Within milliseconds, it fires a tiny electrical pulse down the lead to trigger a contraction.', caption: 'MICRO-PULSE FIRED!' },
+  { id: 'outro', text: 'Beat after beat, for up to ten years, it keeps your heart locked in steady sinus rhythm!', caption: 'STEADY SINUS RHYTHM!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('implant').start + 0.25, type: 'bounce', pitchIndex: 4, intensity: 0.65 },
+    { t: byId('monitor').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.65 },
+    { t: byId('miss').start + 0.2, type: 'break', pitchIndex: 2, intensity: 0.85 },
+    { t: byId('pulse').start + 0.15, type: 'bounce', pitchIndex: 9, intensity: 0.9 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const lMiss = byId('miss');
+  const lPulse = byId('pulse');
+  const showImplant = smooth(byId('implant').start, byId('implant').start + 0.6, t);
+  const showMonitor = smooth(byId('monitor').start, byId('monitor').start + 0.6, t);
+  const inMiss = t >= lMiss.start && t < lPulse.start;
+  const showPulse = smooth(lPulse.start, lPulse.start + 0.4, t);
+  const showOutro = smooth(byId('outro').start, byId('outro').start + 0.6, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.46, 40 * S, W * 0.5, H * 0.46, H * 0.65);
+  bg.addColorStop(0, inMiss ? '#2a1220' : '#0f2342');
+  bg.addColorStop(0.6, '#071124');
+  bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.46;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Heartbeat phase (72 BPM -> 0.833s period), pauses during `miss`
+  const period = 0.84;
+  const beatPhase = (t % period) / period;
+  const beatPulse = inMiss ? 0 : Math.exp(-Math.pow((beatPhase - 0.32) / 0.075, 2));
+  const heartScale = 1 + beatPulse * 0.085;
+
+  // Lead curve endpoints
+  const genX = cx - 188 * S, genY = cy - 178 * S;
+  const tipX = cx + 44 * S, tipY = cy + 16 * S;
+  function leadPt(u) {
+    // Cubic bezier from pacemaker generator into right ventricle
+    const p0x = genX + 42 * S, p0y = genY - 6 * S;
+    const p1x = cx - 40 * S, p1y = cy - 235 * S;
+    const p2x = cx + 10 * S, p2y = cy - 95 * S;
+    const p3x = tipX, p3y = tipY;
+    const m = 1 - u;
+    return {
+      x: m * m * m * p0x + 3 * m * m * u * p1x + 3 * m * u * u * p2x + u * u * u * p3x,
+      y: m * m * m * p0y + 3 * m * m * u * p1y + 3 * m * u * u * p2y + u * u * u * p3y,
+    };
+  }
+
+  // 1. Stylized Anatomical Heart Cutaway (right-center)
+  const hx = cx + 52 * S, hy = cy - 32 * S;
+  ctx.save();
+  ctx.translate(hx, hy);
+  ctx.scale(heartScale, heartScale);
+
+  // Aorta / Vessels top
+  ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 24 * S; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-12 * S, -72 * S); ctx.quadraticCurveTo(-8 * S, -142 * S, 38 * S, -124 * S); ctx.stroke();
+  ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 20 * S;
+  ctx.beginPath(); ctx.moveTo(-46 * S, -56 * S); ctx.lineTo(-56 * S, -132 * S); ctx.stroke();
+
+  // Heart muscle outer shape
+  const hg = ctx.createRadialGradient(-20 * S, -20 * S, 15 * S, 0, 0, 145 * S);
+  hg.addColorStop(0, inMiss ? '#991b1b' : '#ef4444');
+  hg.addColorStop(0.65, '#991b1b');
+  hg.addColorStop(1, '#450a0a');
+  ctx.fillStyle = hg;
+  ctx.strokeStyle = '#fca5a5';
+  ctx.lineWidth = 4 * S;
+  ctx.shadowColor = inMiss ? '#7f1d1d' : '#ef4444';
+  ctx.shadowBlur = (16 + beatPulse * 24) * S;
+  ctx.beginPath();
+  ctx.moveTo(0, -68 * S);
+  ctx.bezierCurveTo(-92 * S, -128 * S, -142 * S, -14 * S, -14 * S, 108 * S);
+  ctx.bezierCurveTo(132 * S, -6 * S, 102 * S, -128 * S, 0, -68 * S);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Inner chamber cutaway
+  ctx.fillStyle = 'rgba(15,23,42,0.52)';
+  ctx.beginPath();
+  ctx.ellipse(-28 * S, -2 * S, 34 * S, 48 * S, -0.2, 0, Math.PI * 2);
+  ctx.ellipse(30 * S, 2 * S, 32 * S, 46 * S, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Electrical contraction wave inside heart when paced/beating
+  if (beatPulse > 0.15) {
+    ctx.strokeStyle = showPulse > 0.2 ? `rgba(56,189,248,${(beatPulse * 0.9).toFixed(2)})` : `rgba(250,204,21,${(beatPulse * 0.85).toFixed(2)})`;
+    ctx.lineWidth = 4 * S;
+    ctx.beginPath();
+    ctx.arc(-6 * S, 46 * S, (22 + (1 - beatPulse) * 65) * S, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 2. Insulated Lead Wire from Pacemaker into Heart
+  ctx.save();
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 6.5 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const pt = leadPt(i / 40);
+    if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+  }
+  ctx.stroke();
+  // Inner copper conductor highlight
+  ctx.strokeStyle = showPulse > 0.1 ? '#38bdf8' : '#e2e8f0';
+  ctx.lineWidth = 2.2 * S;
+  ctx.stroke();
+
+  // Electrode tip inside right ventricle
+  ctx.fillStyle = showPulse > 0.2 ? '#38bdf8' : '#facc15';
+  ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 16 * S;
+  ctx.beginPath(); ctx.arc(tipX, tipY, 8 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Traveling micro-electrical pulse down the lead (during pulse & outro)
+  if (showPulse > 0.05) {
+    const pulseProg = (beatPhase < 0.28) ? clamp(beatPhase / 0.26, 0, 1) : -1;
+    if (pulseProg >= 0) {
+      const pt = leadPt(pulseProg);
+      ctx.save();
+      ctx.fillStyle = '#fef08a';
+      ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 24 * S;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 10 * S, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  } else if (showMonitor > 0.1 && !inMiss) {
+    // Sensing signal traveling UP the lead to pacemaker
+    const sensProg = 1 - ((t * 1.1) % 1);
+    const pt = leadPt(sensProg);
+    ctx.save();
+    ctx.fillStyle = '#4ade80';
+    ctx.shadowColor = '#4ade80'; ctx.shadowBlur = 14 * S;
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, 6.5 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // 3. Titanium Pacemaker Pulse Generator (upper-left)
+  ctx.save();
+  const pg = ctx.createLinearGradient(genX - 55 * S, genY - 45 * S, genX + 55 * S, genY + 45 * S);
+  pg.addColorStop(0, '#e2e8f0'); pg.addColorStop(0.5, '#94a3b8'); pg.addColorStop(1, '#475569');
+  ctx.fillStyle = pg;
+  ctx.strokeStyle = inMiss ? '#f87171' : (showPulse > 0.2 ? '#38bdf8' : '#cbd5e1');
+  ctx.lineWidth = (3.5 + (inMiss ? 2 : 0)) * S;
+  if (inMiss || showPulse > 0.2) {
+    ctx.shadowColor = inMiss ? '#ef4444' : '#38bdf8';
+    ctx.shadowBlur = 22 * S;
+  }
+  rrect(genX - 54 * S, genY - 44 * S, 108 * S, 88 * S, 34 * S);
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Internal microchip & status LED on pacemaker
+  ctx.fillStyle = '#0f172a';
+  rrect(genX - 30 * S, genY - 22 * S, 60 * S, 44 * S, 8 * S);
+  ctx.fill();
+  ctx.fillStyle = inMiss ? '#ef4444' : (showPulse > 0.2 ? '#38bdf8' : '#4ade80');
+  ctx.beginPath(); ctx.arc(genX, genY, 8 * S, 0, Math.PI * 2); ctx.fill();
+
+  // Pacemaker label
+  ctx.font = `800 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillText('PACEMAKER', genX, genY + 68 * S);
+  if (showImplant > 0.1) {
+    ctx.fillStyle = '#93c5fd';
+    ctx.font = `700 ${Math.round(15 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('BATTERY + CHIP', genX, genY + 88 * S);
+  }
+  ctx.restore();
+
+  // 4. Live Medical ECG Monitor Panel (lower half)
+  const monX = cx - 285 * S, monY = cy + 165 * S, monW = 570 * S, monH = 175 * S;
+  ctx.save();
+  ctx.fillStyle = 'rgba(6,13,28,0.94)';
+  ctx.strokeStyle = inMiss ? '#ef4444' : (showPulse > 0.2 ? '#38bdf8' : '#22c55e');
+  ctx.lineWidth = 3 * S;
+  rrect(monX, monY, monW, monH, 16 * S);
+  ctx.fill(); ctx.stroke();
+
+  // ECG grid
+  ctx.strokeStyle = 'rgba(34,197,94,0.12)'; ctx.lineWidth = 1 * S;
+  for (let gx = monX + 25 * S; gx < monX + monW; gx += 25 * S) {
+    ctx.beginPath(); ctx.moveTo(gx, monY + 8 * S); ctx.lineTo(gx, monY + monH - 8 * S); ctx.stroke();
+  }
+  for (let gy = monY + 25 * S; gy < monY + monH; gy += 25 * S) {
+    ctx.beginPath(); ctx.moveTo(monX + 8 * S, gy); ctx.lineTo(monX + monW - 8 * S, gy); ctx.stroke();
+  }
+
+  // ECG Header & BPM Status
+  ctx.font = `900 ${Math.round(18 * S)}px monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = inMiss ? '#f87171' : '#4ade80';
+  ctx.fillText(inMiss ? '⚠ ALERT: MISSED BEAT' : (showPulse > 0.2 ? '⚡ PACED SINUS RHYTHM' : '♥ LIVE ECG MONITOR'), monX + 18 * S, monY + 28 * S);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = inMiss ? '#f87171' : '#38bdf8';
+  ctx.fillText(inMiss ? '38 BPM' : '72 BPM', monX + monW - 18 * S, monY + 28 * S);
+
+  // Scrolling live ECG trace
+  const traceX = monX + 18 * S, traceW = monW - 36 * S;
+  const baseLineY = monY + 114 * S;
+  const timeWindow = 3.2; // seconds visible on screen
+  ctx.strokeStyle = inMiss ? '#fb923c' : '#4ade80';
+  ctx.shadowColor = inMiss ? '#ef4444' : '#22c55e';
+  ctx.shadowBlur = 10 * S;
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath();
+  for (let px = 0; px <= traceW; px += 3 * S) {
+    const sampleT = t - (1 - px / traceW) * timeWindow;
+    const sampleInMiss = sampleT >= lMiss.start && sampleT < lPulse.start;
+    const samplePaced = sampleT >= lPulse.start;
+    const sp = ((sampleT % period) + period) % period / period;
+    const amp = sampleInMiss ? (Math.sin(sampleT * 12) * 0.02) : ecgBeat(sp, samplePaced);
+    const y = baseLineY - amp * 58 * S;
+    if (px === 0) ctx.moveTo(traceX + px, y); else ctx.lineTo(traceX + px, y);
+  }
+  ctx.stroke();
+
+  // Leading bright ECG dot
+  const curAmp = inMiss ? 0 : ecgBeat(beatPhase, showPulse > 0.2);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(traceX + traceW, baseLineY - curAmp * 58 * S, 5 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Alert / Status callout above ECG
+  if (inMiss) {
+    ctx.save();
+    const blink = 0.55 + 0.45 * Math.sin(t * 14);
+    ctx.globalAlpha = blink;
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#f87171';
+    ctx.fillText('⚠ HEARTBEAT PAUSE DETECTED!', cx, monY - 18 * S);
+    ctx.restore();
+  } else if (showPulse > 0.1 && showOutro < 0.5) {
+    ctx.save();
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('⚡ MICRO-PULSE TRIGGERS CONTRACTION', cx, monY - 18 * S);
+    ctx.restore();
+  } else if (showOutro > 0.1) {
+    ctx.save();
+    ctx.globalAlpha = showOutro;
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('✓ 72 BPM · STEADY RHYTHM FOR 10 YEARS', cx, monY - 18 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top title + Bottom animated caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A HEART PACEMAKER WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'miss' ? '#f87171' : (activeLine.id === 'pulse' || activeLine.id === 'outro' ? '#4ade80' : '#facc15');
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

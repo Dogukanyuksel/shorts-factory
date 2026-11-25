@@ -1,0 +1,314 @@
+<!doctype html>
+<!-- How It Actually Works — Solar Panel (Photovoltaic P-N Junction) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a flat sheet of glass turn pure sunlight into electricity?', caption: 'LIGHT TO POWER?' },
+  { id: 'silicon', text: 'Inside a solar panel are two silicon layers — N-type on top, P-type below — forming a P-N junction.', caption: 'SILICON P-N JUNCTION' },
+  { id: 'photons', text: 'When sunlight photons slam into the silicon, they knock electrons completely loose from their atoms.', caption: 'PHOTONS FREE ELECTRONS' },
+  { id: 'field', text: 'A built-in electric field acts like a one-way valve, pushing free electrons up to the top grid.', caption: 'ONE-WAY ELECTRIC FIELD' },
+  { id: 'circuit', text: 'With nowhere else to go, electrons race through an external wire — creating steady electric current.', caption: 'ELECTRIC CURRENT!' },
+  { id: 'outro', text: 'Zero moving parts, zero fuel — just photons pushing electrons to light up the world.', caption: 'CLEAN SOLAR POWER!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('silicon').start + 0.25, type: 'bounce', pitchIndex: 2, intensity: 0.55 },
+    { t: byId('photons').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.7 },
+    { t: byId('field').start + 0.25, type: 'break', pitchIndex: 7, intensity: 0.8 },
+    { t: byId('circuit').start + 0.25, type: 'break', pitchIndex: 9, intensity: 0.85 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.9 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const pSilicon = smooth(byId('silicon').start, byId('silicon').start + 0.6, t);
+  const pPhotons = smooth(byId('photons').start, byId('photons').start + 0.6, t);
+  const pField = smooth(byId('field').start, byId('field').start + 0.6, t);
+  const pCircuit = smooth(byId('circuit').start, byId('circuit').start + 0.7, t);
+  const pOutro = smooth(byId('outro').start, byId('outro').start + 0.6, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.45, 40 * S, W * 0.5, H * 0.45, H * 0.68);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(W * 0.5, H * 0.5); ctx.scale(zoom, zoom); ctx.translate(-W * 0.5, -H * 0.5);
+
+  // Panel cutaway geometry
+  const pLeft = 95 * S, pW = 410 * S;
+  const glassY = H * 0.36;
+  const nY = glassY + 26 * S, nH = 100 * S;
+  const depY = nY + nH, depH = 44 * S;
+  const pY = depY + depH, pH = 115 * S;
+  const backY = pY + pH, backH = 22 * S;
+
+  // 1) Sun glow in top-left corner + incoming photon wave packets
+  const sunX = 115 * S, sunY = H * 0.21;
+  const sunG = ctx.createRadialGradient(sunX, sunY, 8 * S, sunX, sunY, 95 * S);
+  sunG.addColorStop(0, '#fef08a');
+  sunG.addColorStop(0.35, 'rgba(250,204,21,0.65)');
+  sunG.addColorStop(1, 'rgba(250,204,21,0)');
+  ctx.fillStyle = sunG;
+  ctx.beginPath(); ctx.arc(sunX, sunY, 95 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fef9c3';
+  ctx.beginPath(); ctx.arc(sunX, sunY, 26 * S, 0, Math.PI * 2); ctx.fill();
+
+  // 2) Solar cell layers
+  // Protective glass top
+  ctx.fillStyle = 'rgba(186,230,253,0.22)';
+  ctx.strokeStyle = '#7dd3fc'; ctx.lineWidth = 2.5 * S;
+  ctx.fillRect(pLeft, glassY, pW, 26 * S);
+  ctx.strokeRect(pLeft, glassY, pW, 26 * S);
+
+  // Top metallic contact grid fingers
+  ctx.fillStyle = '#cbd5e1';
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(pLeft + (45 + i * 105) * S, glassY + 18 * S, 24 * S, 10 * S);
+  }
+
+  // N-Type Silicon (Cyan-blue tint)
+  const nG = ctx.createLinearGradient(pLeft, nY, pLeft, nY + nH);
+  nG.addColorStop(0, '#0c4a6e'); nG.addColorStop(1, '#075985');
+  ctx.fillStyle = nG;
+  ctx.fillRect(pLeft, nY, pW, nH);
+
+  // P-N Junction / Depletion Zone (Electric field glowing band)
+  const dG = ctx.createLinearGradient(pLeft, depY, pLeft, depY + depH);
+  dG.addColorStop(0, '#1e3a8a'); dG.addColorStop(0.5, '#4c1d95'); dG.addColorStop(1, '#7c2d12');
+  ctx.fillStyle = dG;
+  ctx.fillRect(pLeft, depY, pW, depH);
+
+  // P-Type Silicon (Warm amber-rust tint)
+  const pG = ctx.createLinearGradient(pLeft, pY, pLeft, pY + pH);
+  pG.addColorStop(0, '#7c2d12'); pG.addColorStop(1, '#451a03');
+  ctx.fillStyle = pG;
+  ctx.fillRect(pLeft, pY, pW, pH);
+
+  // Back Aluminum Contact Plate
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(pLeft, backY, pW, backH);
+
+  // Outer cell border
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 3 * S;
+  ctx.strokeRect(pLeft, nY, pW, nH + depH + pH + backH);
+
+  // Layer labels on left side
+  if (pSilicon > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pSilicon;
+    ctx.textAlign = 'left';
+    ctx.font = `900 ${Math.round(19 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillText('N-TYPE SILICON (−)', pLeft + 14 * S, nY + 30 * S);
+    ctx.fillStyle = '#e9d5ff';
+    ctx.font = `800 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('P-N JUNCTION · ELECTRIC FIELD', pLeft + 14 * S, depY + 28 * S);
+    ctx.font = `900 ${Math.round(19 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fdba74';
+    ctx.fillText('P-TYPE SILICON (+)', pLeft + 14 * S, pY + pH - 18 * S);
+    ctx.restore();
+  }
+
+  // Upward electric field arrows inside P-N junction
+  if (pField > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pField * (0.65 + 0.35 * Math.sin(t * 6));
+    ctx.strokeStyle = '#c084fc'; ctx.fillStyle = '#c084fc';
+    ctx.lineWidth = 3.5 * S;
+    for (let i = 0; i < 5; i++) {
+      const ax = pLeft + (60 + i * 74) * S;
+      ctx.beginPath(); ctx.moveTo(ax, depY + depH - 6 * S); ctx.lineTo(ax, depY + 10 * S); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ax, depY + 4 * S); ctx.lineTo(ax - 7 * S, depY + 15 * S); ctx.lineTo(ax + 7 * S, depY + 15 * S);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // 3) Sunlight Photons striking the junction & knocking electrons loose
+  const photonAlpha = 0.25 + 0.75 * pPhotons;
+  for (let i = 0; i < 6; i++) {
+    const cycle = (t * 0.85 + i * 0.167) % 1;
+    const hitX = pLeft + (70 + (i % 4) * 90) * S;
+    const hitY = depY + depH * 0.5;
+    const startX = hitX - 110 * S;
+    const startY = H * 0.20;
+
+    if (cycle < 0.52) {
+      // Photon wave packet flying down into silicon
+      const u = cycle / 0.52;
+      const px = lerp(startX, hitX, u);
+      const py = lerp(startY, hitY, u);
+      ctx.save();
+      ctx.globalAlpha = photonAlpha;
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 3.5 * S;
+      ctx.shadowColor = '#facc15'; ctx.shadowBlur = 12 * S;
+      ctx.beginPath();
+      const ang = Math.atan2(hitY - startY, hitX - startX);
+      for (let k = -24; k <= 24; k += 4) {
+        const lx = k * S;
+        const ly = Math.sin(k * 0.35 - t * 24) * 6 * S;
+        const wx = px + lx * Math.cos(ang) - ly * Math.sin(ang);
+        const wy = py + lx * Math.sin(ang) + ly * Math.cos(ang);
+        if (k === -24) ctx.moveTo(wx, wy); else ctx.lineTo(wx, wy);
+      }
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      // Impact flash + electron knocked upward toward N-type top contact
+      const u = (cycle - 0.52) / 0.48;
+      if (u < 0.28) {
+        const r = (8 + u * 80) * S;
+        ctx.fillStyle = `rgba(254,240,138,${((1 - u / 0.28) * 0.7 * photonAlpha).toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(hitX, hitY, r, 0, Math.PI * 2); ctx.fill();
+      }
+      // Electron rises across junction to top metal contact
+      const ey = lerp(hitY, nY + 6 * S, Math.pow(u, 0.7));
+      const ex = hitX + Math.sin(u * Math.PI * 2) * 8 * S;
+      ctx.save();
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 12 * S;
+      ctx.beginPath(); ctx.arc(ex, ey, 7.5 * S, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#020617';
+      ctx.font = `900 ${Math.round(11 * S)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('−', ex, ey + 4 * S);
+      ctx.restore();
+
+      // Positive hole drifts down into P-type
+      const hy = lerp(hitY, pY + pH - 12 * S, u);
+      ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 2.5 * S;
+      ctx.beginPath(); ctx.arc(hitX, hy, 7 * S, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // 4) External Circuit Wire + Light Bulb on the right side
+  const wireX = pLeft + pW + 108 * S;
+  const topWireY = glassY + 23 * S;
+  const botWireY = backY + backH * 0.5;
+  const bulbY = (topWireY + botWireY) * 0.5;
+
+  // Wire path
+  ctx.strokeStyle = pCircuit > 0.1 ? '#38bdf8' : '#64748b';
+  ctx.lineWidth = 7 * S;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pLeft + pW, topWireY);
+  ctx.lineTo(wireX, topWireY);
+  ctx.lineTo(wireX, bulbY - 46 * S);
+  ctx.moveTo(wireX, bulbY + 46 * S);
+  ctx.lineTo(wireX, botWireY);
+  ctx.lineTo(pLeft + pW, botWireY);
+  ctx.stroke();
+
+  // Flowing electrons around the external circuit
+  if (pCircuit > 0.05) {
+    const seg1 = wireX - (pLeft + pW);
+    const seg2 = botWireY - topWireY;
+    const totalLen = seg1 * 2 + seg2;
+    const numE = 10;
+    for (let i = 0; i < numE; i++) {
+      const dist = ((t * 210 * S + (i / numE) * totalLen) % totalLen);
+      let ex, ey;
+      if (dist < seg1) { ex = pLeft + pW + dist; ey = topWireY; }
+      else if (dist < seg1 + seg2) { ex = wireX; ey = topWireY + (dist - seg1); }
+      else { ex = wireX - (dist - seg1 - seg2); ey = botWireY; }
+      ctx.save();
+      ctx.globalAlpha = pCircuit;
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 12 * S;
+      ctx.beginPath(); ctx.arc(ex, ey, 6.5 * S, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Light Bulb on the external circuit
+  const bulbGlow = clamp(pCircuit * 0.85 + pOutro * 0.35, 0, 1);
+  if (bulbGlow > 0.05) {
+    const bglow = ctx.createRadialGradient(wireX, bulbY, 10 * S, wireX, bulbY, 115 * S * bulbGlow);
+    bglow.addColorStop(0, `rgba(254,240,138,${(0.95 * bulbGlow).toFixed(2)})`);
+    bglow.addColorStop(0.45, `rgba(250,204,21,${(0.45 * bulbGlow).toFixed(2)})`);
+    bglow.addColorStop(1, 'rgba(250,204,21,0)');
+    ctx.fillStyle = bglow;
+    ctx.beginPath(); ctx.arc(wireX, bulbY, 115 * S * bulbGlow, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = bulbGlow > 0.2 ? `rgba(254,249,195,${(0.35 + 0.6 * bulbGlow).toFixed(2)})` : 'rgba(30,41,59,0.8)';
+  ctx.strokeStyle = bulbGlow > 0.2 ? '#fef08a' : '#94a3b8';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath(); ctx.arc(wireX, bulbY, 38 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // Filament coil
+  ctx.strokeStyle = bulbGlow > 0.2 ? '#ffffff' : '#64748b';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.moveTo(wireX - 12 * S, bulbY + 14 * S);
+  ctx.lineTo(wireX - 8 * S, bulbY - 6 * S);
+  ctx.lineTo(wireX, bulbY + 4 * S);
+  ctx.lineTo(wireX + 8 * S, bulbY - 6 * S);
+  ctx.lineTo(wireX + 12 * S, bulbY + 14 * S);
+  ctx.stroke();
+
+  // Power Output Telemetry Badge
+  if (pCircuit > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pCircuit;
+    const watts = Math.round(lerp(0, 420, bulbGlow));
+    ctx.fillStyle = 'rgba(15,23,42,0.88)';
+    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.roundRect(W * 0.5 - 175 * S, backY + 58 * S, 350 * S, 54 * S, 12 * S); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText(`⚡ DC OUTPUT: ${watts} W`, W * 0.5, backY + 93 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top Title + Animated Bottom Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A SOLAR PANEL WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'circuit' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

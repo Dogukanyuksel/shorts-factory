@@ -1,0 +1,201 @@
+<!doctype html>
+<!-- Dual-Source Wave Interference: Coherent emitters sweeping frequency & spacing -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = 'WAIT FOR PERFECT RESONANCE...';
+let rng = 1, events = [], lastPulseIdx = -1, resonanceTriggered = false;
+let baseFreq = 1.0, phaseSeed = 0;
+
+// Offscreen low-res field canvas for fast 60fps analytical wave interference rendering
+const FW = 180, FH = 240;
+const off = document.createElement('canvas');
+off.width = FW; off.height = FH;
+const octx = off.getContext('2d');
+const imgData = octx.createImageData(FW, FH);
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 32;
+  HOOK = cfg.hook || 'WAIT FOR PERFECT RESONANCE...';
+  cv.width = W; cv.height = H;
+  rng = ((cfg.seed || 1) * 2654435761 + 97) >>> 0;
+  baseFreq = 0.85 + rand() * 0.3;
+  phaseSeed = rand() * Math.PI * 2;
+  events = []; lastPulseIdx = -1; resonanceTriggered = false;
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const resStart = DUR - 2.6;
+  const isRes = t >= resStart;
+  const prog = Math.min(1, t / resStart);
+
+  // Sweep spacing d and wavenumber k smoothly, locking into integer harmonic resonance at prog === 1
+  const sep = isRes
+    ? 44
+    : (16 + 34 * (0.5 - 0.5 * Math.cos(prog * Math.PI * 2.5 + 0.2)));
+  const k = isRes
+    ? 0.428 // exact harmonic multiple of sep
+    : (0.22 + 0.24 * prog + 0.05 * Math.sin(prog * Math.PI * 4 + phaseSeed)) * baseFreq;
+  const omega = 9.5;
+  const phase = t * omega;
+
+  // Trigger harmonic musical pulses
+  const pulseIdx = Math.floor(t * 2.8);
+  if (!isRes && pulseIdx !== lastPulseIdx && t > 0.1) {
+    lastPulseIdx = pulseIdx;
+    const pitch = Math.max(0, Math.min(13, Math.floor(((k - 0.18) / 0.34) * 12)));
+    events.push({ t, type: 'bounce', pitchIndex: pitch, intensity: 0.42 });
+  }
+  if (isRes && !resonanceTriggered) {
+    resonanceTriggered = true;
+    events.push({ t, type: 'win', pitchIndex: 11, intensity: 1.0 });
+  }
+
+  // Emitter coordinates in field space
+  const fcx = FW * 0.5, fcy = FH * 0.5;
+  const s1x = fcx - sep, s1y = fcy;
+  const s2x = fcx + sep, s2y = fcy;
+
+  // Compute exact dual-source interference field
+  const data = imgData.data;
+  let ptr = 0;
+  for (let y = 0; y < FH; y++) {
+    const dy = y - fcy;
+    const dy2 = dy * dy;
+    for (let x = 0; x < FW; x++) {
+      const dx1 = x - s1x;
+      const dx2 = x - s2x;
+      const r1 = Math.sqrt(dx1 * dx1 + dy2);
+      const r2 = Math.sqrt(dx2 * dx2 + dy2);
+
+      // Attenuated coherent waves
+      const w1 = Math.sin(r1 * k - phase) / (1 + r1 * 0.012);
+      const w2 = Math.sin(r2 * k - phase) / (1 + r2 * 0.012);
+      const sum = (w1 + w2) * 0.5; // [-1, 1]
+      const amp = Math.abs(sum);
+      const glow = amp * amp;
+
+      let r = 5, g = 7, b = 18;
+      if (isRes) {
+        // Golden-cyan resonance bloom
+        if (sum >= 0) {
+          r = 5 + glow * 250;
+          g = 7 + glow * 215;
+          b = 18 + glow * 70;
+        } else {
+          r = 5 + glow * 50;
+          g = 7 + glow * 215;
+          b = 18 + glow * 235;
+        }
+      } else {
+        if (sum >= 0) {
+          // Constructive Cyan crests
+          r = 5 + glow * 34;
+          g = 7 + glow * 218;
+          b = 18 + glow * 238;
+        } else {
+          // Constructive Magenta troughs
+          r = 5 + glow * 242;
+          g = 7 + glow * 95;
+          b = 18 + glow * 175;
+        }
+      }
+      // Subtle radial edge fade into #050712
+      const rx = (x - fcx) / (FW * 0.52);
+      const ry = (y - fcy) / (FH * 0.52);
+      const vig = Math.max(0, 1 - (rx * rx + ry * ry) * 0.65);
+      data[ptr++] = 5 + (r - 5) * vig;
+      data[ptr++] = 7 + (g - 7) * vig;
+      data[ptr++] = 18 + (b - 18) * vig;
+      data[ptr++] = 255;
+    }
+  }
+  octx.putImageData(imgData, 0, 0);
+
+  // Paint main canvas
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  const fieldX = 0, fieldY = H * 0.14, fieldW = W, fieldH = H * 0.68;
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(off, fieldX, fieldY, fieldW, fieldH);
+  ctx.restore();
+
+  // Draw crisp full-res emitter orbs & wavefront rings
+  const ex1 = fieldX + (s1x / FW) * fieldW;
+  const ey1 = fieldY + (s1y / FH) * fieldH;
+  const ex2 = fieldX + (s2x / FW) * fieldW;
+  const ey2 = fieldY + (s2y / FH) * fieldH;
+
+  for (const [ex, ey] of [[ex1, ey1], [ex2, ey2]]) {
+    ctx.save();
+    const ringR = ((t * 140) % 130) * S;
+    ctx.strokeStyle = isRes ? 'rgba(250,204,21,0.55)' : 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.beginPath(); ctx.arc(ex, ey, ringR, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.fillStyle = isRes ? '#fde047' : '#ffffff';
+    ctx.shadowColor = isRes ? '#facc15' : '#22d3ee';
+    ctx.shadowBlur = 24 * S;
+    ctx.beginPath(); ctx.arc(ex, ey, 11 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Top HOOK
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(38 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(HOOK, W * 0.5, H * 0.105);
+
+  // Bottom Telemetry HUD
+  const boxX = W * 0.08, boxY = H * 0.83, boxW = W * 0.84, boxH = 104 * S;
+  ctx.fillStyle = 'rgba(15,23,42,0.84)';
+  ctx.strokeStyle = isRes ? '#facc15' : 'rgba(34,211,238,0.4)';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.roundRect(boxX, boxY, boxW, boxH, 20 * S); ctx.fill(); ctx.stroke();
+
+  const hz = (k * 185).toFixed(1);
+  const dLambda = ((sep * 2 * k) / (Math.PI * 2)).toFixed(2);
+  ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('FREQUENCY', W * 0.28, boxY + 34 * S);
+  ctx.fillText('SPACING (d / λ)', W * 0.72, boxY + 34 * S);
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillText(`${hz} Hz`, W * 0.28, boxY + 76 * S);
+  ctx.fillStyle = isRes ? '#fde047' : '#f472b6';
+  ctx.fillText(`${dLambda} λ`, W * 0.72, boxY + 76 * S);
+
+  if (isRes) {
+    ctx.fillStyle = 'rgba(2,6,18,0.88)';
+    ctx.beginPath(); ctx.roundRect(W * 0.08, H * 0.42, W * 0.84, 142 * S, 26 * S); ctx.fill();
+    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 5 * S; ctx.stroke();
+    ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('PERFECT RESONANCE! ✨', W * 0.5, H * 0.482);
+    ctx.font = `800 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText('CONSTRUCTIVE HARMONIC LOCK · 6.00 λ', W * 0.5, H * 0.52);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

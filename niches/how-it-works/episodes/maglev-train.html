@@ -1,0 +1,301 @@
+<!doctype html>
+<!-- How It Actually Works — Episode: How a Maglev Train Floats at 600 km/h -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+function rrect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawArrow(x1, y1, x2, y2, color, lw, head) {
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = lw; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - head * Math.cos(ang - 0.5), y2 - head * Math.sin(ang - 0.5));
+  ctx.lineTo(x2 - head * Math.cos(ang + 0.5), y2 - head * Math.sin(ang + 0.5));
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a maglev train rocket at six hundred kilometers per hour with no wheels?', caption: '600 KM/H · NO WHEELS?' },
+  { id: 'levitate', text: 'Superconducting magnets on the train repel magnets in the guideway, lifting it into midair.', caption: 'MAGNETIC LEVITATION' },
+  { id: 'friction', text: 'Floating centimeters above the track eliminates all wheel friction and rolling resistance.', caption: 'ZERO WHEEL FRICTION' },
+  { id: 'linear', text: 'Along the guideway walls, electromagnets rapidly flip between north and south poles.', caption: 'ALTERNATING TRACK POLES' },
+  { id: 'propel', text: 'Opposite poles pull the train forward from ahead while like poles push it from behind.', caption: 'PULL FRONT · PUSH BACK' },
+  { id: 'outro', text: 'Guided by pure magnetism, the train glides effortlessly at airplane speeds on land!', caption: '600 KM/H PURE MAGNETISM!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('levitate').start + 0.25, type: 'bounce', pitchIndex: 4, intensity: 0.7 },
+    { t: byId('friction').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.7 },
+    { t: byId('linear').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.75 },
+    { t: byId('propel').start + 0.2, type: 'break', pitchIndex: 9, intensity: 0.85 },
+    { t: byId('outro').start + 0.15, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const showLev = smooth(byId('levitate').start, byId('levitate').start + 0.8, t);
+  const showFric = smooth(byId('friction').start, byId('friction').start + 0.6, t);
+  const showLin = smooth(byId('linear').start, byId('linear').start + 0.6, t);
+  const showProp = smooth(byId('propel').start, byId('propel').start + 0.7, t);
+  const showOutro = smooth(byId('outro').start, byId('outro').start + 0.7, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.65);
+  bg.addColorStop(0, '#0f2342'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.50;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Speed calculation (0 -> 600 km/h)
+  const speedNorm = clamp(showFric * 0.25 + showLin * 0.25 + showProp * 0.35 + showOutro * 0.15, 0, 1);
+  const speedKmh = Math.round(speedNorm * 600);
+  const trackSpeed = (40 + speedNorm * 620) * S;
+
+  // 1. Speed Wind Streamlines in background
+  if (speedNorm > 0.05) {
+    ctx.save();
+    for (let i = 0; i < 10; i++) {
+      const ly = cy - 230 * S + i * 38 * S;
+      const len = (70 + speedNorm * 170) * S;
+      const lx = W - (((t * trackSpeed * (1.1 + (i % 3) * 0.25) + i * 190 * S) % (W + len + 80 * S)) - 40 * S);
+      ctx.strokeStyle = `rgba(56,189,248,${(0.12 + speedNorm * 0.32).toFixed(2)})`;
+      ctx.lineWidth = (2 + speedNorm * 1.5) * S;
+      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + len, ly); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Live Speedometer HUD (top center above train)
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.88)';
+  ctx.strokeStyle = speedKmh >= 500 ? '#4ade80' : '#38bdf8';
+  ctx.lineWidth = 3 * S;
+  rrect(cx - 145 * S, cy - 275 * S, 290 * S, 68 * S, 16 * S);
+  ctx.fill(); ctx.stroke();
+  ctx.font = `900 ${Math.round(34 * S)}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = speedKmh >= 500 ? '#4ade80' : '#38bdf8';
+  ctx.fillText(`${String(speedKmh).padStart(3, '0')} KM/H`, cx, cy - 228 * S);
+  ctx.restore();
+
+  // 2. Concrete Guideway Track (bottom)
+  const trackY = cy + 88 * S;
+  const trackH = 128 * S;
+  const tg = ctx.createLinearGradient(0, trackY, 0, trackY + trackH);
+  tg.addColorStop(0, '#334155'); tg.addColorStop(1, '#0f172a');
+  ctx.fillStyle = tg;
+  ctx.fillRect(-40 * S, trackY, W + 80 * S, trackH);
+  ctx.strokeStyle = '#64748b'; ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.moveTo(-40 * S, trackY); ctx.lineTo(W + 80 * S, trackY); ctx.stroke();
+
+  // Alternating Electromagnet Coils embedded in Guideway
+  const poleW = 92 * S;
+  const scrollX = (t * trackSpeed * 0.65) % (poleW * 2);
+  const flipPhase = showLin > 0.1 ? Math.floor(t * (2.5 + speedNorm * 4)) : 0;
+
+  for (let i = -2; i < 12; i++) {
+    const px = i * poleW - scrollX;
+    const isNorth = ((i + flipPhase) % 2 === 0);
+    const col = isNorth ? '#ef4444' : '#3b82f6';
+    ctx.save();
+    ctx.fillStyle = col;
+    if (showLin > 0.1) { ctx.shadowColor = col; ctx.shadowBlur = 14 * S * showLin; }
+    rrect(px + 6 * S, trackY + 14 * S, poleW - 12 * S, 44 * S, 8 * S);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 2 * S; ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(isNorth ? 'N' : 'S', px + poleW * 0.5, trackY + 45 * S);
+    ctx.restore();
+  }
+
+  // 3. Levitating Bullet Train Body
+  const hoverLift = showLev * 42 * S + Math.sin(t * 5) * 3 * S * showLev;
+  const trainBaseY = trackY - 12 * S - hoverLift;
+
+  ctx.save();
+  // Train aerodynamic silhouette
+  const bodyG = ctx.createLinearGradient(0, trainBaseY - 140 * S, 0, trainBaseY);
+  bodyG.addColorStop(0, '#f8fafc'); bodyG.addColorStop(0.55, '#cbd5e1'); bodyG.addColorStop(1, '#64748b');
+  ctx.fillStyle = bodyG;
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(cx - 285 * S, trainBaseY - 22 * S);
+  ctx.lineTo(cx - 285 * S, trainBaseY - 118 * S);
+  ctx.quadraticCurveTo(cx - 285 * S, trainBaseY - 142 * S, cx - 245 * S, trainBaseY - 142 * S);
+  ctx.lineTo(cx + 85 * S, trainBaseY - 142 * S);
+  // Long aerodynamic maglev nose cone
+  ctx.bezierCurveTo(cx + 185 * S, trainBaseY - 142 * S, cx + 260 * S, trainBaseY - 82 * S, cx + 298 * S, trainBaseY - 34 * S);
+  ctx.quadraticCurveTo(cx + 305 * S, trainBaseY - 22 * S, cx + 282 * S, trainBaseY - 22 * S);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Blue aerodynamic stripe
+  ctx.fillStyle = '#0284c7';
+  ctx.fillRect(cx - 282 * S, trainBaseY - 68 * S, 495 * S, 18 * S);
+
+  // Cockpit windshield & passenger windows
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.moveTo(cx + 128 * S, trainBaseY - 122 * S);
+  ctx.quadraticCurveTo(cx + 195 * S, trainBaseY - 114 * S, cx + 230 * S, trainBaseY - 84 * S);
+  ctx.lineTo(cx + 128 * S, trainBaseY - 84 * S);
+  ctx.closePath();
+  ctx.fill();
+  for (let w = 0; w < 5; w++) {
+    ctx.fillStyle = '#38bdf8';
+    rrect(cx - 250 * S + w * 72 * S, trainBaseY - 116 * S, 48 * S, 28 * S, 6 * S);
+    ctx.fill();
+  }
+
+  // Superconducting Bogie Magnets mounted underneath train
+  const trainMagnets = [
+    { x: cx - 165 * S, pole: 'N', col: '#ef4444' },
+    { x: cx - 15 * S, pole: 'S', col: '#3b82f6' },
+    { x: cx + 135 * S, pole: 'N', col: '#ef4444' },
+  ];
+  for (const m of trainMagnets) {
+    ctx.fillStyle = m.col;
+    ctx.shadowColor = m.col; ctx.shadowBlur = 14 * S * showLev;
+    rrect(m.x - 42 * S, trainBaseY - 24 * S, 84 * S, 32 * S, 7 * S);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#f8fafc'; ctx.lineWidth = 2.5 * S; ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(m.pole, m.x, trainBaseY - 1 * S);
+  }
+  ctx.restore();
+
+  // 4. Magnetic Levitation Repulsion Field Arcs in Air Gap
+  if (showLev > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showLev;
+    for (const m of trainMagnets) {
+      const gapMid = (trainBaseY + 8 * S + trackY) * 0.5;
+      ctx.strokeStyle = '#38bdf8';
+      ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 12 * S;
+      ctx.lineWidth = 3 * S;
+      for (const sgn of [-1, 1]) {
+        const pulse = Math.sin(t * 10 + m.x) * 4 * S;
+        ctx.beginPath();
+        ctx.moveTo(m.x - 24 * S, gapMid - 12 * S * sgn);
+        ctx.quadraticCurveTo(m.x, gapMid - (2 * S + pulse) * sgn, m.x + 24 * S, gapMid - 12 * S * sgn);
+        ctx.stroke();
+      }
+      // Upward levitation arrow
+      drawArrow(m.x, trackY - 6 * S, m.x, trainBaseY + 14 * S, '#38bdf8', 4 * S, 10 * S);
+    }
+    ctx.restore();
+  }
+
+  // 5. Air Gap & Zero Friction Callouts
+  if (showFric > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showFric;
+    ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('↕ 10 cm AIR GAP · ZERO WHEEL FRICTION', cx, trackY + 94 * S);
+    ctx.restore();
+  }
+
+  // 6. Linear Motor Pull Front / Push Back Force Arrows
+  if (showProp > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showProp;
+    const pulseX = Math.sin(t * 9) * 10 * S;
+    // PULL FRONT (green arrow at nose)
+    drawArrow(cx + 195 * S, trainBaseY + 26 * S, cx + 295 * S + pulseX, trainBaseY + 26 * S, '#4ade80', 7 * S, 16 * S);
+    ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('PULL →', cx + 245 * S, trainBaseY + 58 * S);
+
+    // PUSH BACK (orange arrow at rear)
+    drawArrow(cx - 295 * S + pulseX, trainBaseY + 26 * S, cx - 195 * S, trainBaseY + 26 * S, '#fb923c', 7 * S, 16 * S);
+    ctx.fillStyle = '#fb923c';
+    ctx.fillText('→ PUSH', cx - 245 * S, trainBaseY + 58 * S);
+    ctx.restore();
+  }
+
+  if (showOutro > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showOutro;
+    ctx.font = `900 ${Math.round(26 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#4ade80';
+    ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 16 * S;
+    ctx.fillText('⚡ SUPERCONDUCTING LINEAR PROPULSION', cx, trackY + 175 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top title + Bottom animated caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A MAGLEV TRAIN FLOATS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'propel' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

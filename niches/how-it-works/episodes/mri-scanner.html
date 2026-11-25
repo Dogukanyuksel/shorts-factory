@@ -1,0 +1,302 @@
+<!doctype html>
+<!-- How It Actually Works — MRI Scanner -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does an MRI see inside your body without a single X-ray?', caption: 'NO X-RAYS NEEDED!' },
+  { id: 'magnet', text: 'A superconducting magnet creates a field 60,000 times stronger than Earth\'s.', caption: '60,000X MAGNET' },
+  { id: 'protons', text: 'Every hydrogen proton in your body snaps into alignment like tiny compasses.', caption: 'PROTONS ALIGN' },
+  { id: 'rf', text: 'Next, a radio wave pulse knocks those spinning protons out of alignment.', caption: 'RADIO PULSE HIT!' },
+  { id: 'signal', text: 'When the pulse stops, protons snap back and broadcast faint radio echoes.', caption: 'RADIO ECHOES' },
+  { id: 'outro', text: 'Computers decode those echoes into razor-sharp 3D slices of your brain.', caption: '3D BRAIN SCAN!' },
+];
+
+// Deterministic proton grid inside the bore
+const PROTONS = [];
+for (let r = -1; r <= 1; r++) {
+  for (let c = -2; c <= 2; c++) {
+    if (Math.abs(r) === 1 && Math.abs(c) === 2) continue;
+    const idx = PROTONS.length;
+    PROTONS.push({
+      ox: c * 46,
+      oy: r * 48,
+      randAngle: (idx * 2.399) % (Math.PI * 2),
+      phase: idx * 0.7,
+    });
+  }
+}
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('magnet').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.6 },
+    { t: byId('protons').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.7 },
+    { t: byId('rf').start + 0.2, type: 'break', pitchIndex: 8, intensity: 0.85 },
+    { t: byId('signal').start + 0.25, type: 'bounce', pitchIndex: 9, intensity: 0.7 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const pMag = smooth(byId('magnet').start, byId('magnet').start + 0.7, t);
+  const pAlign = smooth(byId('protons').start, byId('protons').start + 0.8, t);
+  const pRfIn = smooth(byId('rf').start, byId('rf').start + 0.5, t);
+  const pRfOut = smooth(byId('signal').start, byId('signal').start + 0.7, t);
+  const pTip = clamp(pRfIn - pRfOut, 0, 1);
+  const pSignal = smooth(byId('signal').start, byId('signal').start + 0.6, t);
+  const pOutro = smooth(byId('outro').start, byId('outro').end - 0.5, t);
+
+  // Blueprint background + grid
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.45, 40 * S, W * 0.5, H * 0.45, H * 0.65);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.44;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Superconducting magnetic field lines (vertical B0 flux)
+  if (pMag > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pMag * 0.55;
+    for (let i = -3; i <= 3; i++) {
+      const fx = cx + i * 36 * S;
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2.5 * S;
+      ctx.setLineDash([10 * S, 10 * S]);
+      ctx.lineDashOffset = -t * 70 * S;
+      ctx.beginPath();
+      ctx.moveTo(fx, cy - 235 * S);
+      ctx.lineTo(fx, cy + 235 * S);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // Outer MRI Gantry Ring (cryostat casing)
+  const outerR = 238 * S;
+  const innerR = 152 * S;
+  const ringG = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
+  ringG.addColorStop(0, '#334155');
+  ringG.addColorStop(0.35, '#94a3b8');
+  ringG.addColorStop(0.75, '#475569');
+  ringG.addColorStop(1, '#1e293b');
+  ctx.fillStyle = ringG;
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+  ctx.arc(cx, cy, innerR, 0, Math.PI * 2, true);
+  ctx.fill();
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath(); ctx.arc(cx, cy, outerR, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, innerR, 0, Math.PI * 2); ctx.stroke();
+
+  // Superconducting copper/cyan coil segments around the gantry
+  const coilGlow = 0.25 + pMag * 0.75;
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const rx = cx + Math.cos(a) * 195 * S;
+    const ry = cy + Math.sin(a) * 195 * S;
+    ctx.save();
+    ctx.translate(rx, ry);
+    ctx.rotate(a);
+    ctx.fillStyle = pMag > 0.2 ? `rgba(56,189,248,${coilGlow.toFixed(2)})` : '#64748b';
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = pMag * 18 * S;
+    ctx.fillRect(-16 * S, -11 * S, 32 * S, 22 * S);
+    ctx.restore();
+  }
+  ctx.shadowBlur = 0;
+
+  // Inner bore dark background
+  ctx.fillStyle = '#061020';
+  ctx.beginPath(); ctx.arc(cx, cy, innerR - 2 * S, 0, Math.PI * 2); ctx.fill();
+
+  // RF pulse expanding waves during 'rf'
+  if (pTip > 0.05) {
+    for (let w = 0; w < 3; w++) {
+      const prog = ((t * 1.9 + w * 0.33) % 1);
+      const rr = (1 - prog) * (innerR - 6 * S);
+      ctx.strokeStyle = `rgba(244,114,182,${((1 - prog) * 0.85 * pTip).toFixed(2)})`;
+      ctx.lineWidth = 4.5 * S;
+      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // Radio echo waves radiating outward during 'signal'
+  if (pSignal > 0.05) {
+    for (let w = 0; w < 4; w++) {
+      const prog = ((t * 1.6 + w * 0.25) % 1);
+      const rr = prog * (outerR + 30 * S);
+      ctx.strokeStyle = `rgba(74,222,128,${((1 - prog) * 0.75 * pSignal).toFixed(2)})`;
+      ctx.lineWidth = 4 * S;
+      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // Hydrogen protons inside the bore
+  for (const p of PROTONS) {
+    const px = cx + p.ox * S;
+    const py = cy + p.oy * S;
+    // Target angle: random -> aligned vertical (-PI/2) -> tipped 90 deg (0) -> snap back (-PI/2)
+    const aligned = -Math.PI / 2 + Math.sin(t * 7 + p.phase) * 0.08;
+    const baseAngle = p.randAngle * (1 - pAlign) + aligned * pAlign;
+    const finalAngle = baseAngle + pTip * (Math.PI * 0.5) + Math.sin(t * 11 + p.phase) * 0.12 * pTip;
+
+    // Proton glow orb
+    const orbCol = pTip > 0.3 ? '#f472b6' : (pSignal > 0.3 ? '#4ade80' : '#38bdf8');
+    ctx.fillStyle = orbCol;
+    ctx.shadowColor = orbCol;
+    ctx.shadowBlur = 12 * S;
+    ctx.beginPath(); ctx.arc(px, py, 10 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Spin arrow
+    const len = 24 * S;
+    const ex = px + Math.cos(finalAngle) * len;
+    const ey = py + Math.sin(finalAngle) * len;
+    ctx.strokeStyle = '#f8fafc';
+    ctx.lineWidth = 3.2 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(px - Math.cos(finalAngle) * 10 * S, py - Math.sin(finalAngle) * 10 * S); ctx.lineTo(ex, ey); ctx.stroke();
+    // Arrowhead
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.moveTo(ex + Math.cos(finalAngle) * 6 * S, ey + Math.sin(finalAngle) * 6 * S);
+    ctx.lineTo(ex + Math.cos(finalAngle + 2.5) * 8 * S, ey + Math.sin(finalAngle + 2.5) * 8 * S);
+    ctx.lineTo(ex + Math.cos(finalAngle - 2.5) * 8 * S, ey + Math.sin(finalAngle - 2.5) * 8 * S);
+    ctx.closePath(); ctx.fill();
+
+    // H+ label
+    ctx.fillStyle = '#020617';
+    ctx.font = `900 ${Math.round(10 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('H+', px, py + 3.5 * S);
+  }
+
+  // Telemetry badge above ring
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+  if (pMag > 0.05 && pTip < 0.3 && pSignal < 0.3) {
+    ctx.globalAlpha = pMag;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('SUPERCONDUCTING FIELD · 3.0 TESLA', cx, cy - 260 * S);
+  } else if (pTip >= 0.3) {
+    ctx.globalAlpha = pTip;
+    ctx.fillStyle = '#f472b6';
+    ctx.fillText('RF PULSE · 90° PROTON TIP', cx, cy - 260 * S);
+  } else if (pSignal >= 0.3) {
+    ctx.globalAlpha = pSignal;
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('RECEIVING RADIO ECHOES', cx, cy - 260 * S);
+  }
+  ctx.globalAlpha = 1;
+
+  // Reconstructed Brain MRI Monitor below the gantry (appears in signal/outro)
+  const showScan = smooth(byId('signal').start + 0.4, byId('outro').start + 0.4, t);
+  if (showScan > 0.02) {
+    const mx = cx, my = cy + 315 * S;
+    const mw = 260 * S, mh = 152 * S;
+    ctx.save();
+    ctx.globalAlpha = showScan;
+    ctx.fillStyle = '#020617';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 3 * S;
+    ctx.fillRect(mx - mw * 0.5, my - mh * 0.5, mw, mh);
+    ctx.strokeRect(mx - mw * 0.5, my - mh * 0.5, mw, mh);
+
+    // Clip scan reveal progressively
+    const revealW = mw * clamp(0.15 + pOutro * 0.85, 0, 1);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(mx - mw * 0.5, my - mh * 0.5, revealW, mh);
+    ctx.clip();
+
+    // Stylized axial MRI brain slice (left & right hemispheres)
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.fillStyle = 'rgba(148,163,184,0.28)';
+    ctx.lineWidth = 3 * S;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(mx + s * 28 * S, my, 32 * S, 54 * S, s * 0.08, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // Cortical folds
+      ctx.strokeStyle = 'rgba(56,189,248,0.75)';
+      ctx.lineWidth = 2 * S;
+      ctx.beginPath();
+      ctx.arc(mx + s * 26 * S, my - 18 * S, 14 * S, 0.3, 2.8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(mx + s * 28 * S, my + 16 * S, 16 * S, 3.2, 5.9);
+      ctx.stroke();
+      // Ventricles
+      ctx.fillStyle = '#020617';
+      ctx.beginPath();
+      ctx.ellipse(mx + s * 10 * S, my, 5 * S, 18 * S, s * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.fillStyle = 'rgba(148,163,184,0.28)';
+      ctx.lineWidth = 3 * S;
+    }
+    ctx.restore();
+
+    // Green scanning bar
+    if (pOutro < 0.98) {
+      const sx = mx - mw * 0.5 + revealW;
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath(); ctx.moveTo(sx, my - mh * 0.5); ctx.lineTo(sx, my + mh * 0.5); ctx.stroke();
+    }
+
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `800 ${Math.round(15 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('MRI SLICE · 100% RADIATION FREE', mx, my + mh * 0.5 + 22 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top title + animated bottom caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW AN MRI SCANNER WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'signal' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

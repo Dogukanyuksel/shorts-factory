@@ -1,0 +1,235 @@
+<!doctype html>
+<!-- How It Actually Works — Fiber Optic Cables -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does the internet cross entire oceans at the speed of light?', caption: 'SPEED OF LIGHT!' },
+  { id: 'glass', text: 'Inside a fiber optic cable is a hair-thin glass core wrapped in reflective cladding.', caption: 'CORE & CLADDING' },
+  { id: 'laser', text: 'A tiny laser converts your data into billions of flashing light pulses per second.', caption: 'LASER DATA PULSES' },
+  { id: 'bounce', text: 'When light hits the cladding at a shallow angle, it bounces back completely.', caption: 'TOTAL REFLECTION!' },
+  { id: 'curve', text: 'Even when the cable bends around corners, light stays trapped inside the glass.', caption: 'BENDS WITH LIGHT' },
+  { id: 'outro', text: 'That trapped light races across continents, delivering gigabits straight to your screen!', caption: 'GIGABIT INTERNET!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('glass').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.6 },
+    { t: byId('laser').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.7 },
+    { t: byId('bounce').start + 0.2, type: 'break', pitchIndex: 8, intensity: 0.85 },
+    { t: byId('curve').start + 0.25, type: 'bounce', pitchIndex: 9, intensity: 0.75 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const pGlass = smooth(byId('glass').start, byId('glass').start + 0.6, t);
+  const pLaser = smooth(byId('laser').start, byId('laser').start + 0.6, t);
+  const pBounce = smooth(byId('bounce').start, byId('bounce').start + 0.6, t);
+  const pCurve = smooth(byId('curve').start, byId('curve').start + 0.8, t);
+  const pOutro = smooth(byId('outro').start, byId('outro').start + 0.6, t);
+
+  // Blueprint background + grid
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.51;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+
+  // Dynamic bend amplitude increases smoothly during 'curve'
+  const bendAmp = (38 + pCurve * 92) * S;
+  const xStart = 72 * S, xEnd = W - 72 * S;
+  const span = xEnd - xStart;
+  const coreHalf = 46 * S;
+  const cladHalf = 82 * S;
+
+  const centerY = (u) => cy + Math.sin(u * Math.PI * 2 - Math.PI * 0.5) * bendAmp;
+
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Build centerline samples
+  const steps = 60;
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps;
+    pts.push({ x: xStart + u * span, y: centerY(u), u });
+  }
+
+  // Helper to stroke curved ribbon
+  const drawCableBand = (halfW, fill, stroke, lineW) => {
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const p = pts[i];
+      if (i === 0) ctx.moveTo(p.x, p.y - halfW);
+      else ctx.lineTo(p.x, p.y - halfW);
+    }
+    for (let i = steps; i >= 0; i--) {
+      const p = pts[i];
+      ctx.lineTo(p.x, p.y + halfW);
+    }
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lineW; ctx.stroke(); }
+  };
+
+  // Outer protective jacket ends (left & right sleeves)
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 3 * S;
+  ctx.fillRect(xStart - 34 * S, centerY(0) - cladHalf - 16 * S, 42 * S, (cladHalf + 16 * S) * 2);
+  ctx.strokeRect(xStart - 34 * S, centerY(0) - cladHalf - 16 * S, 42 * S, (cladHalf + 16 * S) * 2);
+  ctx.fillRect(xEnd - 8 * S, centerY(1) - cladHalf - 16 * S, 42 * S, (cladHalf + 16 * S) * 2);
+  ctx.strokeRect(xEnd - 8 * S, centerY(1) - cladHalf - 16 * S, 42 * S, (cladHalf + 16 * S) * 2);
+
+  // Outer Cladding (low refractive index glass)
+  drawCableBand(cladHalf, 'rgba(51,65,85,0.55)', 'rgba(148,163,184,0.65)', 3 * S);
+
+  // Inner Glass Core (high refractive index crystal)
+  drawCableBand(coreHalf, 'rgba(14,165,233,0.18)', '#38bdf8', 3.5 * S);
+
+  // Total Internal Reflection zig-zag laser beam inside the curved core
+  const bounces = 7;
+  if (pLaser > 0.05) {
+    const rayProgress = clamp(pLaser * 1.15, 0, 1);
+    const maxU = rayProgress;
+
+    // Draw continuous laser zig-zag path
+    ctx.save();
+    ctx.strokeStyle = '#f472b6';
+    ctx.shadowColor = '#ec4899';
+    ctx.shadowBlur = 16 * S;
+    ctx.lineWidth = 5 * S;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const raySteps = 140;
+    for (let i = 0; i <= raySteps; i++) {
+      const u = (i / raySteps) * maxU;
+      const tri = Math.abs(((u * bounces) % 2) - 1) * 2 - 1; // triangle wave [-1, 1]
+      const rx = xStart + u * span;
+      const ry = centerY(u) + tri * (coreHalf - 5 * S);
+      if (i === 0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry);
+    }
+    ctx.stroke();
+
+    // Inner white laser core highlight
+    ctx.strokeStyle = '#fdf2f8';
+    ctx.lineWidth = 2 * S;
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+    ctx.restore();
+
+    // Specular reflection sparks at each bounce point
+    for (let b = 1; b < bounces; b++) {
+      const bu = b / bounces;
+      if (bu > maxU) continue;
+      const side = (b % 2 === 1) ? -1 : 1;
+      const bx = xStart + bu * span;
+      const by = centerY(bu) + side * (coreHalf - 4 * S);
+      const pulse = 0.6 + 0.4 * Math.sin(t * 14 - b * 1.2);
+      ctx.fillStyle = `rgba(250,204,21,${(pulse * (0.5 + pBounce * 0.5)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(bx, by, (6 + pBounce * 5) * S, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Racing high-speed photon data packets
+    for (let k = 0; k < 6; k++) {
+      const pu = (t * 0.75 + k / 6) % 1;
+      if (pu > maxU) continue;
+      const tri = Math.abs(((pu * bounces) % 2) - 1) * 2 - 1;
+      const px = xStart + pu * span;
+      const py = centerY(pu) + tri * (coreHalf - 5 * S);
+      ctx.fillStyle = k % 2 === 0 ? '#38bdf8' : '#fef08a';
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 14 * S;
+      ctx.beginPath(); ctx.arc(px, py, 8 * S, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // TX Laser Diode label (left) & RX Detector (right)
+  ctx.fillStyle = '#f472b6';
+  ctx.font = `900 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('TX', xStart - 13 * S, centerY(0) + 6 * S);
+
+  ctx.fillStyle = pOutro > 0.2 ? '#4ade80' : '#94a3b8';
+  ctx.fillText('RX', xEnd + 13 * S, centerY(1) + 6 * S);
+
+  // Digital output burst at RX in outro
+  if (pOutro > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pOutro;
+    const rxX = xEnd + 36 * S, rxY = centerY(1);
+    for (let w = 0; w < 3; w++) {
+      const prog = ((t * 2 + w * 0.33) % 1);
+      ctx.strokeStyle = `rgba(74,222,128,${(1 - prog).toFixed(2)})`;
+      ctx.lineWidth = 3.5 * S;
+      ctx.beginPath(); ctx.arc(rxX, rxY, (14 + prog * 46) * S, -0.8, 0.8); ctx.stroke();
+    }
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('100 Gbps · ZERO SIGNAL LOSS', cx, cy + 225 * S);
+    ctx.restore();
+  }
+
+  // Layer & physics callouts
+  ctx.font = `800 ${Math.round(19 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  if (pGlass > 0.05) {
+    ctx.globalAlpha = pGlass;
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('CLADDING (n = 1.46)', cx, cy - 175 * S - pCurve * 40 * S);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('GLASS CORE (n = 1.48)', cx, cy - 142 * S - pCurve * 40 * S);
+  }
+  if (pBounce > 0.05) {
+    ctx.globalAlpha = pBounce;
+    ctx.fillStyle = '#facc15';
+    ctx.fillText('TOTAL INTERNAL REFLECTION (θ > θc)', cx, cy + 178 * S);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // Top title + animated bottom caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW FIBER OPTIC CABLES WORK', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'bounce' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

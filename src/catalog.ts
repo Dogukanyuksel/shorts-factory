@@ -6,7 +6,13 @@ export type PhysicsNiche =
   | "sorting-race"
   | "marble-drop"
   | "pendulum-wave"
-  | "ball-grow";
+  | "ball-grow"
+  | "double-pendulum"
+  | "gravity-orbit"
+  | "maze-race"
+  | "domino-chain"
+  | "wave-interference"
+  | "fourier-draw";
 
 export type PhysicsJob = {
   id: string;
@@ -41,12 +47,18 @@ const PHYSICS_ROTATION: PhysicsNiche[] = [
   "marble-drop",
   "pendulum-wave",
   "ball-grow",
+  "double-pendulum",
+  "gravity-orbit",
+  "maze-race",
+  "domino-chain",
+  "wave-interference",
+  "fourier-draw",
 ];
 
 /**
- * Kanal 1 (Physics & Simulations) için YPP-dostu küratörlü açılış havuzu.
- * Her video farklı mekanik + benzersiz İngilizce sesli fizik/algoritma yorumu + özgün açıklama taşır.
+ * Kanal 1 (Kinetic Lab) için 12 FARKLI mekanikli YPP-dostu küratörlü katalog.
  * Ardışık iki video ASLA aynı simülasyon şablonunu tekrarlamaz.
+ * Her videoda benzersiz İngilizce sesli bilim/matematik anlatımı vardır.
  */
 export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
   {
@@ -95,10 +107,25 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     categoryId: "28",
   },
   {
-    id: "marble-drop-seed104",
+    id: "double-pendulum-seed104",
+    channel: "physics",
+    niche: "double-pendulum",
+    seed: 104,
+    seconds: 32,
+    hook: "0.001 RADIANS APART — WATCH CHAOS",
+    narration:
+      "Both double pendulums are released from almost the exact same angle — separated by just one thousandth of a radian. For a few seconds they look identical, and then chaos theory tears them completely apart.",
+    title: "Released 0.001 Radians Apart — Chaos Theory in Action #shorts",
+    description:
+      "A classic demonstration of deterministic chaos: two double pendulums with nearly identical initial angles trace matching arcs before diverging exponentially into completely unrelated trajectories.\n\n#shorts #chaostheory #physics #math",
+    tags: ["double pendulum", "chaos theory", "butterfly effect", "physics", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "marble-drop-seed105",
     channel: "physics",
     niche: "marble-drop",
-    seed: 104,
+    seed: 105,
     seconds: 32,
     hook: "WHICH MARBLE WINS THE GAUNTLET?",
     narration:
@@ -110,10 +137,25 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     categoryId: "28",
   },
   {
-    id: "pendulum-wave-seed105",
+    id: "gravity-orbit-seed106",
+    channel: "physics",
+    niche: "gravity-orbit",
+    seed: 106,
+    seconds: 32,
+    hook: "THE UNSOLVABLE 3-BODY PROBLEM",
+    narration:
+      "Two planets orbiting each other are easy to predict forever. Add a third body and Newton's gravity becomes mathematically unsolvable — creating wild gravitational slingshots that never repeat.",
+    title: "The Unsolvable 3-Body Gravity Problem Visualized #shorts",
+    description:
+      "Three glowing masses interacting solely through Newton's law of universal gravitation. Watch how close encounters trigger dramatic gravitational slingshots across space.\n\n#shorts #threebodyproblem #space #physics",
+    tags: ["three body problem", "orbital mechanics", "gravity", "astronomy", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "pendulum-wave-seed107",
     channel: "physics",
     niche: "pendulum-wave",
-    seed: 105,
+    seed: 107,
     seconds: 32,
     hook: "WAIT FOR THE PERFECT SYNC...",
     narration:
@@ -125,10 +167,25 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     categoryId: "28",
   },
   {
-    id: "ball-grow-seed106",
+    id: "maze-race-seed108",
+    channel: "physics",
+    niche: "maze-race",
+    seed: 108,
+    seconds: 32,
+    hook: "BLIND SEARCH VS A* AI PATHFINDING",
+    narration:
+      "On the left, Breadth-First Search blindly floods every single corridor. On the right, the A-star heuristic algorithm estimates distance to the goal — the exact math behind GPS navigation and game AI.",
+    title: "BFS Flood Fill vs A* Pathfinding AI Maze Race #shorts",
+    description:
+      "A side-by-side computer science race comparing blind Breadth-First Search against A* heuristic pathfinding on the exact same randomly generated maze.\n\n#shorts #algorithms #pathfinding #computerscience",
+    tags: ["a star algorithm", "pathfinding", "maze solver", "computer science", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "ball-grow-seed109",
     channel: "physics",
     niche: "ball-grow",
-    seed: 106,
+    seed: 109,
     seconds: 32,
     hook: "IT GROWS ON EVERY SINGLE BOUNCE",
     narration:
@@ -140,100 +197,55 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     categoryId: "28",
   },
   {
-    id: "physics-ring-seed107",
+    id: "domino-chain-seed110",
     channel: "physics",
-    niche: "physics-ring",
-    seed: 107,
-    seconds: 32,
-    hook: "MOMENTUM VS 7 SPINNING BARRIERS",
-    narration:
-      "Angular momentum keeps all seven rings rotating in alternating directions while gravity pulls the ball downward. Only a direct hit through the narrow gap shatters each layer.",
-    title: "Angular Momentum vs 7 Spinning Rings #shorts",
-    description:
-      "Watch how gravity and elastic reflections interact inside seven counter-rotating barriers. Each shattered ring shifts the acoustic scale upward.\n\n#shorts #physics #mechanics #simulation",
-    tags: ["angular momentum", "physics engine", "ring escape", "shorts"],
-    categoryId: "28",
-  },
-  {
-    id: "duel-balls-seed108",
-    channel: "physics",
-    niche: "duel-balls",
-    seed: 108,
-    seconds: 32,
-    hook: "ELASTIC COLLISION SHOWDOWN",
-    narration:
-      "In a perfectly elastic collision, both momentum and kinetic energy are conserved. Watch how a single glancing hit completely reverses who controls the arena.",
-    title: "Elastic Collision Duel: Who Takes the Final Hit? #shorts",
-    description:
-      "A physics-based head-to-head duel demonstrating conservation of momentum in 2D elastic collisions. Every impact plays a harmonic note proportional to speed.\n\n#shorts #physics #collisions #science",
-    tags: ["elastic collision", "conservation of momentum", "physics duel", "shorts"],
-    categoryId: "28",
-  },
-  {
-    id: "sorting-race-seed109",
-    channel: "physics",
-    niche: "sorting-race",
-    seed: 109,
-    seconds: 32,
-    hook: "O(N LOG N) VS O(N²) IN 30 SECONDS",
-    narration:
-      "Why do computer scientists obsess over Big-O notation? Because as the data grows, an N-squared algorithm falls hopelessly behind an N-log-N algorithm. Watch the gap explode.",
-    title: "Why Big-O Notation Matters: Live Algorithm Race #shorts",
-    description:
-      "Comparing quadratic vs linearithmic sorting algorithms on randomized data. Hear the sound of sorted order emerging as comparisons drop to zero.\n\n#shorts #algorithms #programming #compsci",
-    tags: ["big o notation", "sorting visualization", "programming", "shorts"],
-    categoryId: "28",
-  },
-  {
-    id: "marble-drop-seed110",
-    channel: "physics",
-    niche: "marble-drop",
+    niche: "domino-chain",
     seed: 110,
     seconds: 32,
-    hook: "GRAVITY GAUNTLET: PICK YOUR COLOR",
+    hook: "1 TINY DOMINO TOPPLES A GIANT",
     narration:
-      "A tiny bounce at the top of the course changes every collision below it. That is the butterfly effect playing out in a thirty-second marble drop.",
-    title: "The Butterfly Effect in a 30-Second Marble Drop #shorts",
+      "A single domino can knock over another domino one and a half times its own size. That geometric energy amplification means a chain of just twenty-nine dominoes could topple the Empire State Building.",
+    title: "Exponential Domino Chain: Tiny Push, Giant Crash #shorts",
     description:
-      "Watch how microscopic differences at the starting gate compound through dozens of rigid-body peg collisions to decide the winner.\n\n#shorts #butterflyeffect #marblerace #physics",
-    tags: ["butterfly effect", "marble drop", "physics", "shorts"],
+      "Each domino stores gravitational potential energy waiting to be released by a tiny nudge. Watch geometric scaling amplify a whisper-light tap into a massive final impact.\n\n#shorts #physics #domino #energy",
+    tags: ["domino effect", "exponential scaling", "potential energy", "physics", "shorts"],
     categoryId: "28",
   },
   {
-    id: "pendulum-wave-seed111",
+    id: "wave-interference-seed111",
     channel: "physics",
-    niche: "pendulum-wave",
+    niche: "wave-interference",
     seed: 111,
     seconds: 32,
-    hook: "HOW WAVES FORM WITHOUT TOUCHING",
+    hook: "WHEN TWO WAVES CANCEL EACH OTHER",
     narration:
-      "None of these pendulums touch each other, yet your brain sees a flowing sine wave and a spinning double helix. It is pure math — just phase differences in simple harmonic motion.",
-    title: "These Pendulums Never Touch — Yet They Form a Wave #shorts",
+      "When two wave crests meet, they amplify into a glowing bright peak. When a crest meets a trough, they erase each other completely — the exact same physics behind Wi-Fi dead zones and noise-canceling headphones.",
+    title: "Wave Interference: How Two Waves Create Silence & Light #shorts",
     description:
-      "Simple harmonic motion with carefully tuned frequencies produces mesmerizing optical illusions: traveling waves, opposing rows, and full phase realignment.\n\n#shorts #physics #math #illusion",
-    tags: ["harmonic motion", "pendulum", "math art", "physics", "shorts"],
+      "Visualizing constructive and destructive wave interference from two coherent oscillators. Watch bright antinodes and dark nodal lines shift dynamically as frequency sweeps.\n\n#shorts #waves #physics #optics",
+    tags: ["wave interference", "physics", "constructive interference", "science", "shorts"],
     categoryId: "28",
   },
   {
-    id: "ball-grow-seed112",
+    id: "fourier-draw-seed112",
     channel: "physics",
-    niche: "ball-grow",
+    niche: "fourier-draw",
     seed: 112,
     seconds: 32,
-    hook: "EVERY BOUNCE = FASTER COLLISIONS",
+    hook: "DRAWING ANY SHAPE USING ONLY CIRCLES",
     narration:
-      "As the sphere expands inside a fixed boundary, its free travel distance shrinks. Fewer pixels to travel means collisions happen exponentially faster right before the finale.",
-    title: "Why Collisions Accelerate as Space Runs Out #shorts",
+      "Joseph Fourier proved that almost any shape or sound wave in the universe can be built by stacking rotating circles at different speeds. Watch these harmonic epicycles trace pure geometry out of thin air.",
+    title: "Fourier Transform: Drawing Complex Shapes With Circles #shorts",
     description:
-      "As free path length approaches zero, collision frequency spikes dramatically — the same geometric principle behind gas pressure in compressed containers.\n\n#shorts #physics #geometry #simulation",
-    tags: ["gas pressure", "geometry", "physics simulation", "shorts"],
+      "A real-time visualization of Fourier epicycles — rotating harmonic vectors summed tip-to-tail to trace intricate geometric paths. The mathematical backbone of MP3, JPEG, and 5G.\n\n#shorts #fourier #math #visualization",
+    tags: ["fourier transform", "epicycles", "mathematics", "visual math", "shorts"],
     categoryId: "28",
   },
 ];
 
 /**
- * Kanal 2 (How It Works) — 10 hazır İngilizce mühendislik/bilim açıklayıcı bölüm.
- * YPP açısından en yüksek özgünlük ve en yüksek RPM kategorisi.
+ * Kanal 2 (Clear Mechanics) — 30 hazır İngilizce mühendislik & bilim açıklayıcı bölüm!
+ * Günde 2 video = 15 gün kesintisiz, günde 1 video = 1 ay kesintisiz özgün YPP içeriği.
  */
 export const EXPLAINER_JOBS: ExplainerJob[] = [
   {
@@ -336,9 +348,213 @@ export const EXPLAINER_JOBS: ExplainerJob[] = [
     tags: ["bulletproof vest", "kevlar", "materials science", "engineering", "shorts"],
     categoryId: "27",
   },
+  // --- 20 Yeni Mühendislik & Bilim Bölümü (#11 - #30) ---
+  {
+    id: "explainer-jet-engine",
+    channel: "explainer",
+    episode: "jet-engine",
+    title: "How a Jet Engine Generates 100,000 Pounds of Thrust #shorts",
+    description:
+      "Suck, squeeze, bang, blow: inside a modern turbofan jet engine, giant intake blades compress incoming air, ignite fuel at over 1,500°C, and blast exhaust backward to launch airliners across continents.\n\n#shorts #aviation #jetengine #engineering",
+    tags: ["how jet engines work", "turbofan", "aerospace engineering", "aviation", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-mri-scanner",
+    channel: "explainer",
+    episode: "mri-scanner",
+    title: "How an MRI Sees Inside Your Body Without X-Rays #shorts",
+    description:
+      "An MRI uses superconducting magnets 60,000 times stronger than Earth's magnetic field to align hydrogen protons in your body's water, then listens to the radio echoes they emit as they snap back.\n\n#shorts #mri #medicaltech #science",
+    tags: ["how mri works", "medical engineering", "physics", "science explained", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-gps-satellites",
+    channel: "explainer",
+    episode: "gps-satellites",
+    title: "How GPS Pinpoints You Within 3 Meters From Space #shorts",
+    description:
+      "GPS satellites broadcast ultra-precise atomic clock timestamps at the speed of light. By measuring tiny nanosecond arrival delays from at least four satellites, your phone trilaterates your exact spot on Earth.\n\n#shorts #gps #space #engineering",
+    tags: ["how gps works", "satellites", "trilateration", "technology explained", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-lithium-battery",
+    channel: "explainer",
+    episode: "lithium-battery",
+    title: "What Actually Happens Inside Your Phone Battery? #shorts",
+    description:
+      "When your phone runs, lithium ions shuttle through an electrolyte separator from anode to cathode while forcing electrons through your phone's circuit. Plugging in the charger pushes them right back.\n\n#shorts #battery #technology #engineering",
+    tags: ["lithium ion battery", "how batteries work", "chemistry", "tech explained", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-airbag",
+    channel: "explainer",
+    episode: "airbag",
+    title: "How a Car Airbag Inflates in Just 30 Milliseconds #shorts",
+    description:
+      "Faster than the blink of an eye, an accelerometer detects violent deceleration, fires an igniter, and triggers a controlled chemical reaction that floods the cushion with nitrogen gas before impact.\n\n#shorts #airbag #cars #engineering",
+    tags: ["how airbags work", "car safety", "automotive engineering", "science", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-fiber-optic",
+    channel: "explainer",
+    episode: "fiber-optic",
+    title: "How Fiber Optic Cables Carry the Internet at Light Speed #shorts",
+    description:
+      "Instead of electricity in copper, fiber optics fire billions of laser pulses per second through hair-thin glass strands. Total internal reflection traps the light even around bends across entire oceans.\n\n#shorts #fiberoptic #internet #physics",
+    tags: ["fiber optic", "total internal reflection", "internet", "optics", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-hydraulic-press",
+    channel: "explainer",
+    episode: "hydraulic-press",
+    title: "How a Hydraulic Press Crushes Solid Steel Using Liquid #shorts",
+    description:
+      "Because liquid is virtually incompressible, Pascal's Law multiplies force proportionally to piston area: a small push on a narrow piston becomes hundreds of tons of crushing power on a wide piston.\n\n#shorts #hydraulicpress #physics #engineering",
+    tags: ["hydraulic press", "pascals law", "mechanical engineering", "physics", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-rocket-nozzle",
+    channel: "explainer",
+    episode: "rocket-nozzle",
+    title: "Why Every Rocket Nozzle Is Shaped Like a Bell #shorts",
+    description:
+      "A De Laval nozzle squeezes hot combustion gas to Mach 1 at its narrow throat, then expands it through a sculpted bell — turning chaotic heat pressure into a razor-straight supersonic exhaust jet.\n\n#shorts #rockets #space #aerospace",
+    tags: ["rocket nozzle", "de laval nozzle", "aerospace", "rocket science", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-automatic-transmission",
+    channel: "explainer",
+    episode: "automatic-transmission",
+    title: "How an Automatic Transmission Shifts Gears Without a Clutch #shorts",
+    description:
+      "Inside an automatic gearbox sits a planetary gearset: a central sun gear, orbiting planet gears, and an outer ring gear. Locking different members changes speed and torque ratios seamlessly.\n\n#shorts #cars #transmission #engineering",
+    tags: ["automatic transmission", "planetary gears", "how cars work", "engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-solar-panel",
+    channel: "explainer",
+    episode: "solar-panel",
+    title: "How Solar Panels Turn Sunlight Directly Into Electricity #shorts",
+    description:
+      "When photons from the sun hit a silicon P-N junction, they knock electrons loose. The cell's built-in electric field sweeps those electrons in one direction, creating clean direct current with zero moving parts.\n\n#shorts #solar #renewableenergy #physics",
+    tags: ["how solar panels work", "photovoltaic", "renewable energy", "physics", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-microwave-oven",
+    channel: "explainer",
+    episode: "microwave-oven",
+    title: "Why Microwaves Heat Your Food While the Plate Stays Cool #shorts",
+    description:
+      "A magnetron floods the cavity with 2.45 GHz electromagnetic waves that flip polar water molecules billions of times per second, generating friction heat directly inside the food.\n\n#shorts #microwave #physics #science",
+    tags: ["how microwaves work", "magnetron", "physics", "everyday science", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-seatbelt-lock",
+    channel: "explainer",
+    episode: "seatbelt-lock",
+    title: "How Your Seatbelt Moves Freely Yet Locks Instantly in a Crash #shorts",
+    description:
+      "Pull gently and the retractor spool spins smoothly. Slam the brakes and a weighted pendulum swings forward, snapping a steel pawl into ratchet teeth to lock the belt solid in milliseconds.\n\n#shorts #seatbelt #engineering #cars",
+    tags: ["how seatbelts work", "car safety", "mechanical engineering", "how it works", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-disc-brake",
+    channel: "explainer",
+    episode: "disc-brake",
+    title: "How Disc Brakes Stop a 2-Ton Car in Seconds #shorts",
+    description:
+      "Pressing the pedal pressurizes brake fluid, forcing caliper pistons to clamp high-friction pads against a spinning steel rotor — converting deadly kinetic energy directly into thermal heat.\n\n#shorts #brakes #cars #engineering",
+    tags: ["disc brakes", "automotive engineering", "friction", "how cars work", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-electric-motor",
+    channel: "explainer",
+    episode: "electric-motor",
+    title: "How Electric Motors Deliver Instant 100% Torque #shorts",
+    description:
+      "By rapidly flipping the polarity of copper stator electromagnets around a permanent-magnet rotor, an electric motor pulls and pushes the shaft in a continuous circle with over 90% efficiency.\n\n#shorts #electricmotor #ev #engineering",
+    tags: ["how electric motors work", "electromagnetism", "ev tech", "engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-barcode-scanner",
+    channel: "explainer",
+    episode: "barcode-scanner",
+    title: "How a Barcode Scanner Reads Stripes in a Split Second #shorts",
+    description:
+      "A sweeping red laser hits white bars that reflect light back and black bars that absorb it. A photodiode converts that flashing reflection pattern into crisp binary 1s and 0s.\n\n#shorts #barcode #technology #howitworks",
+    tags: ["how barcode scanners work", "laser", "binary", "tech explained", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-induction-cooktop",
+    channel: "explainer",
+    episode: "induction-cooktop",
+    title: "How an Induction Stove Boils Water While Staying Cool to Touch #shorts",
+    description:
+      "A hidden copper coil creates a rapidly oscillating magnetic field that passes straight through the glass and induces swirling eddy currents inside the iron pan — turning the pan itself into the heater.\n\n#shorts #induction #physics #engineering",
+    tags: ["induction cooktop", "eddy currents", "electromagnetism", "physics", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-suspension-bridge",
+    channel: "explainer",
+    episode: "suspension-bridge",
+    title: "How Suspension Bridges Hold Thousands of Tons on Cables #shorts",
+    description:
+      "Vertical suspender ropes transfer roadway weight into colossal parabolic main cables under pure tension, channeling millions of pounds safely down the towers in compression and into deep bedrock anchorages.\n\n#shorts #bridges #civilengineering #howitworks",
+    tags: ["suspension bridge", "civil engineering", "tension and compression", "architecture", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-maglev-train",
+    channel: "explainer",
+    episode: "maglev-train",
+    title: "How a Maglev Train Flies at 600 km/h With Zero Wheels #shorts",
+    description:
+      "Superconducting magnets levitate the train centimeters above the track to eliminate rolling friction completely, while alternating magnetic poles in the guideway pull and push it at airplane speeds.\n\n#shorts #maglev #trains #engineering",
+    tags: ["maglev train", "magnetic levitation", "superconductors", "engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-heart-pacemaker",
+    channel: "explainer",
+    episode: "heart-pacemaker",
+    title: "How a Tiny Pacemaker Keeps a Heart Beating for Years #shorts",
+    description:
+      "A microchip and battery smaller than a matchbox listen to your heart's natural electrical ECG wave every millisecond. The instant a beat is missed, it fires a gentle micro-pulse to keep blood flowing.\n\n#shorts #pacemaker #biomedical #science",
+    tags: ["heart pacemaker", "biomedical engineering", "ecg", "medical science", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-lidar-sensor",
+    channel: "explainer",
+    episode: "lidar-sensor",
+    title: "How Self-Driving Cars Map the World in 3D With Lasers #shorts",
+    description:
+      "LiDAR spins and fires millions of invisible infrared laser pulses every second. By timing each reflection down to the nanosecond, the car builds a centimeter-accurate live 3D point cloud.\n\n#shorts #lidar #selfdriving #technology",
+    tags: ["how lidar works", "self driving cars", "autonomous vehicles", "tech explained", "shorts"],
+    categoryId: "27",
+  },
 ];
 
-const INFINITE_ANGLES: Record<PhysicsNiche, { hooks: string[]; narrations: string[]; titlePrefix: string; topic: string }> = {
+const INFINITE_ANGLES: Record<
+  PhysicsNiche,
+  { hooks: string[]; narrations: string[]; titlePrefix: string; topic: string }
+> = {
   "physics-ring": {
     hooks: ["7 RINGS VS GRAVITY", "ENERGY TRANSFER TEST", "CAN IT BREAK RING 7?"],
     narrations: [
@@ -393,12 +609,66 @@ const INFINITE_ANGLES: Record<PhysicsNiche, { hooks: string[]; narrations: strin
     titlePrefix: "Exponential Bounce Growth",
     topic: "exponential growth and collision frequency",
   },
+  "double-pendulum": {
+    hooks: ["BUTTERFLY EFFECT LIVE", "CHAOTIC DOUBLE PENDULUM", "0.001 RADIANS APART"],
+    narrations: [
+      "Two double pendulums start almost identically — watch sensitive dependence on initial conditions explode into chaos.",
+      "Even with zero randomness, nonlinear gravity makes long-term prediction completely impossible.",
+    ],
+    titlePrefix: "Chaotic Double Pendulum Divergence",
+    topic: "deterministic chaos and sensitive initial conditions",
+  },
+  "gravity-orbit": {
+    hooks: ["3-BODY GRAVITY SLINGSHOT", "ORBITAL CHAOS LIVE", "NEWTON'S 3-BODY DANCE"],
+    narrations: [
+      "Three masses pull on each other under pure Newtonian gravity — watch how close passes launch violent slingshots.",
+      "No closed-form formula can predict this three-body orbit over long spans of time.",
+    ],
+    titlePrefix: "3-Body Gravitational Dance",
+    topic: "Newtonian orbital mechanics and gravitational slingshots",
+  },
+  "maze-race": {
+    hooks: ["BFS VS A* AI RACE", "HEURISTIC AI VS FLOOD FILL", "WHICH SOLVER WINS?"],
+    narrations: [
+      "Watch how A-star's distance heuristic cuts straight through a brand-new maze while blind search explores every dead end.",
+      "This exact pathfinding duel powers modern GPS routing, robotics, and video game navigation.",
+    ],
+    titlePrefix: "Maze Solver Race: BFS vs A* AI",
+    topic: "heuristic pathfinding and graph search algorithms",
+  },
+  "domino-chain": {
+    hooks: ["EXPONENTIAL DOMINO POWER", "TINY TAP, GIANT CRASH", "ENERGY AMPLIFICATION"],
+    narrations: [
+      "Each falling domino releases stored potential energy to topple a larger neighbor in a geometric cascade.",
+      "Watch how a tiny initial tap scales up step by step into a colossal final impact.",
+    ],
+    titlePrefix: "Exponential Domino Cascade",
+    topic: "gravitational potential energy and geometric amplification",
+  },
+  "wave-interference": {
+    hooks: ["CONSTRUCTIVE VS DESTRUCTIVE", "DUAL WAVE INTERFERENCE", "RESONANCE PATTERNS LIVE"],
+    narrations: [
+      "Two synchronized wave emitters sweep frequency — creating glowing constructive peaks and silent destructive nodes.",
+      "Watch wave superposition sculpt shifting geometric interference patterns in real time.",
+    ],
+    titlePrefix: "Dual-Source Wave Interference",
+    topic: "wave superposition and resonance",
+  },
+  "fourier-draw": {
+    hooks: ["FOURIER EPICYCLES ART", "PURE CIRCLES DRAW SHAPES", "HARMONIC MATH IN MOTION"],
+    narrations: [
+      "Stack rotating harmonic circles at different frequencies and their tip can trace almost any closed curve in mathematics.",
+      "Watch Fourier synthesis build complex geometry out of nothing but spinning circles.",
+    ],
+    titlePrefix: "Fourier Epicycles Geometry",
+    topic: "Fourier series and harmonic synthesis",
+  },
 };
 
 /**
  * Yayınlanmamış bir sonraki videoyu seçer.
- * - `physics`: Önce 12 küratörlü bölümü sırayla verir, bittikten sonra 6 mekaniği dönüşümlü olarak sonsuz üretir.
- * - `explainer`: 10 How-It-Works bölümünü sırayla verir (hepsi bitince null döner).
+ * - `physics`: Önce 12 farklı mekanikli küratörlü bölümü sırayla verir, sonra 12 mekaniği dönüşümlü sonsuz üretir.
+ * - `explainer`: 30 How-It-Works bölümünü sırayla verir (hepsi bitince null döner).
  */
 export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): PublishJob | null {
   if (channel === "explainer") {
@@ -408,7 +678,6 @@ export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): Publ
   const curated = CURATED_PHYSICS_JOBS.find((j) => !publishedIds.has(j.id));
   if (curated) return curated;
 
-  // Küratörlü liste tamamlandıysa 6 farklı format arasında dönüşümlü sonsuz üretim
   let index = CURATED_PHYSICS_JOBS.length;
   while (index < 10_000) {
     const niche = PHYSICS_ROTATION[index % PHYSICS_ROTATION.length];

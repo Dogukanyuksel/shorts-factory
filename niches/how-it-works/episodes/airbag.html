@@ -1,0 +1,292 @@
+<!doctype html>
+<!-- How It Actually Works — Car Airbag -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'In a car crash, an airbag inflates faster than you can blink!', caption: 'FASTER THAN A BLINK' },
+  { id: 'sensor', text: 'The instant impact hits, an accelerometer sensor detects sudden deceleration.', caption: 'CRASH SENSOR' },
+  { id: 'spark', text: 'Within 15 milliseconds, it fires an electrical spark into solid chemical pellets.', caption: '15MS IGNITER SPARK' },
+  { id: 'gas', text: 'The chemicals explode into harmless nitrogen gas, blasting open the steering wheel.', caption: 'NITROGEN GAS BLAST!' },
+  { id: 'cushion', text: 'At 200 miles per hour, the nylon bag inflates completely before your head arrives.', caption: '200 MPH INFLATION' },
+  { id: 'outro', text: 'Tiny vents then deflate the bag smoothly, absorbing the crash and saving your life.', caption: 'IMPACT ABSORBED!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('sensor').start + 0.2, type: 'break', pitchIndex: 3, intensity: 0.75 },
+    { t: byId('spark').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.7 },
+    { t: byId('gas').start + 0.2, type: 'break', pitchIndex: 9, intensity: 0.95 },
+    { t: byId('cushion').start + 0.25, type: 'bounce', pitchIndex: 8, intensity: 0.7 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const pSensor = smooth(byId('sensor').start, byId('sensor').start + 0.5, t);
+  const pSpark = smooth(byId('spark').start, byId('spark').start + 0.5, t);
+  const pGas = smooth(byId('gas').start, byId('gas').start + 0.6, t);
+  const pCush = smooth(byId('cushion').start, byId('cushion').start + 0.6, t);
+  const pOutro = smooth(byId('outro').start, byId('outro').end - 0.5, t);
+
+  // Blueprint background + grid
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.52;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+
+  // Compute simulated slow-motion crash timer (0.0 ms -> 45.0 ms)
+  const ms = (pSensor * 8 + pSpark * 7 + pGas * 10 + pCush * 10 + pOutro * 15).toFixed(1);
+
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Brief impact camera jolt when sensor triggers
+  const jolt = Math.exp(-Math.max(0, t - byId('sensor').start) * 8) * Math.sin(t * 70) * 6 * S * (t >= byId('sensor').start ? 1 : 0);
+  ctx.translate(jolt, 0);
+
+  // Slow-mo millisecond HUD badge
+  ctx.fillStyle = 'rgba(2,6,23,0.85)';
+  ctx.strokeStyle = pGas > 0.2 ? '#fb923c' : '#38bdf8';
+  ctx.lineWidth = 2.5 * S;
+  ctx.fillRect(cx - 118 * S, cy - 290 * S, 236 * S, 48 * S);
+  ctx.strokeRect(cx - 118 * S, cy - 290 * S, 236 * S, 48 * S);
+  ctx.fillStyle = pOutro > 0.2 ? '#4ade80' : '#f8fafc';
+  ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`TIMER: ${ms} ms`, cx, cy - 258 * S);
+
+  // Front dashboard & bumper silhouette on the right
+  const dashX = cx + 195 * S;
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  ctx.moveTo(dashX + 75 * S, cy - 130 * S);
+  ctx.lineTo(dashX, cy - 65 * S);
+  ctx.lineTo(dashX, cy + 170 * S);
+  ctx.lineTo(dashX + 75 * S, cy + 170 * S);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Impact shockwave on right bumper
+  if (pSensor > 0.05) {
+    for (let w = 0; w < 3; w++) {
+      const prog = ((t * 2.2 + w * 0.33) % 1);
+      ctx.strokeStyle = `rgba(239,68,68,${((1 - prog) * 0.85 * pSensor).toFixed(2)})`;
+      ctx.lineWidth = 4 * S;
+      ctx.beginPath();
+      ctx.arc(dashX + 75 * S, cy + 85 * S, (25 + prog * 95) * S, Math.PI * 0.65, Math.PI * 1.35);
+      ctx.stroke();
+    }
+  }
+
+  // Crash Accelerometer Sensor box inside front bumper
+  const sensX = dashX + 36 * S, sensY = cy + 90 * S;
+  ctx.fillStyle = pSensor > 0.2 ? '#ef4444' : '#334155';
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 2.5 * S;
+  ctx.fillRect(sensX - 24 * S, sensY - 18 * S, 48 * S, 36 * S);
+  ctx.strokeRect(sensX - 24 * S, sensY - 18 * S, 48 * S, 36 * S);
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = `900 ${Math.round(13 * S)}px -apple-system, sans-serif`;
+  ctx.fillText('25G', sensX, sensY + 5 * S);
+
+  // Steering column + hub
+  const hubX = cx + 82 * S, hubY = cy - 10 * S;
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 18 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(hubX + 18 * S, hubY + 12 * S); ctx.lineTo(dashX + 12 * S, cy + 68 * S); ctx.stroke();
+
+  // Electrical trigger wire from sensor to steering hub
+  ctx.strokeStyle = pSpark > 0.1 ? '#facc15' : '#475569';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  ctx.moveTo(sensX - 24 * S, sensY);
+  ctx.lineTo(dashX - 18 * S, sensY);
+  ctx.lineTo(hubX + 24 * S, hubY + 32 * S);
+  ctx.stroke();
+  // Electric signal pulse traveling up wire
+  if (pSensor > 0.15 && pGas < 0.8) {
+    const u = (t * 2.8) % 1;
+    const wx = (sensX - 24 * S) * (1 - u) + (hubX + 24 * S) * u;
+    const wy = sensY * (1 - u) + (hubY + 32 * S) * u;
+    ctx.fillStyle = '#fef08a';
+    ctx.shadowColor = '#facc15'; ctx.shadowBlur = 12 * S;
+    ctx.beginPath(); ctx.arc(wx, wy, 7 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Steering wheel rim (side profile)
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 10 * S;
+  ctx.beginPath();
+  ctx.moveTo(hubX + 16 * S, hubY - 78 * S);
+  ctx.lineTo(hubX - 16 * S, hubY + 78 * S);
+  ctx.stroke();
+
+  // Inflator canister & chemical pellets inside steering hub
+  ctx.fillStyle = '#0f172a';
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 3 * S;
+  ctx.fillRect(hubX - 24 * S, hubY - 28 * S, 44 * S, 56 * S);
+  ctx.strokeRect(hubX - 24 * S, hubY - 28 * S, 44 * S, 56 * S);
+
+  // Chemical propellant pellets (disappear as gas explodes)
+  if (pGas < 0.7) {
+    ctx.fillStyle = pSpark > 0.2 ? '#fb923c' : '#94a3b8';
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      ctx.arc(hubX - 10 * S + (i % 2) * 14 * S, hubY - 14 * S + Math.floor(i / 2) * 14 * S, 4.5 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Igniter spark flash inside hub
+  if (pSpark > 0.05 && pCush < 0.85) {
+    const spR = (22 + Math.sin(t * 60) * 6) * S * pSpark;
+    const sg = ctx.createRadialGradient(hubX - 8 * S, hubY, 2 * S, hubX - 8 * S, hubY, spR);
+    sg.addColorStop(0, '#ffffff');
+    sg.addColorStop(0.4, '#facc15');
+    sg.addColorStop(1, 'rgba(239,68,68,0)');
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(hubX - 8 * S, hubY, spR, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Inflating Nylon Airbag Cushion
+  const inflate = clamp(pGas * 0.45 + pCush * 0.55, 0, 1);
+  const deflate = pOutro * 0.16;
+  if (inflate > 0.02) {
+    const bagRx = (20 + inflate * 116 - deflate * 30) * S;
+    const bagRy = (18 + inflate * 118 + deflate * 12) * S;
+    const bagCx = hubX - 18 * S - bagRx * 0.88;
+    const bagCy = hubY - 8 * S;
+
+    const bagG = ctx.createRadialGradient(bagCx - 20 * S, bagCy - 20 * S, 12 * S, bagCx, bagCy, Math.max(bagRx, bagRy));
+    bagG.addColorStop(0, 'rgba(248,250,252,0.92)');
+    bagG.addColorStop(0.65, 'rgba(186,230,253,0.75)');
+    bagG.addColorStop(1, 'rgba(56,189,248,0.55)');
+    ctx.fillStyle = bagG;
+    ctx.strokeStyle = '#e0f2fe';
+    ctx.lineWidth = 4 * S;
+    ctx.beginPath();
+    ctx.ellipse(bagCx, bagCy, bagRx, bagRy, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    // Expanding Nitrogen (N2) gas particles inside the bag
+    ctx.fillStyle = '#0284c7';
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + t * 2.5;
+      const dist = ((i * 0.19 + t * 1.1) % 0.78) * 0.9;
+      const gx = bagCx + Math.cos(a) * bagRx * dist;
+      const gy = bagCy + Math.sin(a) * bagRy * dist;
+      ctx.beginPath(); ctx.arc(gx, gy, 5.5 * S, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = '#0369a1';
+    ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('N₂ GAS', bagCx, bagCy + 7 * S);
+
+    // Side deflation vent puffs during outro
+    if (pOutro > 0.1) {
+      for (const side of [-1, 1]) {
+        for (let k = 0; k < 3; k++) {
+          const pu = ((t * 1.8 + k * 0.33) % 1);
+          const vx = bagCx + 15 * S;
+          const vy = bagCy + side * (bagRy + 12 * S + pu * 45 * S);
+          ctx.fillStyle = `rgba(125,211,252,${((1 - pu) * 0.7 * pOutro).toFixed(2)})`;
+          ctx.beginPath(); ctx.arc(vx + Math.sin(pu * 6) * 8 * S, vy, (6 + pu * 10) * S, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+  }
+
+  // Stylized Crash-Test Dummy Head & Torso on left (moves forward smoothly into inflated cushion)
+  const headTravel = pSensor * 28 * S + pCush * 48 * S + pOutro * 58 * S;
+  const dummyX = cx - 235 * S + headTravel;
+  const dummyY = cy - 18 * S;
+  // Torso
+  ctx.fillStyle = '#334155';
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(dummyX - 42 * S, dummyY + 52 * S, 84 * S, 130 * S, 24 * S) : ctx.fillRect(dummyX - 42 * S, dummyY + 52 * S, 84 * S, 130 * S);
+  ctx.fill(); ctx.stroke();
+  // Head
+  ctx.fillStyle = '#facc15';
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath(); ctx.arc(dummyX + 6 * S, dummyY, 42 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // Crash-test target symbol on head
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.moveTo(dummyX + 6 * S, dummyY);
+  ctx.arc(dummyX + 6 * S, dummyY, 16 * S, 0, Math.PI * 0.5);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(dummyX + 6 * S, dummyY);
+  ctx.arc(dummyX + 6 * S, dummyY, 16 * S, Math.PI, Math.PI * 1.5);
+  ctx.closePath(); ctx.fill();
+
+  // Contextual engineering labels
+  ctx.font = `800 ${Math.round(19 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  if (pSensor > 0.05 && pGas < 0.5) {
+    ctx.fillStyle = '#ef4444';
+    ctx.fillText('IMPACT SENSOR > 25G', sensX - 20 * S, sensY + 48 * S);
+  }
+  if (pCush > 0.1 && pOutro < 0.4) {
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('200 MPH INFLATION!', cx - 35 * S, cy - 175 * S);
+  }
+  if (pOutro > 0.15) {
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('VENTS RELEASE GAS · SAFE STOP', cx - 25 * S, cy - 175 * S);
+  }
+
+  ctx.restore();
+
+  // Top title + animated bottom caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A CAR AIRBAG WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'gas' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

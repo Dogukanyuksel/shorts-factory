@@ -1,0 +1,357 @@
+<!doctype html>
+<!-- How It Actually Works — Episode: How a Barcode Scanner Works -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+function rrect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a red laser read black lines in a split second?', caption: 'INSTANT LASER READ?' },
+  { id: 'laser', text: 'Inside the scanner, a spinning mirror sweeps a thin red laser beam across the barcode.', caption: 'SWEEPING RED LASER' },
+  { id: 'reflect', text: 'White spaces reflect the red light right back, while black bars absorb almost all of it.', caption: 'WHITE REFLECTS · BLACK ABSORBS' },
+  { id: 'sensor', text: 'A tiny photodiode sensor catches every flash of reflected light and measures its strength.', caption: 'PHOTODIODE SENSOR' },
+  { id: 'binary', text: 'Bright reflections become zeros, dark gaps become ones — turning stripes into binary code.', caption: 'CONVERTED TO BINARY' },
+  { id: 'outro', text: 'In milliseconds, those ones and zeros decode into the exact product and price!', caption: 'BEEP! ITEM DECODED!' },
+];
+
+// Deterministic barcode pattern: 1 = black bar, 0 = white space
+const BARS = [1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('laser').start + 0.25, type: 'bounce', pitchIndex: 4, intensity: 0.65 },
+    { t: byId('reflect').start + 0.3, type: 'bounce', pitchIndex: 6, intensity: 0.7 },
+    { t: byId('sensor').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.7 },
+    { t: byId('binary').start + 0.2, type: 'break', pitchIndex: 9, intensity: 0.8 },
+    { t: byId('outro').start + 0.15, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const showLaser = smooth(byId('laser').start - 0.1, byId('laser').start + 0.5, t);
+  const showReflect = smooth(byId('reflect').start, byId('reflect').start + 0.6, t);
+  const showSensor = smooth(byId('sensor').start, byId('sensor').start + 0.6, t);
+  const showBinary = smooth(byId('binary').start, byId('binary').start + 0.6, t);
+  const showOutro = smooth(byId('outro').start, byId('outro').start + 0.5, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.65);
+  bg.addColorStop(0, '#0f2342'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.48;
+  const zoom = 1 + smooth(0, DUR, t) * 0.06;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Barcode card geometry
+  const cardW = 480 * S, cardH = 165 * S;
+  const cardX = cx - cardW * 0.5, cardY = cy + 15 * S;
+  const barAreaX = cardX + 38 * S, barAreaW = cardW - 76 * S;
+  const barY = cardY + 22 * S, barH = 104 * S;
+  const barW = barAreaW / BARS.length;
+
+  // Laser sweep position (0..1 across barcode)
+  const sweepSpeed = showLaser > 0.1 ? 0.42 : 0.25;
+  const rawPhase = (t * sweepSpeed) % 1;
+  const scanNorm = 0.5 - 0.5 * Math.cos(rawPhase * Math.PI * 2); // smooth ping-pong 0..1
+  const hitX = barAreaX + scanNorm * barAreaW;
+  const hitY = barY + barH * 0.5;
+  const barIdx = clamp(Math.floor(scanNorm * BARS.length), 0, BARS.length - 1);
+  const isBlack = BARS[barIdx] === 1;
+  const isWhite = !isBlack;
+
+  // Scanner housing cutaway (top)
+  const headX = cx - 190 * S, headY = cy - 285 * S, headW = 380 * S, headH = 135 * S;
+  ctx.save();
+  const hg = ctx.createLinearGradient(headX, headY, headX, headY + headH);
+  hg.addColorStop(0, '#1e293b'); hg.addColorStop(1, '#0f172a');
+  ctx.fillStyle = hg;
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 3 * S;
+  rrect(headX, headY, headW, headH, 20 * S);
+  ctx.fill(); ctx.stroke();
+
+  // Inner cutaway window
+  ctx.fillStyle = '#060d1c';
+  rrect(headX + 14 * S, headY + 14 * S, headW - 28 * S, headH - 28 * S, 12 * S);
+  ctx.fill();
+
+  // Laser diode (left inside head)
+  const diodeX = headX + 42 * S, diodeY = headY + 62 * S;
+  ctx.fillStyle = '#475569';
+  rrect(diodeX - 18 * S, diodeY - 14 * S, 46 * S, 28 * S, 6 * S);
+  ctx.fill();
+  ctx.fillStyle = '#ef4444';
+  ctx.shadowColor = '#ef4444'; ctx.shadowBlur = 12 * S;
+  ctx.beginPath(); ctx.arc(diodeX + 28 * S, diodeY, 6 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Oscillating mirror (center inside head)
+  const mirX = cx, mirY = headY + 62 * S;
+  const mirAngle = -0.35 + (scanNorm - 0.5) * 0.42;
+  ctx.save();
+  ctx.translate(mirX, mirY);
+  ctx.rotate(mirAngle);
+  ctx.fillStyle = '#94a3b8';
+  ctx.strokeStyle = '#e0f2fe';
+  ctx.lineWidth = 3 * S;
+  rrect(-26 * S, -6 * S, 52 * S, 12 * S, 4 * S);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+  // Mirror pivot
+  ctx.fillStyle = '#38bdf8';
+  ctx.beginPath(); ctx.arc(mirX, mirY, 5 * S, 0, Math.PI * 2); ctx.fill();
+
+  // Photodiode sensor (right inside head)
+  const sensX = headX + headW - 58 * S, sensY = headY + 72 * S;
+  const sensActive = (showLaser > 0.1 || t > 0.5) && isWhite;
+  ctx.fillStyle = sensActive ? '#22d3ee' : '#334155';
+  if (sensActive) { ctx.shadowColor = '#22d3ee'; ctx.shadowBlur = 22 * S; }
+  rrect(sensX - 24 * S, sensY - 18 * S, 48 * S, 36 * S, 8 * S);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#93c5fd'; ctx.lineWidth = 2.5 * S; ctx.stroke();
+  // Lens dome on bottom of sensor
+  ctx.fillStyle = sensActive ? '#a5f3fc' : '#64748b';
+  ctx.beginPath(); ctx.arc(sensX, sensY + 18 * S, 14 * S, 0, Math.PI); ctx.fill();
+
+  // Component labels inside/above scanner
+  ctx.font = `800 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fca5a5'; ctx.fillText('LASER', diodeX + 4 * S, headY + 34 * S);
+  ctx.fillStyle = '#bae6fd'; ctx.fillText('MIRROR', mirX, headY + 34 * S);
+  ctx.fillStyle = showSensor > 0.1 ? '#22d3ee' : '#94a3b8';
+  ctx.fillText('SENSOR', sensX, headY + 34 * S);
+  ctx.restore();
+
+  // Barcode card
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 24 * S;
+  ctx.fillStyle = '#f8fafc';
+  rrect(cardX, cardY, cardW, cardH, 16 * S);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = showOutro > 0.2 ? '#4ade80' : '#38bdf8';
+  ctx.lineWidth = (3 + showOutro * 2) * S;
+  ctx.stroke();
+
+  // Draw black bars & white spaces
+  for (let i = 0; i < BARS.length; i++) {
+    const bx = barAreaX + i * barW;
+    if (BARS[i] === 1) {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(bx, barY, barW + 0.5, barH);
+    } else if (i === barIdx && showReflect > 0.1) {
+      ctx.fillStyle = 'rgba(254,202,202,0.55)';
+      ctx.fillRect(bx, barY, barW, barH);
+    }
+  }
+  // UPC digits under bars
+  ctx.fillStyle = '#334155';
+  ctx.font = `700 ${Math.round(18 * S)}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillText('0  4 9 0 0 0  0 4 2 5 6  7', cx, cardY + cardH - 14 * S);
+  ctx.restore();
+
+  // Red Laser Beam (diode -> mirror -> barcode)
+  const laserAlpha = 0.55 + showLaser * 0.45;
+  ctx.save();
+  ctx.globalAlpha = laserAlpha;
+  ctx.strokeStyle = '#ef4444';
+  ctx.shadowColor = '#ef4444'; ctx.shadowBlur = 18 * S;
+  ctx.lineWidth = 4.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(diodeX + 28 * S, diodeY);
+  ctx.lineTo(mirX, mirY);
+  ctx.lineTo(hitX, hitY);
+  ctx.stroke();
+  // Bright core
+  ctx.strokeStyle = '#fecaca';
+  ctx.lineWidth = 1.8 * S;
+  ctx.stroke();
+
+  // Impact glow on barcode
+  ctx.fillStyle = isWhite ? '#ff4d4d' : '#7f1d1d';
+  ctx.beginPath(); ctx.arc(hitX, hitY, (isWhite ? 10 : 6) * S, 0, Math.PI * 2); ctx.fill();
+
+  // Horizontal red scan line faint trace across barcode
+  ctx.strokeStyle = 'rgba(239,68,68,0.28)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.moveTo(barAreaX, hitY); ctx.lineTo(barAreaX + barAreaW, hitY); ctx.stroke();
+
+  // Reflected beam (only when hitting WHITE space!)
+  if (isWhite) {
+    ctx.strokeStyle = showSensor > 0.2 ? '#38bdf8' : '#fb7185';
+    ctx.shadowColor = showSensor > 0.2 ? '#38bdf8' : '#f43f5e';
+    ctx.shadowBlur = 20 * S;
+    ctx.lineWidth = (3.5 + showReflect * 2) * S;
+    ctx.setLineDash([12 * S, 8 * S]);
+    ctx.lineDashOffset = -t * 240 * S;
+    ctx.beginPath();
+    ctx.moveTo(hitX, hitY);
+    ctx.lineTo(sensX, sensY + 20 * S);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else if (showReflect > 0.1) {
+    // Absorption ripple on black bar
+    const r = (10 + (t * 45) % 16) * S;
+    ctx.strokeStyle = 'rgba(251,146,60,0.7)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.arc(hitX, hitY, r, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Reflection / Absorption callout badges
+  if (showReflect > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showReflect;
+    ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    const badgeY = cy - 46 * S;
+    if (isWhite) {
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('↗ WHITE SPACE · LIGHT REFLECTED!', cx, badgeY);
+    } else {
+      ctx.fillStyle = '#fb923c';
+      ctx.fillText('✕ BLACK BAR · LIGHT ABSORBED', cx, badgeY);
+    }
+    ctx.restore();
+  }
+
+  // Live Photodiode Signal + Binary Decoder Panel (bottom)
+  const panelX = cx - 255 * S, panelY = cy + 208 * S, panelW = 510 * S, panelH = 148 * S;
+  const panelAlpha = clamp(showSensor * 0.85 + showBinary * 0.15, 0, 1);
+  if (panelAlpha > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = panelAlpha;
+    ctx.fillStyle = 'rgba(15,23,42,0.92)';
+    ctx.strokeStyle = showBinary > 0.3 ? '#4ade80' : '#38bdf8';
+    ctx.lineWidth = 2.5 * S;
+    rrect(panelX, panelY, panelW, panelH, 16 * S);
+    ctx.fill(); ctx.stroke();
+
+    // Waveform header
+    ctx.font = `800 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('SENSOR SIGNAL', panelX + 18 * S, panelY + 26 * S);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = isWhite ? '#38bdf8' : '#f87171';
+    ctx.fillText(isWhite ? 'HIGH REFLECTION → 0' : 'LOW REFLECTION → 1', panelX + panelW - 18 * S, panelY + 26 * S);
+
+    // Square wave trace
+    const waveX = panelX + 20 * S, waveW = panelW - 40 * S;
+    const waveTop = panelY + 42 * S, waveBot = panelY + 86 * S;
+    const stepW = waveW / BARS.length;
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 3 * S;
+    ctx.beginPath();
+    for (let i = 0; i < BARS.length; i++) {
+      const y = BARS[i] === 0 ? waveTop : waveBot; // 0 = white = high light
+      const x0 = waveX + i * stepW;
+      const x1 = x0 + stepW;
+      if (i === 0) ctx.moveTo(x0, y); else ctx.lineTo(x0, y);
+      ctx.lineTo(x1, y);
+    }
+    ctx.stroke();
+
+    // Scan cursor on waveform
+    const curX = waveX + scanNorm * waveW;
+    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2.5 * S;
+    ctx.beginPath(); ctx.moveTo(curX, waveTop - 6 * S); ctx.lineTo(curX, waveBot + 6 * S); ctx.stroke();
+
+    // Binary digits row
+    if (showBinary > 0.05) {
+      ctx.globalAlpha = panelAlpha * showBinary;
+      ctx.font = `900 ${Math.round(21 * S)}px monospace`;
+      ctx.textAlign = 'center';
+      for (let i = 0; i < BARS.length; i++) {
+        const bx = waveX + (i + 0.5) * stepW;
+        const active = i === barIdx;
+        ctx.fillStyle = active ? '#facc15' : (BARS[i] === 1 ? '#4ade80' : '#38bdf8');
+        ctx.fillText(String(BARS[i]), bx, panelY + 128 * S);
+      }
+    }
+    ctx.restore();
+  }
+
+  // Outro decoded product badge
+  if (showOutro > 0.05) {
+    ctx.save();
+    const pop = 0.85 + 0.15 * showOutro;
+    ctx.translate(cx, cy - 110 * S);
+    ctx.scale(pop, pop);
+    ctx.globalAlpha = showOutro;
+    ctx.fillStyle = 'rgba(6,78,59,0.95)';
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 4 * S;
+    ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 24 * S;
+    rrect(-195 * S, -36 * S, 390 * S, 72 * S, 18 * S);
+    ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `900 ${Math.round(28 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('✓ DECODED · $3.49 · 2 ms', 0, 10 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top title + Bottom animated caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A BARCODE SCANNER WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'binary' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

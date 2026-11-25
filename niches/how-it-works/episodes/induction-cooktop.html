@@ -1,0 +1,349 @@
+<!doctype html>
+<!-- How It Actually Works — Episode: How an Induction Stove Works -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+function rrect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does an induction stove boil water while the glass stays cool?', caption: 'HOT PAN · COOL GLASS?' },
+  { id: 'coil', text: 'Under the ceramic glass sits a flat copper coil carrying high-frequency alternating current.', caption: 'COPPER COIL UNDER GLASS' },
+  { id: 'field', text: 'That rapid current flips polarity fifty thousand times a second, creating an oscillating magnetic field.', caption: 'ALTERNATING MAGNETIC FIELD' },
+  { id: 'eddy', text: 'The field passes straight through glass and induces swirling eddy currents inside the iron pan.', caption: 'SWIRLING EDDY CURRENTS' },
+  { id: 'heat', text: 'Electrical resistance turns those swirling currents directly into intense heat inside the metal itself.', caption: 'PAN HEATS ITSELF!' },
+  { id: 'outro', text: 'Zero open flame, instant temperature control — and the glass surface stays safe to touch!', caption: 'PURE MAGNETIC HEAT!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('coil').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.65 },
+    { t: byId('field').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.7 },
+    { t: byId('eddy').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.75 },
+    { t: byId('heat').start + 0.2, type: 'break', pitchIndex: 9, intensity: 0.85 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const showCoil = smooth(byId('coil').start, byId('coil').start + 0.6, t);
+  const showField = smooth(byId('field').start, byId('field').start + 0.6, t);
+  const showEddy = smooth(byId('eddy').start, byId('eddy').start + 0.6, t);
+  const showHeat = smooth(byId('heat').start, byId('heat').start + 0.9, t);
+  const showOutro = smooth(byId('outro').start, byId('outro').start + 0.6, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#10203d'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.51;
+  const zoom = 1 + smooth(0, DUR, t) * 0.06;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  const acPhase = Math.sin(t * 14); // Rapid AC flip indicator
+
+  // 1. Cooktop Chassis (bottom)
+  const baseW = 540 * S, baseH = 120 * S;
+  const baseX = cx - baseW * 0.5, baseY = cy + 120 * S;
+  const cg = ctx.createLinearGradient(baseX, baseY, baseX, baseY + baseH);
+  cg.addColorStop(0, '#1e293b'); cg.addColorStop(1, '#0f172a');
+  ctx.fillStyle = cg;
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 3 * S;
+  rrect(baseX, baseY, baseW, baseH, 16 * S);
+  ctx.fill(); ctx.stroke();
+
+  // Inner cutaway recess for copper coil
+  ctx.fillStyle = '#060c1a';
+  rrect(baseX + 24 * S, baseY + 18 * S, baseW - 48 * S, baseH - 36 * S, 10 * S);
+  ctx.fill();
+
+  // 2. Copper Coil Windings
+  const coilY = baseY + 58 * S;
+  const numTurns = 10;
+  for (let i = 0; i < numTurns; i++) {
+    const frac = (i / (numTurns - 1)) - 0.5;
+    if (Math.abs(frac) < 0.07) continue; // center core gap
+    const wx = cx + frac * 370 * S;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 16 + i * 0.6);
+    ctx.save();
+    if (showCoil > 0.1) {
+      ctx.shadowColor = acPhase >= 0 ? '#f97316' : '#38bdf8';
+      ctx.shadowBlur = (10 + pulse * 12) * S * showCoil;
+    }
+    const wg = ctx.createRadialGradient(wx - 4 * S, coilY - 4 * S, 2 * S, wx, coilY, 16 * S);
+    wg.addColorStop(0, '#fed7aa');
+    wg.addColorStop(0.5, '#ea580c');
+    wg.addColorStop(1, '#7c2d12');
+    ctx.fillStyle = wg;
+    ctx.beginPath(); ctx.arc(wx, coilY, 15 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fdba74'; ctx.lineWidth = 2 * S; ctx.stroke();
+
+    // Current direction dot / cross
+    if (showCoil > 0.2) {
+      const dir = (frac < 0 ? 1 : -1) * (acPhase >= 0 ? 1 : -1);
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2.2 * S;
+      if (dir > 0) {
+        ctx.beginPath(); ctx.arc(wx, coilY, 3.8 * S, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(wx - 4.5 * S, coilY - 4.5 * S); ctx.lineTo(wx + 4.5 * S, coilY + 4.5 * S);
+        ctx.moveTo(wx + 4.5 * S, coilY - 4.5 * S); ctx.lineTo(wx - 4.5 * S, coilY + 4.5 * S);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // AC frequency badge under coil
+  if (showCoil > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showCoil;
+    ctx.font = `800 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fb923c';
+    ctx.fillText(`COPPER COIL · 50 kHz AC (${acPhase >= 0 ? '+ → −' : '− ← +'})`, cx, baseY + baseH + 30 * S);
+    ctx.restore();
+  }
+
+  // 3. Ceramic Glass Plate (stays cool cyan!)
+  const glassY = cy + 92 * S, glassH = 26 * S;
+  const gg = ctx.createLinearGradient(baseX, glassY, baseX, glassY + glassH);
+  gg.addColorStop(0, 'rgba(186,230,253,0.45)');
+  gg.addColorStop(0.5, 'rgba(56,189,248,0.22)');
+  gg.addColorStop(1, 'rgba(14,165,233,0.42)');
+  ctx.fillStyle = gg;
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2.5 * S;
+  rrect(baseX - 10 * S, glassY, baseW + 20 * S, glassH, 8 * S);
+  ctx.fill(); ctx.stroke();
+
+  // Cool glass temperature callout
+  ctx.save();
+  ctx.font = `800 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillText('❄ CERAMIC GLASS: COOL 28°C', baseX + baseW + 4 * S, glassY - 10 * S);
+  ctx.restore();
+
+  // 4. Iron Pan Cutaway + Water
+  const panW = 380 * S, panH = 195 * S;
+  const panX = cx - panW * 0.5, panY = glassY - panH - 4 * S;
+
+  // Water inside pan
+  const waterTop = panY + 56 * S;
+  const waterH = panH - 80 * S;
+  const wg = ctx.createLinearGradient(0, waterTop, 0, waterTop + waterH);
+  wg.addColorStop(0, showHeat > 0.3 ? 'rgba(56,189,248,0.55)' : 'rgba(14,165,233,0.42)');
+  wg.addColorStop(1, showHeat > 0.3 ? 'rgba(251,146,60,0.45)' : 'rgba(3,105,161,0.55)');
+  ctx.fillStyle = wg;
+  ctx.beginPath();
+  ctx.moveTo(panX + 14 * S, waterTop);
+  for (let x = 0; x <= panW - 28 * S; x += 14 * S) {
+    const wave = Math.sin(t * (4 + showHeat * 8) + x * 0.04) * (2.5 + showHeat * 5) * S;
+    ctx.lineTo(panX + 14 * S + x, waterTop + wave);
+  }
+  ctx.lineTo(panX + panW - 14 * S, waterTop + waterH);
+  ctx.lineTo(panX + 14 * S, waterTop + waterH);
+  ctx.closePath();
+  ctx.fill();
+
+  // Boiling bubbles & steam when heated
+  if (showHeat > 0.1) {
+    ctx.save();
+    for (let i = 0; i < 18; i++) {
+      const seed = i * 73.1;
+      const prog = ((t * (0.9 + (i % 4) * 0.25) + seed) % 1);
+      const bx = panX + 34 * S + ((seed * 19) % (panW - 68 * S));
+      const by = waterTop + waterH - prog * waterH;
+      const br = (3.5 + (i % 3) * 2.5) * S * showHeat;
+      ctx.strokeStyle = `rgba(224,242,254,${((1 - prog) * 0.85 * showHeat).toFixed(2)})`;
+      ctx.lineWidth = 2 * S;
+      ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Rising steam wisps
+    for (let s = 0; s < 5; s++) {
+      const sx = cx + (s - 2) * 65 * S;
+      const sp = (t * 0.6 + s * 0.23) % 1;
+      const sy = waterTop - 10 * S - sp * 135 * S;
+      ctx.strokeStyle = `rgba(226,232,240,${(Math.sin(sp * Math.PI) * 0.5 * showHeat).toFixed(2)})`;
+      ctx.lineWidth = 6 * S; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(sx + Math.sin(t * 3 + s) * 10 * S, sy + 28 * S);
+      ctx.quadraticCurveTo(sx - Math.sin(t * 3 + s) * 14 * S, sy, sx + Math.sin(t * 2 + s) * 12 * S, sy - 28 * S);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Pan walls & thick ferromagnetic iron base
+  ctx.save();
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 12 * S;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(panX, panY);
+  ctx.lineTo(panX + 8 * S, panY + panH - 22 * S);
+  ctx.lineTo(panX + panW - 8 * S, panY + panH - 22 * S);
+  ctx.lineTo(panX + panW, panY);
+  ctx.stroke();
+
+  // Pan handle (right)
+  ctx.strokeStyle = '#64748b'; ctx.lineWidth = 14 * S; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(panX + panW, panY + 26 * S);
+  ctx.lineTo(panX + panW + 75 * S, panY + 12 * S);
+  ctx.stroke();
+
+  // Ferromagnetic iron bottom (heats up glowing orange-red!)
+  const basePanY = panY + panH - 26 * S;
+  const rCol = Math.round(100 + showHeat * 155);
+  const gCol = Math.round(116 + showHeat * 40 - showHeat * 50);
+  const bCol = Math.round(139 - showHeat * 115);
+  ctx.fillStyle = `rgb(${rCol},${gCol},${bCol})`;
+  if (showHeat > 0.1) {
+    ctx.shadowColor = '#f97316'; ctx.shadowBlur = 28 * S * showHeat;
+  }
+  rrect(panX + 4 * S, basePanY, panW - 8 * S, 26 * S, 8 * S);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = showHeat > 0.3 ? '#fde047' : '#e2e8f0';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+  ctx.restore();
+
+  // 5. Oscillating Magnetic Field Lines (passing through glass into iron pan)
+  if (showField > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showField * (0.55 + 0.45 * Math.abs(acPhase));
+    const fieldColor = acPhase >= 0 ? '#38bdf8' : '#a78bfa';
+    ctx.strokeStyle = fieldColor;
+    ctx.shadowColor = fieldColor; ctx.shadowBlur = 12 * S;
+    ctx.lineWidth = 3 * S;
+    ctx.setLineDash([10 * S, 8 * S]);
+    ctx.lineDashOffset = (acPhase >= 0 ? -1 : 1) * t * 180 * S;
+    for (const side of [-1, 1]) {
+      for (let k = 0; k < 3; k++) {
+        const rx = (52 + k * 42) * S;
+        const ry = (46 + k * 24) * S;
+        const fx = cx + side * (78 + k * 14) * S;
+        const fy = glassY + 14 * S;
+        ctx.beginPath();
+        ctx.ellipse(fx, fy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // 6. Swirling Eddy Currents inside iron pan bottom
+  if (showEddy > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showEddy;
+    const eddyY = basePanY + 13 * S;
+    for (let i = -2; i <= 2; i++) {
+      const ex = cx + i * 68 * S;
+      ctx.strokeStyle = showHeat > 0.3 ? '#fef08a' : '#facc15';
+      ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = 14 * S;
+      ctx.lineWidth = 3.2 * S;
+      const rot = t * 9 * (i % 2 === 0 ? 1 : -1);
+      ctx.beginPath();
+      ctx.ellipse(ex, eddyY, 24 * S, 8 * S, 0, rot, rot + Math.PI * 1.5);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('↻ EDDY CURRENTS IN IRON BASE', cx, panY - 18 * S);
+    ctx.restore();
+  }
+
+  // Temperature readout & Heat badge
+  if (showHeat > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showHeat;
+    const temp = Math.round(25 + showHeat * 185);
+    ctx.font = `900 ${Math.round(28 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fb923c';
+    ctx.shadowColor = '#ea580c'; ctx.shadowBlur = 14 * S;
+    ctx.fillText(`🔥 IRON PAN: ${temp}°C · BOILING!`, cx, panY - 62 * S);
+    ctx.restore();
+  }
+
+  if (showOutro > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = showOutro;
+    ctx.fillStyle = 'rgba(6,78,59,0.92)';
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 3.5 * S;
+    rrect(cx - 210 * S, baseY + baseH + 54 * S, 420 * S, 54 * S, 14 * S);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('✓ ZERO FLAME · SAFE COOL GLASS', cx, baseY + baseH + 89 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top title + Bottom animated caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW AN INDUCTION STOVE WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'heat' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

@@ -1,0 +1,260 @@
+<!doctype html>
+<!-- How It Actually Works — Microwave Oven (2.45 GHz Dipole Heating) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a microwave boil your soup in seconds without any fire or heating coils?', caption: 'HEAT WITHOUT FIRE?' },
+  { id: 'magnetron', text: 'A device called a magnetron fires invisible 2.45 gigahertz radio waves into the metal box.', caption: '2.45 GHz WAVES' },
+  { id: 'dipole', text: 'Water molecules inside food are tiny magnets with a positive end and a negative end.', caption: 'POLAR WATER MOLECULES' },
+  { id: 'flip', text: 'As the wave flips polarity, every water molecule twists back and forth billions of times a second!', caption: 'BILLIONS OF FLIPS/SEC' },
+  { id: 'heat', text: 'All that violent molecular friction generates intense heat right inside the food.', caption: 'FRICTION HEAT!' },
+  { id: 'outro', text: 'Because ceramic plates have no free water molecules, the food gets piping hot while the plate stays cool.', caption: 'FOOD HOT · PLATE COOL!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('magnetron').start + 0.25, type: 'bounce', pitchIndex: 4, intensity: 0.6 },
+    { t: byId('dipole').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.65 },
+    { t: byId('flip').start + 0.25, type: 'break', pitchIndex: 8, intensity: 0.8 },
+    { t: byId('heat').start + 0.25, type: 'break', pitchIndex: 10, intensity: 0.85 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.9 },
+  ];
+};
+
+function drawWaterMolecule(x, y, angle, scale, heat) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  // Friction glow aura when heating
+  if (heat > 0.05) {
+    const g = ctx.createRadialGradient(0, 0, 4 * scale, 0, 0, 38 * scale);
+    g.addColorStop(0, `rgba(251,146,60,${(0.75 * heat).toFixed(2)})`);
+    g.addColorStop(1, 'rgba(239,68,68,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, 38 * scale, 0, Math.PI * 2); ctx.fill();
+  }
+  // Oxygen atom (Red, negative)
+  ctx.fillStyle = '#ef4444';
+  ctx.strokeStyle = '#fecaca';
+  ctx.lineWidth = 2.2 * scale;
+  ctx.beginPath(); ctx.arc(-6 * scale, 0, 14 * scale, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Two Hydrogen atoms (White/Cyan, positive) at 104.5°
+  for (const sgn of [-1, 1]) {
+    const hx = 10 * scale, hy = sgn * 12 * scale;
+    ctx.fillStyle = '#e0f2fe';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2 * scale;
+    ctx.beginPath(); ctx.arc(hx, hy, 8.5 * scale, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+
+  // Polarity signs (- on O, + on H side)
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `900 ${Math.round(13 * scale)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('−', -6 * scale, 4.5 * scale);
+  ctx.fillStyle = '#0369a1';
+  ctx.font = `900 ${Math.round(11 * scale)}px sans-serif`;
+  ctx.fillText('+', 10 * scale, -8 * scale);
+  ctx.fillText('+', 10 * scale, 16 * scale);
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const pMag = smooth(byId('magnetron').start, byId('magnetron').start + 0.6, t);
+  const pDip = smooth(byId('dipole').start, byId('dipole').start + 0.6, t);
+  const pFlip = smooth(byId('flip').start, byId('flip').start + 0.7, t);
+  const pHeat = smooth(byId('heat').start, byId('heat').start + 0.8, t);
+  const pOutro = smooth(byId('outro').start, byId('outro').start + 0.6, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.68);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(W * 0.5, H * 0.5); ctx.scale(zoom, zoom); ctx.translate(-W * 0.5, -H * 0.5);
+
+  // 1) Microwave Oven Metal Cavity Cutaway
+  const boxX = 72 * S, boxY = H * 0.24, boxW = 576 * S, boxH = 470 * S;
+  ctx.fillStyle = 'rgba(15,23,42,0.82)';
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 6 * S;
+  ctx.beginPath(); ctx.roundRect(boxX, boxY, boxW, boxH, 18 * S); ctx.fill(); ctx.stroke();
+
+  // Magnetron unit on left wall
+  const magX = boxX - 18 * S, magY = boxY + 95 * S, magW = 72 * S, magH = 120 * S;
+  const magG = ctx.createLinearGradient(magX, magY, magX + magW, magY);
+  magG.addColorStop(0, '#475569'); magG.addColorStop(1, '#94a3b8');
+  ctx.fillStyle = magG;
+  ctx.strokeStyle = pMag > 0.1 ? '#c084fc' : '#cbd5e1';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath(); ctx.roundRect(magX, magY, magW, magH, 10 * S); ctx.fill(); ctx.stroke();
+  // Magnetron emitter antenna
+  ctx.fillStyle = '#c084fc';
+  ctx.beginPath(); ctx.arc(magX + magW + 4 * S, magY + magH * 0.5, 11 * S, -Math.PI * 0.5, Math.PI * 0.5); ctx.fill();
+
+  if (pMag > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pMag;
+    ctx.font = `900 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#d8b4fe';
+    ctx.fillText('MAGNETRON · 2.45 GHz', boxX + 20 * S, boxY + 42 * S);
+    ctx.restore();
+  }
+
+  // 2) Electromagnetic 2.45 GHz Sine Waves traversing the cavity
+  const waveAmp = (0.25 + 0.75 * pMag) * 42 * S;
+  const freq = 0.032 / S;
+  const phase = t * (8 + pFlip * 10);
+  for (let w = 0; w < 2; w++) {
+    const wy = boxY + (155 + w * 135) * S;
+    ctx.save();
+    ctx.strokeStyle = w === 0 ? `rgba(192,132,252,${(0.35 + pMag * 0.6).toFixed(2)})` : `rgba(56,189,248,${(0.25 + pMag * 0.5).toFixed(2)})`;
+    ctx.shadowColor = '#a855f7'; ctx.shadowBlur = 14 * S * pMag;
+    ctx.lineWidth = 4.5 * S;
+    ctx.beginPath();
+    for (let x = boxX + 60 * S; x <= boxX + boxW - 22 * S; x += 8 * S) {
+      const y = wy + Math.sin(x * freq - phase + w * 1.4) * waveAmp;
+      if (x <= boxX + 60 * S) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 3) Ceramic Plate (stays cool — cyan border) + Food Bowl (heats up — glowing orange/red)
+  const bowlCx = W * 0.53;
+  const plateY = boxY + boxH - 58 * S;
+
+  // Ceramic plate
+  ctx.fillStyle = '#e2e8f0';
+  ctx.strokeStyle = pOutro > 0.1 ? '#38bdf8' : '#94a3b8';
+  ctx.lineWidth = (pOutro > 0.1 ? 5 : 3) * S;
+  ctx.beginPath();
+  ctx.ellipse(bowlCx, plateY, 175 * S, 24 * S, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+
+  // Food / Soup Dome with thermal glow
+  const foodR = 132 * S;
+  const foodG = ctx.createRadialGradient(bowlCx, plateY - 58 * S, 10 * S, bowlCx, plateY - 40 * S, foodR);
+  foodG.addColorStop(0, pHeat > 0.1 ? `rgba(254,215,170,${(0.55 + pHeat * 0.4).toFixed(2)})` : 'rgba(56,189,248,0.28)');
+  foodG.addColorStop(0.6, pHeat > 0.1 ? `rgba(239,68,68,${(0.35 + pHeat * 0.55).toFixed(2)})` : 'rgba(14,165,233,0.22)');
+  foodG.addColorStop(1, 'rgba(30,41,59,0.5)');
+  ctx.fillStyle = foodG;
+  ctx.strokeStyle = pHeat > 0.2 ? '#fb923c' : '#38bdf8';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath();
+  ctx.arc(bowlCx, plateY - 8 * S, foodR, Math.PI, 0);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Rising steam wisps when food heats up
+  if (pHeat > 0.1) {
+    ctx.save();
+    ctx.globalAlpha = pHeat * 0.75;
+    ctx.strokeStyle = '#fed7aa';
+    ctx.lineWidth = 4 * S;
+    ctx.lineCap = 'round';
+    for (let s = 0; s < 4; s++) {
+      const sx = bowlCx + (-75 + s * 50) * S;
+      const offset = ((t * 55 + s * 22) % 85) * S;
+      const sy = plateY - 140 * S - offset;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy + 28 * S);
+      ctx.quadraticCurveTo(sx + Math.sin(t * 5 + s) * 14 * S, sy + 14 * S, sx, sy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // 4) Magnified H2O Dipole Water Molecules inside food flipping violently with the EM wave
+  const mols = [
+    { x: bowlCx - 66 * S, y: plateY - 48 * S, ph: 0.0 },
+    { x: bowlCx + 2 * S,  y: plateY - 82 * S, ph: 0.6 },
+    { x: bowlCx + 68 * S, y: plateY - 48 * S, ph: 1.2 },
+    { x: bowlCx - 28 * S, y: plateY - 34 * S, ph: 1.8 },
+    { x: bowlCx + 34 * S, y: plateY - 34 * S, ph: 2.4 },
+  ];
+  const molScale = (0.85 + 0.25 * pDip) * S;
+  for (const m of mols) {
+    // Flip angle tracks oscillating electric field: gentle wobble -> rapid 180-degree flips!
+    const fieldVal = Math.sin(t * (3.5 + pFlip * 15) + m.ph);
+    const angle = fieldVal * (0.4 + pFlip * 1.45);
+    const jitterX = pHeat * Math.sin(t * 48 + m.ph * 7) * 4 * S;
+    const jitterY = pHeat * Math.cos(t * 53 + m.ph * 5) * 4 * S;
+    drawWaterMolecule(m.x + jitterX, m.y + jitterY, angle, molScale, pHeat);
+  }
+
+  // Temperature Comparison Badges (Outro)
+  const tempFood = Math.round(lerp(22, 96, pHeat));
+  const tempPlate = Math.round(lerp(22, 26, pHeat));
+  if (pHeat > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pHeat;
+    const yBadge = boxY + boxH + 44 * S;
+    // Food badge
+    ctx.fillStyle = 'rgba(127,29,29,0.75)';
+    ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.roundRect(78 * S, yBadge, 265 * S, 64 * S, 12 * S); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fed7aa';
+    ctx.fillText(`SOUP (H₂O): ${tempFood}°C`, 210 * S, yBadge + 40 * S);
+
+    // Ceramic Plate badge
+    ctx.fillStyle = 'rgba(12,74,110,0.75)';
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.roundRect(377 * S, yBadge, 265 * S, 64 * S, 12 * S); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#bae6fd';
+    ctx.fillText(`PLATE: ${tempPlate}°C`, 510 * S, yBadge + 40 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top Title + Animated Bottom Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A MICROWAVE OVEN WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'heat' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

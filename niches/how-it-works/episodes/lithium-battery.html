@@ -1,0 +1,264 @@
+<!doctype html>
+<!-- How It Actually Works — Lithium-Ion Battery -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a slim lithium-ion battery power your phone all day long?', caption: 'ALL-DAY POWER' },
+  { id: 'layers', text: 'Inside sit two electrodes — graphite anode and metal cathode — split by a barrier.', caption: 'ANODE & CATHODE' },
+  { id: 'ions', text: 'When you turn it on, glowing lithium ions swim through electrolyte to the cathode.', caption: 'LI+ IONS SHUTTLE' },
+  { id: 'electrons', text: 'The separator blocks electrons, forcing them out through the external wire.', caption: 'ELECTRON FLOW' },
+  { id: 'power', text: 'That rushing river of electrons is the electricity powering your screen.', caption: 'ELECTRIC CURRENT!' },
+  { id: 'outro', text: 'Plug it in to charge, and the ions reverse direction — ready to go again!', caption: 'RECHARGEABLE!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('layers').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.6 },
+    { t: byId('ions').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.7 },
+    { t: byId('electrons').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.75 },
+    { t: byId('power').start + 0.2, type: 'break', pitchIndex: 9, intensity: 0.9 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const pLayers = smooth(byId('layers').start, byId('layers').start + 0.6, t);
+  const pIons = smooth(byId('ions').start, byId('ions').start + 0.6, t);
+  const pElec = smooth(byId('electrons').start, byId('electrons').start + 0.6, t);
+  const pPower = smooth(byId('power').start, byId('power').start + 0.5, t);
+  const pCharge = smooth(byId('outro').start, byId('outro').start + 0.6, t);
+
+  // Blueprint background + grid
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.57;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  const cellW = 480 * S, cellH = 290 * S;
+  const leftX = cx - cellW * 0.5;
+  const rightX = cx + cellW * 0.5;
+  const topY = cy - cellH * 0.5;
+  const botY = cy + cellH * 0.5;
+  const wireY = topY - 145 * S;
+
+  // External circuit wire (from anode terminal up, across bulb, down to cathode terminal)
+  const termLx = leftX + 75 * S;
+  const termRx = rightX - 75 * S;
+  ctx.strokeStyle = pElec > 0.1 ? '#facc15' : '#64748b';
+  ctx.lineWidth = 6 * S;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(termLx, topY - 18 * S);
+  ctx.lineTo(termLx, wireY);
+  ctx.lineTo(termRx, wireY);
+  ctx.lineTo(termRx, topY - 18 * S);
+  ctx.stroke();
+
+  // Lightbulb / Load in center of external wire
+  const bulbX = cx, bulbY = wireY;
+  const bulbGlow = clamp(pPower - pCharge * 0.7, 0, 1);
+  if (bulbGlow > 0.05) {
+    const bglow = ctx.createRadialGradient(bulbX, bulbY, 8 * S, bulbX, bulbY, 92 * S);
+    bglow.addColorStop(0, `rgba(254,240,138,${(0.9 * bulbGlow).toFixed(2)})`);
+    bglow.addColorStop(0.5, `rgba(250,204,21,${(0.45 * bulbGlow).toFixed(2)})`);
+    bglow.addColorStop(1, 'rgba(250,204,21,0)');
+    ctx.fillStyle = bglow;
+    ctx.beginPath(); ctx.arc(bulbX, bulbY, 92 * S, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = bulbGlow > 0.2 ? '#fef08a' : (pCharge > 0.2 ? '#4ade80' : '#1e293b');
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath(); ctx.arc(bulbX, bulbY, 34 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Filament or Charging bolt inside the load circle
+  if (pCharge > 0.35) {
+    ctx.fillStyle = '#020617';
+    ctx.beginPath();
+    ctx.moveTo(bulbX + 4 * S, bulbY - 18 * S);
+    ctx.lineTo(bulbX - 10 * S, bulbY + 2 * S);
+    ctx.lineTo(bulbX + 1 * S, bulbY + 2 * S);
+    ctx.lineTo(bulbX - 5 * S, bulbY + 18 * S);
+    ctx.lineTo(bulbX + 11 * S, bulbY - 3 * S);
+    ctx.lineTo(bulbX, bulbY - 3 * S);
+    ctx.closePath(); ctx.fill();
+  } else {
+    ctx.strokeStyle = bulbGlow > 0.2 ? '#b45309' : '#94a3b8';
+    ctx.lineWidth = 3 * S;
+    ctx.beginPath();
+    ctx.moveTo(bulbX - 12 * S, bulbY + 12 * S);
+    ctx.lineTo(bulbX - 6 * S, bulbY - 8 * S);
+    ctx.lineTo(bulbX, bulbY + 4 * S);
+    ctx.lineTo(bulbX + 6 * S, bulbY - 8 * S);
+    ctx.lineTo(bulbX + 12 * S, bulbY + 12 * S);
+    ctx.stroke();
+  }
+
+  // Flowing e- electrons along the external wire
+  if (pElec > 0.05) {
+    const dir = pCharge > 0.4 ? -1 : 1;
+    const totalLen = (topY - 18 * S - wireY) * 2 + (termRx - termLx);
+    for (let i = 0; i < 10; i++) {
+      let d = ((t * 210 * S * dir + i * (totalLen / 10)) % totalLen + totalLen) % totalLen;
+      let ex, ey;
+      const seg1 = topY - 18 * S - wireY;
+      const seg2 = termRx - termLx;
+      if (d < seg1) { ex = termLx; ey = topY - 18 * S - d; }
+      else if (d < seg1 + seg2) { ex = termLx + (d - seg1); ey = wireY; }
+      else { ex = termRx; ey = wireY + (d - seg1 - seg2); }
+
+      ctx.fillStyle = pCharge > 0.4 ? '#4ade80' : '#facc15';
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 10 * S;
+      ctx.beginPath(); ctx.arc(ex, ey, 8.5 * S, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#020617';
+      ctx.font = `900 ${Math.round(10 * S)}px -apple-system, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('e-', ex, ey + 3.5 * S);
+    }
+  }
+
+  // Battery casing
+  ctx.fillStyle = '#0a1628';
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 6 * S;
+  ctx.fillRect(leftX, topY, cellW, cellH);
+  ctx.strokeRect(leftX, topY, cellW, cellH);
+
+  // Terminal caps (- left, + right)
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillRect(termLx - 22 * S, topY - 20 * S, 44 * S, 20 * S);
+  ctx.fillStyle = '#fb923c';
+  ctx.fillRect(termRx - 22 * S, topY - 20 * S, 44 * S, 20 * S);
+  ctx.fillStyle = '#020617';
+  ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('−', termLx, topY - 4 * S);
+  ctx.fillText('+', termRx, topY - 4 * S);
+
+  // Left: Graphite Anode layers
+  ctx.fillStyle = 'rgba(56,189,248,0.16)';
+  ctx.fillRect(leftX + 10 * S, topY + 10 * S, 145 * S, cellH - 20 * S);
+  ctx.strokeStyle = 'rgba(148,163,184,0.6)';
+  ctx.lineWidth = 4 * S;
+  for (let row = 0; row < 7; row++) {
+    const ly = topY + (34 + row * 37) * S;
+    ctx.beginPath(); ctx.moveTo(leftX + 20 * S, ly); ctx.lineTo(leftX + 145 * S, ly); ctx.stroke();
+  }
+
+  // Right: Metal Oxide Cathode crystal blocks
+  ctx.fillStyle = 'rgba(251,146,60,0.16)';
+  ctx.fillRect(rightX - 155 * S, topY + 10 * S, 145 * S, cellH - 20 * S);
+  ctx.fillStyle = 'rgba(251,146,60,0.45)';
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 3; col++) {
+      ctx.fillRect(rightX - 142 * S + col * 42 * S, topY + 26 * S + row * 49 * S, 30 * S, 34 * S);
+    }
+  }
+
+  // Center: Electrolyte + Microporous Separator
+  ctx.fillStyle = 'rgba(14,165,233,0.08)';
+  ctx.fillRect(cx - 80 * S, topY + 6 * S, 160 * S, cellH - 12 * S);
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 5 * S;
+  ctx.setLineDash([12 * S, 10 * S]);
+  ctx.beginPath(); ctx.moveTo(cx, topY + 6 * S); ctx.lineTo(cx, botY - 6 * S); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Shuttling Li+ ions across the separator
+  const ionDir = pCharge > 0.4 ? -1 : 1;
+  for (let i = 0; i < 12; i++) {
+    const row = i % 6;
+    const lane = Math.floor(i / 6);
+    let u;
+    if (pIons < 0.05) {
+      u = 0.08 + lane * 0.12;
+    } else {
+      u = ((t * 0.36 * ionDir + lane * 0.5 + row * 0.14) % 1 + 1) % 1;
+    }
+    const ix = leftX + 55 * S + u * (cellW - 110 * S);
+    const iy = topY + (44 + row * 40) * S + Math.sin(t * 5 + i) * 5 * S;
+
+    ctx.fillStyle = pCharge > 0.4 ? '#4ade80' : '#2dd4bf';
+    ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 12 * S;
+    ctx.beginPath(); ctx.arc(ix, iy, 12 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#020617';
+    ctx.font = `900 ${Math.round(11 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Li+', ix, iy + 4 * S);
+  }
+
+  // Labels
+  ctx.font = `800 ${Math.round(19 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  if (pLayers > 0.05) {
+    ctx.globalAlpha = pLayers;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('ANODE (−)', leftX + 82 * S, botY + 36 * S);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText('SEPARATOR', cx, botY + 36 * S);
+    ctx.fillStyle = '#fb923c';
+    ctx.fillText('CATHODE (+)', rightX - 82 * S, botY + 36 * S);
+  }
+  if (pCharge > 0.2) {
+    ctx.globalAlpha = pCharge;
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('⇄ CHARGING: IONS REVERSE!', cx, wireY - 56 * S);
+  } else if (pPower > 0.2) {
+    ctx.globalAlpha = pPower;
+    ctx.fillStyle = '#facc15';
+    ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('ELECTRONS POWER THE LOAD →', cx, wireY - 56 * S);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // Top title + animated bottom caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A LITHIUM BATTERY WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'power' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

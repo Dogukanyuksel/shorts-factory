@@ -1,0 +1,341 @@
+<!doctype html>
+<!-- How It Actually Works — Automatic Transmission (Planetary Gearset) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does an automatic car shift gears without you ever touching a clutch?', caption: 'NO CLUTCH PEDAL?' },
+  { id: 'parts', text: 'Inside sits a planetary gearset: a center sun gear, orbiting planet gears, and an outer ring gear.', caption: 'PLANETARY GEARSET' },
+  { id: 'low', text: 'Hold the outer ring still, and the sun gear rolls the planets slowly for massive starting torque.', caption: '1ST GEAR: HIGH TORQUE' },
+  { id: 'direct', text: 'Lock the sun and ring together, and the whole unit spins as one for direct highway drive.', caption: 'DIRECT DRIVE 1:1' },
+  { id: 'overdrive', text: 'Hold the sun gear still, and the planet carrier spins the outer ring even faster — overdrive!', caption: 'OVERDRIVE SPEED!' },
+  { id: 'outro', text: 'Hydraulic clutches swap which gear is held in milliseconds for seamless automatic shifting.', caption: 'SMOOTH SHIFTING!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('parts').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.55 },
+    { t: byId('low').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.7 },
+    { t: byId('direct').start + 0.25, type: 'break', pitchIndex: 7, intensity: 0.75 },
+    { t: byId('overdrive').start + 0.25, type: 'break', pitchIndex: 9, intensity: 0.85 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.9 },
+  ];
+};
+
+function drawGear(cx, cy, rPitch, teeth, toothH, angle, fill1, fill2, stroke, holeR) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  const rOut = rPitch + toothH * 0.55;
+  const rIn = rPitch - toothH * 0.45;
+  const step = (Math.PI * 2) / teeth;
+  ctx.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a0 = i * step;
+    const a1 = a0 + step * 0.18;
+    const a2 = a0 + step * 0.32;
+    const a3 = a0 + step * 0.68;
+    const a4 = a0 + step * 0.82;
+    if (i === 0) ctx.moveTo(Math.cos(a0) * rIn, Math.sin(a0) * rIn);
+    ctx.lineTo(Math.cos(a1) * rIn, Math.sin(a1) * rIn);
+    ctx.lineTo(Math.cos(a2) * rOut, Math.sin(a2) * rOut);
+    ctx.lineTo(Math.cos(a3) * rOut, Math.sin(a3) * rOut);
+    ctx.lineTo(Math.cos(a4) * rIn, Math.sin(a4) * rIn);
+  }
+  ctx.closePath();
+  const g = ctx.createRadialGradient(-rPitch * 0.25, -rPitch * 0.25, rPitch * 0.1, 0, 0, rOut);
+  g.addColorStop(0, fill1); g.addColorStop(1, fill2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = Math.max(2, toothH * 0.18);
+  ctx.stroke();
+
+  // Inner shaft hole + keyway indicator dot
+  ctx.fillStyle = '#071124';
+  ctx.beginPath(); ctx.arc(0, 0, holeR, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = stroke; ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(rPitch * 0.58, 0, Math.max(3, holeR * 0.28), 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawInternalRingGear(cx, cy, rOuter, rPitch, teeth, toothH, angle, fill1, fill2, stroke) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  const rRoot = rPitch + toothH * 0.45;
+  const rTip = rPitch - toothH * 0.55;
+  const step = (Math.PI * 2) / teeth;
+
+  ctx.beginPath();
+  ctx.arc(0, 0, rOuter, 0, Math.PI * 2, false);
+  // Inner teeth cutout (counter-clockwise for even-odd fill)
+  for (let i = teeth; i >= 0; i--) {
+    const a0 = i * step;
+    const a1 = a0 - step * 0.18;
+    const a2 = a0 - step * 0.32;
+    const a3 = a0 - step * 0.68;
+    const a4 = a0 - step * 0.82;
+    if (i === teeth) ctx.moveTo(Math.cos(a0) * rRoot, Math.sin(a0) * rRoot);
+    ctx.lineTo(Math.cos(a1) * rRoot, Math.sin(a1) * rRoot);
+    ctx.lineTo(Math.cos(a2) * rTip, Math.sin(a2) * rTip);
+    ctx.lineTo(Math.cos(a3) * rTip, Math.sin(a3) * rTip);
+    ctx.lineTo(Math.cos(a4) * rRoot, Math.sin(a4) * rRoot);
+  }
+  ctx.closePath();
+  const g = ctx.createRadialGradient(0, 0, rTip, 0, 0, rOuter);
+  g.addColorStop(0, fill1); g.addColorStop(1, fill2);
+  ctx.fillStyle = g;
+  ctx.fill('evenodd');
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = Math.max(2.5, toothH * 0.2);
+  ctx.stroke();
+
+  // Reference notches on outer rim so ring rotation is super clear
+  ctx.fillStyle = '#e2e8f0';
+  for (let k = 0; k < 6; k++) {
+    const a = (k * Math.PI) / 3;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * ((rOuter + rRoot) * 0.5), Math.sin(a) * ((rOuter + rRoot) * 0.5), 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const tLow = byId('low').start;
+  const tDir = byId('direct').start;
+  const tOver = byId('overdrive').start;
+  const tOut = byId('outro').start;
+
+  const pParts = smooth(byId('parts').start, byId('parts').start + 0.6, t);
+  const wLow = smooth(tLow, tLow + 0.5, t) * (1 - smooth(tDir, tDir + 0.4, t));
+  const wDir = smooth(tDir, tDir + 0.5, t) * (1 - smooth(tOver, tOver + 0.4, t));
+  const wOver = smooth(tOver, tOver + 0.5, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // Kinematics of planetary gearset:
+  // Teeth: Zs = 18 (sun), Zp = 12 (planet), Zr = 42 (ring) -> Zs + 2*Zp = Zr (18 + 24 = 42)
+  // Planetary equation: (Zs + Zr) * omega_c = Zs * omega_s + Zr * omega_r
+  // Purely deterministic integration by summing piecewise constant speeds over mode intervals
+  const Zs = 18, Zp = 12, Zr = 42;
+  const omegaBase = 2.4; // rad/s
+  let angSun = 0, angRing = 0;
+  // Integrate in small deterministic steps from 0..t (fast: ~120 steps max)
+  const dt = 0.05;
+  const nSteps = Math.max(1, Math.ceil(t / dt));
+  const h = t / nSteps;
+  for (let i = 0; i < nSteps; i++) {
+    const ti = (i + 0.5) * h;
+    const mDir = smooth(tDir, tDir + 0.45, ti);
+    const mOver = smooth(tOver, tOver + 0.45, ti);
+    // Low: omega_s = 2.6, omega_r = 0 -> omega_c = 18/60 * 2.6 = 0.78
+    // Direct: omega_s = 2.0, omega_r = 2.0 -> omega_c = 2.0
+    // Overdrive: omega_s = 0, omega_c = 2.2 -> omega_r = 60/42 * 2.2 = 3.14
+    const ws = lerp(lerp(2.6, 2.0, mDir), 0.0, mOver);
+    const wr = lerp(lerp(0.0, 2.0, mDir), 3.14, mOver);
+    angSun += ws * h;
+    angRing += wr * h;
+  }
+  const angCarrier = (Zs * angSun + Zr * angRing) / (Zs + Zr);
+  // Planet self-rotation relative to world:
+  // Contact with sun: r_s*(angSun - angCarrier) = -r_p*(angPlanetRel)
+  const angPlanetWorld = angCarrier - (Zs / Zp) * (angSun - angCarrier);
+
+  const cx = W * 0.5, cy = H * 0.49;
+  const zoom = 1 + smooth(0, DUR, t) * 0.06;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  const mod = 7.4 * S; // pitch radius = Z * mod / 2
+  const rSun = (Zs * mod) / 2;       // 66.6 S
+  const rPlanet = (Zp * mod) / 2;    // 44.4 S
+  const rRing = (Zr * mod) / 2;      // 155.4 S
+  const rOrbit = rSun + rPlanet;     // 111 S
+  const toothH = 14 * S;
+
+  // Clutch brake band glowing around Ring Gear during Low Gear
+  if (wLow > 0.05) {
+    ctx.save();
+    ctx.strokeStyle = `rgba(239,68,68,${(0.85 * wLow).toFixed(2)})`;
+    ctx.shadowColor = '#ef4444'; ctx.shadowBlur = 20 * S;
+    ctx.lineWidth = 14 * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rRing + 48 * S, -Math.PI * 0.85, Math.PI * 0.85);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Outer Ring Gear
+  const ringLocked = wLow > 0.4;
+  drawInternalRingGear(
+    cx, cy, rRing + 34 * S, rRing, Zr, toothH, angRing,
+    ringLocked ? '#991b1b' : '#38bdf8',
+    ringLocked ? '#450a0a' : '#0369a1',
+    ringLocked ? '#f87171' : '#bae6fd'
+  );
+
+  // Planetary Carrier Y-arm connecting the 3 planets
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angCarrier);
+  ctx.strokeStyle = 'rgba(74,222,128,0.65)';
+  ctx.lineWidth = 16 * S;
+  ctx.lineCap = 'round';
+  for (let k = 0; k < 3; k++) {
+    const a = (k * Math.PI * 2) / 3;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * rOrbit, Math.sin(a) * rOrbit); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(74,222,128,0.35)';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath(); ctx.arc(0, 0, rOrbit, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+
+  // 3 Orbiting Planet Gears
+  for (let k = 0; k < 3; k++) {
+    const a = angCarrier + (k * Math.PI * 2) / 3;
+    const px = cx + Math.cos(a) * rOrbit;
+    const py = cy + Math.sin(a) * rOrbit;
+    // Phase offset so teeth mesh cleanly with sun gear
+    const meshOffset = Math.PI / Zp;
+    drawGear(px, py, rPlanet, Zp, toothH, angPlanetWorld + meshOffset, '#4ade80', '#15803d', '#dcfce7', 12 * S);
+  }
+
+  // Center Sun Gear
+  const sunLocked = wOver > 0.4;
+  drawGear(
+    cx, cy, rSun, Zs, toothH, angSun,
+    sunLocked ? '#991b1b' : '#facc15',
+    sunLocked ? '#450a0a' : '#b45309',
+    sunLocked ? '#f87171' : '#fef9c3',
+    20 * S
+  );
+
+  // Lock icon on Sun Gear during Overdrive
+  if (wOver > 0.1) {
+    ctx.save();
+    ctx.globalAlpha = wOver;
+    ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#ef4444'; ctx.shadowBlur = 14 * S;
+    ctx.beginPath(); ctx.arc(cx, cy, 26 * S, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#fca5a5';
+    ctx.font = `900 ${Math.round(15 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('HELD', cx, cy + 5 * S);
+    ctx.restore();
+  }
+
+  // Direct Drive lock glow
+  if (wDir > 0.1) {
+    ctx.save();
+    ctx.globalAlpha = wDir * 0.7;
+    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 5 * S;
+    ctx.setLineDash([12 * S, 10 * S]);
+    ctx.beginPath(); ctx.arc(cx, cy, rOrbit, angCarrier, angCarrier + Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // Part Legend Pills (top of diagram)
+  if (pParts > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pParts;
+    const yLeg = cy - 255 * S;
+    const items = [
+      { label: 'SUN GEAR', color: '#facc15', x: cx - 195 * S },
+      { label: 'PLANETS', color: '#4ade80', x: cx },
+      { label: 'RING GEAR', color: '#38bdf8', x: cx + 195 * S },
+    ];
+    ctx.textAlign = 'center';
+    ctx.font = `800 ${Math.round(19 * S)}px -apple-system, sans-serif`;
+    for (const it of items) {
+      ctx.fillStyle = 'rgba(15,23,42,0.85)';
+      ctx.strokeStyle = it.color; ctx.lineWidth = 2.5 * S;
+      ctx.beginPath(); ctx.roundRect(it.x - 84 * S, yLeg - 20 * S, 168 * S, 38 * S, 19 * S); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = it.color;
+      ctx.fillText(it.label, it.x, yLeg + 6 * S);
+    }
+    ctx.restore();
+  }
+
+  // Live Gear Mode & Ratio Telemetry Panel (below gearset)
+  let modeLabel = '1ST GEAR · RING LOCKED';
+  let ratioText = 'RATIO 3.3 : 1  |  HIGH TORQUE';
+  let modeColor = '#fb923c';
+  if (t >= tOver) {
+    modeLabel = 'OVERDRIVE · SUN LOCKED';
+    ratioText = 'RATIO 0.7 : 1  |  HIGH SPEED';
+    modeColor = '#4ade80';
+  } else if (t >= tDir) {
+    modeLabel = 'DIRECT DRIVE · ALL LOCKED';
+    ratioText = 'RATIO 1.0 : 1  |  CRUISING';
+    modeColor = '#facc15';
+  }
+  if (t >= tLow - 0.1) {
+    const showPanel = smooth(tLow - 0.1, tLow + 0.4, t);
+    ctx.save();
+    ctx.globalAlpha = showPanel;
+    const py = cy + 258 * S;
+    ctx.fillStyle = 'rgba(15,23,42,0.88)';
+    ctx.strokeStyle = modeColor; ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.roundRect(cx - 240 * S, py - 34 * S, 480 * S, 76 * S, 14 * S); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(23 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = modeColor;
+    ctx.fillText(modeLabel, cx, py - 4 * S);
+    ctx.font = `700 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(ratioText, cx, py + 24 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Top Title + Animated Bottom Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(29 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW AN AUTOMATIC TRANSMISSION WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'overdrive' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>
