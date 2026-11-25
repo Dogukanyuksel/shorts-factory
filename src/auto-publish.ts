@@ -18,7 +18,7 @@ import {
   tallyABVotes,
   uploadReelToInstagram,
 } from "./instagram.js";
-import { uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
+import { fetchYouTubeComments, uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
 
 export type PublishedRecord = {
   id: string;
@@ -153,24 +153,54 @@ async function main() {
 
   const publishedIds = new Set(state.published.map((r) => r.id));
 
-  // Önceki videonun Instagram yorumlarındaki A/B oylamasını otomatik oku ve kazananı öne al
+  // Önceki videonun hem YouTube Shorts hem Instagram Reels yorumlarındaki A/B oylarını birleştirip kazananı öne al
   let votedJob: PublishJob | null = null;
   const igUserIdPre =
     process.env.IG_USER_ID?.trim() ||
     (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
     "";
   const metaTokenPre = process.env.META_ACCESS_TOKEN?.trim() || "";
+  const ytApiKeyPre = process.env.YOUTUBE_API_KEY?.trim() || "";
+  const ytClientIdPre = process.env.YOUTUBE_CLIENT_ID?.trim() || "";
+  const ytClientSecretPre = process.env.YOUTUBE_CLIENT_SECRET?.trim() || "";
+  const ytRefreshPre = resolveRefreshToken(channel);
+
   const lastWithPoll = [...state.published]
     .reverse()
-    .find((r) => r.channel === channel && r.instagramMediaId && r.poll);
+    .find((r) => r.channel === channel && r.poll && (r.instagramMediaId || r.videoId));
 
-  if (lastWithPoll?.instagramMediaId && lastWithPoll.poll && igUserIdPre && metaTokenPre) {
-    try {
-      const comments = await fetchInstagramComments(lastWithPoll.instagramMediaId, {
-        igUserId: igUserIdPre,
-        accessToken: metaTokenPre,
-      });
-      const tally = tallyABVotes(comments, lastWithPoll.poll.optionA, lastWithPoll.poll.optionB);
+  if (lastWithPoll?.poll) {
+    const allComments: string[] = [];
+
+    if (lastWithPoll.instagramMediaId && igUserIdPre && metaTokenPre) {
+      try {
+        const igComments = await fetchInstagramComments(lastWithPoll.instagramMediaId, {
+          igUserId: igUserIdPre,
+          accessToken: metaTokenPre,
+        });
+        allComments.push(...igComments);
+      } catch (igErr) {
+        console.warn("[auto-publish] Instagram anket yorumları okunamadı:", igErr);
+      }
+    }
+
+    if (lastWithPoll.videoId && (ytApiKeyPre || (ytClientIdPre && ytClientSecretPre && ytRefreshPre))) {
+      try {
+        const ytComments = await fetchYouTubeComments(lastWithPoll.videoId, {
+          apiKey: ytApiKeyPre || undefined,
+          creds:
+            ytClientIdPre && ytClientSecretPre && ytRefreshPre
+              ? { clientId: ytClientIdPre, clientSecret: ytClientSecretPre, refreshToken: ytRefreshPre }
+              : undefined,
+        });
+        allComments.push(...ytComments);
+      } catch (ytErr) {
+        console.warn("[auto-publish] YouTube anket yorumları okunamadı:", ytErr);
+      }
+    }
+
+    if (allComments.length > 0) {
+      const tally = tallyABVotes(allComments, lastWithPoll.poll.optionA, lastWithPoll.poll.optionB);
       if (tally.winner) {
         const winningKey =
           tally.winner === "A" ? lastWithPoll.poll.optionAKey : lastWithPoll.poll.optionBKey;
@@ -179,14 +209,12 @@ async function main() {
         votedJob = pickJobByKey(channel, winningKey, publishedIds);
         if (votedJob) {
           console.log(
-            `🗳️ [auto-publish] Yorum anketi kazananı: ${tally.winner} (${winningLabel}) [A=${tally.votesA}, B=${tally.votesB}] → öne alındı!`,
+            `🗳️ [auto-publish] YT+IG ortak anket kazananı: ${tally.winner} (${winningLabel}) [A=${tally.votesA}, B=${tally.votesB}] → öne alındı!`,
           );
         }
       } else {
-        console.log("[auto-publish] Yorum anketinde henüz oy yok, normal sıradan devam ediliyor.");
+        console.log("[auto-publish] Yorum anketinde henüz A/B oyu yok, normal sıradan devam ediliyor.");
       }
-    } catch (pollErr) {
-      console.warn("[auto-publish] Anket yorumları okunamadı, normal sıradan devam ediliyor:", pollErr);
     }
   }
 

@@ -129,3 +129,46 @@ export async function uploadVideoToYouTube(
     url: `https://youtube.com/shorts/${uploaded.id}`,
   };
 }
+
+/**
+ * YouTube Shorts videosundaki herkese açık yorumları çeker (A/B anket oylarını saymak için).
+ * YOUTUBE_API_KEY varsa onunla, yoksa OAuth access token ile okur.
+ */
+export async function fetchYouTubeComments(
+  videoId: string,
+  opts: { apiKey?: string; creds?: YouTubeCredentials },
+  maxResults = 100,
+): Promise<string[]> {
+  const params = new URLSearchParams({
+    part: "snippet",
+    videoId,
+    maxResults: String(maxResults),
+    order: "relevance",
+    textFormat: "plainText",
+  });
+  const headers: Record<string, string> = {};
+
+  if (opts.apiKey?.trim()) {
+    params.set("key", opts.apiKey.trim());
+  } else if (opts.creds) {
+    const token = await refreshAccessToken(opts.creds);
+    headers.authorization = `Bearer ${token}`;
+  } else {
+    return [];
+  }
+
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/commentThreads?${params.toString()}`, {
+    headers,
+    signal: AbortSignal.timeout(20_000),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`YouTube yorum okuma hatası (${res.status}): ${text.slice(0, 300)}`);
+  }
+  const json = JSON.parse(text) as {
+    items?: Array<{ snippet?: { topLevelComment?: { snippet?: { textDisplay?: string } } } }>;
+  };
+  return (json.items || [])
+    .map((item) => item.snippet?.topLevelComment?.snippet?.textDisplay?.trim() || "")
+    .filter(Boolean);
+}
