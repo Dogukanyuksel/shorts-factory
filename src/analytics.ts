@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { loadState, type ChannelId } from "./auto-publish.js";
+import { fetchYouTubeComments } from "./youtube.js";
 
 export type VideoMetrics = {
   id: string;
@@ -13,6 +14,7 @@ export type VideoMetrics = {
   likes: number;
   comments: number;
   engagementRatePct: number;
+  recentComments: string[];
 };
 
 export type AnalyticsReport = {
@@ -85,10 +87,19 @@ async function main() {
     apiKey,
   );
 
-  const videos: VideoMetrics[] = valid.map((rec) => {
+  const videos: VideoMetrics[] = [];
+  for (const rec of valid) {
     const s = statsMap.get(rec.videoId) || { views: 0, likes: 0, comments: 0 };
     const eng = s.views > 0 ? Number((((s.likes + s.comments * 3) / s.views) * 100).toFixed(2)) : 0;
-    return {
+    let recentComments: string[] = [];
+    if (s.comments > 0) {
+      try {
+        recentComments = await fetchYouTubeComments(rec.videoId, { apiKey }, 20);
+      } catch {
+        recentComments = [];
+      }
+    }
+    videos.push({
       id: rec.id,
       channel: rec.channel,
       title: rec.title,
@@ -99,8 +110,9 @@ async function main() {
       likes: s.likes,
       comments: s.comments,
       engagementRatePct: eng,
-    };
-  });
+      recentComments,
+    });
+  }
 
   const byViewsDesc = (a: VideoMetrics, b: VideoMetrics) => b.views - a.views;
   const report: AnalyticsReport = {
