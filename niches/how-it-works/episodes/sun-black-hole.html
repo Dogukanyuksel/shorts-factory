@@ -1,0 +1,100 @@
+<!doctype html>
+<!-- Clear Mechanics (NASA/Space) — What If the Sun Turned Into a Black Hole? -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#030612;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'If the Sun instantly turned into a black hole, Earth would NOT get sucked in.', caption: 'NOT SUCKED IN?' },
+  { id: 'myth', text: 'Black holes are not cosmic vacuum cleaners — gravity only depends on mass and distance.', caption: 'SAME MASS = SAME ORBIT' },
+  { id: 'dark', text: 'For eight minutes we would not even notice, until the last sunlight hits Earth and the sky goes pitch black.', caption: '8 MINUTES OF LIGHT' },
+  { id: 'freeze', text: 'Without solar heat, average temperatures plunge below minus seventy degrees within weeks.', caption: 'PLANET FREEZES SOLID' },
+  { id: 'outro', text: 'Earth would keep orbiting silently in total darkness — a frozen rogue world.', caption: 'FROZEN IN ORBIT!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 23; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('myth').start + 0.25, type: 'break', pitchIndex: 2, intensity: 0.9 },
+    { t: byId('freeze').start + 0.3, type: 'bounce', pitchIndex: 8, intensity: 0.7 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 10, intensity: 0.85 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720, cx = W * 0.5, cy = H * 0.49;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const isBh = smooth(byId('myth').start, byId('myth').start + 0.6, t);
+  const freeze = smooth(byId('freeze').start, byId('outro').end - 0.5, t);
+
+  ctx.fillStyle = '#030612'; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 60; i++) {
+    const sx = ((Math.sin(i * 93.1) * 43758.5) % 1 + 1) % 1 * W;
+    const sy = ((Math.sin(i * 217.3) * 43758.5) % 1 + 1) % 1 * H;
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.beginPath(); ctx.arc(sx, sy, 1.5 * S, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Sabit yörünge halkası (Dünya yutulmaz!)
+  const orbitR = 235 * S;
+  ctx.strokeStyle = 'rgba(56,189,248,0.45)'; ctx.lineWidth = 3 * S; ctx.setLineDash([12 * S, 8 * S]);
+  ctx.beginPath(); ctx.arc(cx, cy, orbitR, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+
+  // Merkez: Güneş → 6 km Kara Delik
+  if (isBh < 0.5) {
+    const sg = ctx.createRadialGradient(cx, cy, 10 * S, cx, cy, 95 * S);
+    sg.addColorStop(0, '#fef08a'); sg.addColorStop(0.6, '#f97316'); sg.addColorStop(1, 'rgba(249,115,22,0)');
+    ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(cx, cy, 95 * S, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.save();
+    ctx.strokeStyle = '#a855f7'; ctx.shadowColor = '#a855f7'; ctx.shadowBlur = 28 * S; ctx.lineWidth = 6 * S;
+    ctx.beginPath(); ctx.arc(cx, cy, 26 * S, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.arc(cx, cy, 22 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Yörüngedeki Dünya (sıcak mavi/yeşil → buz beyaz/camgöbeği)
+  const ang = t * 0.9;
+  const ex = cx + Math.cos(ang) * orbitR, ey = cy + Math.sin(ang) * orbitR;
+  ctx.fillStyle = freeze > 0.4 ? '#bae6fd' : '#38bdf8';
+  ctx.shadowColor = freeze > 0.4 ? '#7dd3fc' : '#2563eb'; ctx.shadowBlur = 16 * S;
+  ctx.beginPath(); ctx.arc(ex, ey, 26 * S, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+
+  const tempC = Math.round(15 - freeze * 88);
+  ctx.fillStyle = tempC < 0 ? '#7dd3fc' : '#facc15';
+  ctx.font = `800 ${Math.round(24 * S)}px monospace`; ctx.textAlign = 'center';
+  ctx.fillText(`EARTH TEMP: ${tempC}°C  ·  ORBIT: STABLE ✓`, W * 0.5, H * 0.76);
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(31 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#c4b5fd';
+  ctx.fillText('SUN TURNS INTO A BLACK HOLE?', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.855); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'outro' ? '#38bdf8' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

@@ -1,0 +1,108 @@
+<!doctype html>
+<!-- Kinetic Lab — 1 Giant Heavy Ball vs 100 Tiny Balls (Momentum Transfer Chaos) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = '1 GIANT BALL VS 100 TINY BALLS';
+let giant, tinies = [], events = [], simTime = 0, hits = 0, rng = 1;
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || '1 GIANT BALL VS 100 TINY BALLS';
+  cv.width = W; cv.height = H;
+  rng = (cfg.seed || 1) * 51329 + 7;
+  const S = W / 720, cx = W * 0.5, cy = H * 0.53;
+  giant = { x: cx, y: cy - 120 * S, vx: 180 * S, vy: 210 * S, r: 58 * S, m: 45 };
+  tinies = [];
+  for (let i = 0; i < 100; i++) {
+    const a = rand() * Math.PI * 2, d = (90 + rand() * 170) * S;
+    tinies.push({
+      x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d,
+      vx: (rand() - 0.5) * 180 * S, vy: (rand() - 0.5) * 180 * S,
+      r: 8.5 * S, m: 1, col: `hsl(${(i * 3.6) % 360}, 95%, 62%)`,
+    });
+  }
+  events = []; simTime = 0; hits = 0;
+};
+
+function step(dt) {
+  const S = W / 720, cx = W * 0.5, cy = H * 0.53, arenaR = 295 * S;
+  const sub = 3, sdt = dt / sub;
+  for (let s = 0; s < sub; s++) {
+    simTime += sdt;
+    giant.vy += 420 * S * sdt;
+    giant.x += giant.vx * sdt; giant.y += giant.vy * sdt;
+    const gdx = giant.x - cx, gdy = giant.y - cy, gd = Math.hypot(gdx, gdy);
+    if (gd + giant.r > arenaR) {
+      const nx = gdx / gd, ny = gdy / gd;
+      giant.x = cx + nx * (arenaR - giant.r); giant.y = cy + ny * (arenaR - giant.r);
+      const dot = giant.vx * nx + giant.vy * ny;
+      if (dot > 0) {
+        giant.vx -= 2 * dot * nx; giant.vy -= 2 * dot * ny;
+        events.push({ t: simTime, type: 'break', pitchIndex: 1, intensity: 0.7 });
+      }
+    }
+    for (const b of tinies) {
+      b.vy += 420 * S * sdt;
+      b.x += b.vx * sdt; b.y += b.vy * sdt;
+      const bdx = b.x - cx, bdy = b.y - cy, bd = Math.hypot(bdx, bdy);
+      if (bd + b.r > arenaR) {
+        const nx = bdx / Math.max(1e-4, bd), ny = bdy / Math.max(1e-4, bd);
+        b.x = cx + nx * (arenaR - b.r); b.y = cy + ny * (arenaR - b.r);
+        const dot = b.vx * nx + b.vy * ny;
+        if (dot > 0) { b.vx -= 1.96 * dot * nx; b.vy -= 1.96 * dot * ny; }
+      }
+      // Dev top ile çarpışma
+      const dx = b.x - giant.x, dy = b.y - giant.y, d = Math.hypot(dx, dy);
+      if (d < b.r + giant.r) {
+        const nx = dx / Math.max(1e-4, d), ny = dy / Math.max(1e-4, d);
+        const overlap = b.r + giant.r - d;
+        b.x += nx * overlap; b.y += ny * overlap;
+        const rvx = b.vx - giant.vx, rvy = b.vy - giant.vy;
+        const vn = rvx * nx + rvy * ny;
+        if (vn < 0) {
+          const imp = (-1.92 * vn) / (1 / b.m + 1 / giant.m);
+          b.vx += (imp / b.m) * nx; b.vy += (imp / b.m) * ny;
+          giant.vx -= (imp / giant.m) * nx; giant.vy -= (imp / giant.m) * ny;
+          hits++;
+          if (hits % 6 === 0) events.push({ t: simTime, type: 'bounce', pitchIndex: hits % 15, intensity: 0.42 });
+        }
+      }
+    }
+  }
+}
+
+function draw() {
+  const S = W / 720, cx = W * 0.5, cy = H * 0.53, arenaR = 295 * S;
+  ctx.fillStyle = '#050712'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#38bdf8'; ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 20 * S; ctx.lineWidth = 8 * S;
+  ctx.beginPath(); ctx.arc(cx, cy, arenaR, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0;
+
+  for (const b of tinies) {
+    ctx.fillStyle = b.col;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+  }
+  const gg = ctx.createRadialGradient(giant.x - 18 * S, giant.y - 18 * S, 8 * S, giant.x, giant.y, giant.r);
+  gg.addColorStop(0, '#ffffff'); gg.addColorStop(0.5, '#facc15'); gg.addColorStop(1, '#ea580c');
+  ctx.fillStyle = gg; ctx.shadowColor = '#facc15'; ctx.shadowBlur = 24 * S;
+  ctx.beginPath(); ctx.arc(giant.x, giant.y, giant.r, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(36 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
+  ctx.fillText(HOOK, W * 0.5, H * 0.13);
+  ctx.font = `800 ${Math.round(24 * S)}px monospace`; ctx.fillStyle = '#facc15';
+  ctx.fillText(`COLLISIONS: ${hits}`, W * 0.5, H * 0.178);
+}
+
+window.renderBatch = (_s, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) { step(1 / FPS); draw(); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

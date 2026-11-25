@@ -1,0 +1,129 @@
+<!doctype html>
+<!-- Clear Mechanics (NASA/Space) — What If Earth Were Compressed to a Marble? -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#030612;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'What happens if you crush the entire Earth down to the size of a glass marble?', caption: 'EARTH AS A MARBLE?' },
+  { id: 'mass', text: 'Same mass — six septillion kilograms — squeezed tighter and tighter until atoms collapse.', caption: '6 SEPTILLION KG' },
+  { id: 'radius', text: 'At exactly nine millimeters wide, you cross the Schwarzschild radius.', caption: '9 MM LIMIT!' },
+  { id: 'bh', text: 'Gravity becomes so extreme that not even light can escape. Earth turns into a black hole.', caption: 'EARTH = BLACK HOLE' },
+  { id: 'orbit', text: 'Strangely, the Moon would keep orbiting normally — because the total mass never changed.', caption: 'MOON KEEPS ORBITING!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 22; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('mass').start + 0.3, type: 'bounce', pitchIndex: 3, intensity: 0.7 },
+    { t: byId('radius').start + 0.25, type: 'break', pitchIndex: 1, intensity: 1.0 },
+    { t: byId('bh').start + 0.2, type: 'win', pitchIndex: 10, intensity: 0.9 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720, cx = W * 0.5, cy = H * 0.49;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const crush = smooth(byId('mass').start, byId('radius').end - 0.3, t);
+  const bh = smooth(byId('bh').start, byId('bh').start + 0.7, t);
+
+  ctx.fillStyle = '#030612'; ctx.fillRect(0, 0, W, H);
+  // Yıldızlar
+  for (let i = 0; i < 65; i++) {
+    const sx = ((Math.sin(i * 127.1) * 43758.5) % 1 + 1) % 1 * W;
+    const sy = ((Math.sin(i * 311.7) * 43758.5) % 1 + 1) % 1 * H;
+    ctx.fillStyle = `rgba(255,255,255,${(0.2 + 0.5 * Math.abs(Math.sin(t * 2 + i))).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(sx, sy, (1.2 + (i % 3) * 0.8) * S, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Uzay-zaman bükülme ızgarası (yerçekimi kuyusu)
+  ctx.save();
+  ctx.strokeStyle = bh > 0.3 ? 'rgba(251,146,60,0.28)' : 'rgba(56,189,248,0.18)';
+  ctx.lineWidth = 1.6 * S;
+  const warp = 20 + crush * 95 + bh * 55;
+  for (let r = -5; r <= 5; r++) {
+    ctx.beginPath();
+    for (let x = 40 * S; x <= W - 40 * S; x += 14 * S) {
+      const y0 = cy + r * 46 * S;
+      const dx = x - cx, dy = y0 - cy, d = Math.hypot(dx, dy) + 35 * S;
+      const pull = (warp * 6000 * S * S) / (d * d);
+      const px = x - (dx / d) * Math.min(d * 0.65, pull * 0.08);
+      const py = y0 - (dy / d) * Math.min(d * 0.65, pull * 0.08);
+      if (x === 40 * S) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Ay yörüngesi (sabit kalır!)
+  const moonR = 260 * S, moonAng = t * 1.1;
+  ctx.strokeStyle = 'rgba(148,163,184,0.28)'; ctx.setLineDash([8 * S, 8 * S]); ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(cx, cy, moonR, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.beginPath(); ctx.arc(cx + Math.cos(moonAng) * moonR, cy + Math.sin(moonAng) * moonR, 14 * S, 0, Math.PI * 2); ctx.fill();
+
+  // Dünya → Bilye → Kara Delik!
+  const earthR = lerp(175 * S, 24 * S, crush);
+  if (bh > 0.15) {
+    // Kara delik akresyon diski (parlayan turuncu/altın halka)
+    ctx.save();
+    ctx.strokeStyle = '#fb923c'; ctx.shadowColor = '#f97316'; ctx.shadowBlur = 32 * S * bh;
+    ctx.lineWidth = 10 * S * bh;
+    ctx.beginPath(); ctx.ellipse(cx, cy, 78 * S * bh, 22 * S * bh, -0.22, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#000000'; ctx.strokeStyle = '#fde047'; ctx.lineWidth = 4 * S;
+    ctx.beginPath(); ctx.arc(cx, cy, 28 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  } else {
+    const eg = ctx.createRadialGradient(cx - earthR * 0.3, cy - earthR * 0.3, earthR * 0.1, cx, cy, earthR);
+    eg.addColorStop(0, '#38bdf8'); eg.addColorStop(0.55, '#1d4ed8'); eg.addColorStop(1, '#0c1e4a');
+    ctx.fillStyle = eg; ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 24 * S;
+    ctx.beginPath(); ctx.arc(cx, cy, earthR, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+    // Basit yeşil kıta lekeleri
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, earthR, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = '#22c55e';
+    ctx.beginPath(); ctx.ellipse(cx - earthR * 0.25, cy - earthR * 0.1, earthR * 0.35, earthR * 0.22, 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + earthR * 0.3, cy + earthR * 0.2, earthR * 0.28, earthR * 0.34, -0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Canlı çap göstergesi (NASA HUD)
+  const km = crush < 0.98 ? Math.max(0.01, 12742 * Math.pow(1 - crush, 3)) : 0;
+  const label = km >= 1 ? `DIAMETER: ${Math.round(km).toLocaleString('en-US')} km` : 'DIAMETER: 18 mm · EVENT HORIZON';
+  ctx.fillStyle = bh > 0.3 ? '#fb923c' : '#38bdf8';
+  ctx.font = `800 ${Math.round(23 * S)}px monospace`; ctx.textAlign = 'center';
+  ctx.fillText(label, W * 0.5, H * 0.76);
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#93c5fd';
+  ctx.fillText('WHAT IF EARTH WERE A MARBLE?', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.855); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'bh' || activeLine.id === 'orbit' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

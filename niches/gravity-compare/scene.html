@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- Kinetic Lab (3-Way Split-Screen) — Earth vs Moon vs Jupiter Gravity -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'MOON VS EARTH VS JUPITER';
+let cols = [], events = [], simTime = 0;
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'MOON VS EARTH VS JUPITER';
+  cv.width = W; cv.height = H;
+  const S = W / 720, topY = H * 0.27;
+  cols = [
+    { name: 'MOON', gText: '1.6 m/s²', g: 160 * S, col: '#cbd5e1', y: topY, vy: 0, bounces: 0, trail: [] },
+    { name: 'EARTH', gText: '9.8 m/s²', g: 980 * S, col: '#38bdf8', y: topY, vy: 0, bounces: 0, trail: [] },
+    { name: 'JUPITER', gText: '24.8 m/s²', g: 2480 * S, col: '#fb923c', y: topY, vy: 0, bounces: 0, trail: [] },
+  ];
+  events = []; simTime = 0;
+};
+
+function step(dt) {
+  const S = W / 720, floorY = H * 0.80, r = 24 * S;
+  const sub = 4, sdt = dt / sub;
+  for (let s = 0; s < sub; s++) {
+    simTime += sdt;
+    cols.forEach((c, idx) => {
+      c.vy += c.g * sdt;
+      c.y += c.vy * sdt;
+      if (c.y + r >= floorY) {
+        c.y = floorY - r;
+        c.vy = -Math.abs(c.vy) * 0.96;
+        if (Math.abs(c.vy) < 120 * S) c.vy = -Math.sqrt(2 * c.g * (H * 0.50)); // Enerjiyi canlı tut
+        c.bounces++;
+        events.push({ t: simTime, type: 'bounce', pitchIndex: idx * 4 + (c.bounces % 4), intensity: 0.65 });
+      }
+    });
+  }
+  cols.forEach((c) => {
+    c.trail.push(c.y);
+    if (c.trail.length > 16) c.trail.shift();
+  });
+}
+
+function draw() {
+  const S = W / 720, colW = W / 3, floorY = H * 0.80, r = 24 * S;
+  ctx.fillStyle = '#050712'; ctx.fillRect(0, 0, W, H);
+
+  cols.forEach((c, i) => {
+    const x0 = i * colW, cx = x0 + colW / 2;
+    if (i > 0) {
+      ctx.strokeStyle = 'rgba(148,163,184,0.22)'; ctx.lineWidth = 2 * S;
+      ctx.beginPath(); ctx.moveTo(x0, H * 0.20); ctx.lineTo(x0, H * 0.85); ctx.stroke();
+    }
+    // Zemin
+    ctx.strokeStyle = c.col; ctx.lineWidth = 5 * S;
+    ctx.beginPath(); ctx.moveTo(x0 + 14 * S, floorY); ctx.lineTo(x0 + colW - 14 * S, floorY); ctx.stroke();
+    // İz
+    for (let k = 1; k < c.trail.length; k++) {
+      ctx.strokeStyle = c.col; ctx.globalAlpha = (k / c.trail.length) * 0.45; ctx.lineWidth = 10 * S;
+      ctx.beginPath(); ctx.moveTo(cx, c.trail[k - 1]); ctx.lineTo(cx, c.trail[k]); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // Top
+    ctx.save(); ctx.fillStyle = c.col; ctx.shadowColor = c.col; ctx.shadowBlur = 22 * S;
+    ctx.beginPath(); ctx.arc(cx, c.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(cx - 7 * S, c.y - 7 * S, 6 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // Başlık & Sayaç
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(28 * S)}px -apple-system, sans-serif`; ctx.fillStyle = c.col;
+    ctx.fillText(c.name, cx, H * 0.225);
+    ctx.font = `700 ${Math.round(20 * S)}px monospace`; ctx.fillStyle = '#94a3b8';
+    ctx.fillText(c.gText, cx, H * 0.255);
+    ctx.font = `900 ${Math.round(24 * S)}px monospace`; ctx.fillStyle = '#ffffff';
+    ctx.fillText(`${c.bounces} HITS`, cx, floorY + 42 * S);
+  });
+
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(38 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
+  ctx.fillText(HOOK, W * 0.5, H * 0.12);
+}
+
+window.renderBatch = (_s, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) { step(1 / FPS); draw(); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

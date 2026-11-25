@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import { synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
+import { applyIntroSubBass, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
 import { synthesizeVoice } from "./voice.js";
 
 const require = createRequire(import.meta.url);
@@ -141,23 +141,24 @@ async function main() {
                   ctx.fillStyle = "#fde68a";
                   ctx.fillText(badgeText, bx + bw * 0.5, by + 27 * S);
                 }
-                if (pollText && tSec >= durVal - 3.0) {
-                  const alpha = Math.min(1, (tSec - (durVal - 3.0)) / 0.35);
-                  ctx.globalAlpha = Math.max(0, alpha);
-                  const boxW = W * 0.82, boxH = 120 * S, bx = (W - boxW) * 0.5, by = H * 0.685;
-                  ctx.fillStyle = "rgba(5, 10, 24, 0.93)";
-                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 20 * S); ctx.fill();
-                  ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 3 * S; ctx.stroke();
+                if (pollText && tSec >= durVal * 0.68 && tSec <= durVal * 0.85) {
+                  const winStart = durVal * 0.68, winEnd = durVal * 0.85;
+                  const alpha = tSec < winStart + 0.3 ? (tSec - winStart) / 0.3 : tSec > winEnd - 0.3 ? (winEnd - tSec) / 0.3 : 1;
+                  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+                  const boxW = W * 0.78, boxH = 102 * S, bx = (W - boxW) * 0.5, by = H * 0.695;
+                  ctx.fillStyle = "rgba(5, 10, 24, 0.90)";
+                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 18 * S); ctx.fill();
+                  ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 2.5 * S; ctx.stroke();
                   ctx.textAlign = "center";
-                  fitText(ctx, "VOTE NEXT EPISODE IN COMMENTS", boxW - 26 * S, 19, 12, S, 900);
+                  fitText(ctx, "NEXT EPISODE? VOTE IN COMMENTS", boxW - 26 * S, 18, 12, S, 900);
                   ctx.fillStyle = "#fde047";
-                  ctx.fillText("VOTE NEXT EPISODE IN COMMENTS", W * 0.5, by + 32 * S);
-                  fitText(ctx, pollText, boxW - 26 * S, 21, 12, S, 800);
+                  ctx.fillText("NEXT EPISODE? VOTE IN COMMENTS", W * 0.5, by + 29 * S);
+                  fitText(ctx, pollText, boxW - 26 * S, 20, 12, S, 800);
                   ctx.fillStyle = "#ffffff";
-                  ctx.fillText(pollText, W * 0.5, by + 68 * S);
-                  fitText(ctx, "SUBSCRIBE TO SEE THE WINNER", boxW - 26 * S, 16, 11, S, 800);
+                  ctx.fillText(pollText, W * 0.5, by + 60 * S);
+                  fitText(ctx, "SUBSCRIBE TO SEE THE WINNER 🔔", boxW - 26 * S, 15, 11, S, 800);
                   ctx.fillStyle = "#38bdf8";
-                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 100 * S);
+                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER 🔔", W * 0.5, by + 86 * S);
                 }
                 ctx.restore();
               }
@@ -222,6 +223,7 @@ async function main() {
       mixed[i * 2] = Math.round(Math.tanh(v * 0.95 + sl * 0.42) * 32000);
       mixed[i * 2 + 1] = Math.round(Math.tanh(v * 0.95 + sr * 0.42) * 32000);
     }
+    applyIntroSubBass(mixed, SAMPLE_RATE, 0.30);
     const mixPath = join(tmpDir, "mix.pcm");
     await writeFile(mixPath, Buffer.from(mixed.buffer, mixed.byteOffset, mixed.byteLength));
 

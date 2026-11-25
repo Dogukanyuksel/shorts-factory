@@ -93,6 +93,24 @@ export function synthesizeEventsPcm(
   return out;
 }
 
+/**
+ * 0.02 sn noktasında sinematik sub-bass açılış darbesi ekler (sesi açık kaydıran izleyiciyi 0.5 sn'de yakalar).
+ */
+export function applyIntroSubBass(stereoPcm: Int16Array, sampleRate = 48000, gain = 0.34): void {
+  const start = Math.floor(0.02 * sampleRate);
+  const len = Math.floor(0.28 * sampleRate);
+  const totalFrames = Math.floor(stereoPcm.length / 2);
+  for (let i = 0; i < len && start + i < totalFrames; i++) {
+    const dt = i / sampleRate;
+    const freq = 115 * Math.exp(-dt * 11) + 44;
+    const env = Math.min(1, dt / 0.008) * Math.exp(-dt * 12);
+    const sig = Math.sin(2 * Math.PI * freq * dt) * env * gain;
+    const idx = (start + i) * 2;
+    stereoPcm[idx] = Math.round(Math.tanh(stereoPcm[idx] / 32768 + sig) * 32000);
+    stereoPcm[idx + 1] = Math.round(Math.tanh(stereoPcm[idx + 1] / 32768 + sig) * 32000);
+  }
+}
+
 /** Seslendirme kliplerindeki baş/son ölü sessizliği kırpar (ripple-cut). */
 export function trimSilence(pcm: Int16Array, sampleRate = 48000, rmsThreshold = 280): Int16Array {
   const win = Math.max(1, Math.round(sampleRate * 0.01));

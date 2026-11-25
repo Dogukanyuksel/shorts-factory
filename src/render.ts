@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import { synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
+import { applyIntroSubBass, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
 import { synthesizeVoice } from "./voice.js";
 
 const require = createRequire(import.meta.url);
@@ -117,22 +117,23 @@ async function main() {
                   ctx.fillStyle = "#e0f2fe";
                   ctx.fillText(ctaText, W * 0.5, by + 33 * S);
                 }
-                if (pollText && t >= durVal - 3.4) {
-                  const alpha = Math.min(1, (t - (durVal - 3.4)) / 0.35);
-                  ctx.globalAlpha = Math.max(0, alpha);
-                  const boxW = W * 0.82, boxH = 132 * S, bx = (W - boxW) * 0.5, by = H * 0.72;
-                  ctx.fillStyle = "rgba(5, 10, 24, 0.93)";
-                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 22 * S); ctx.fill();
-                  ctx.strokeStyle = "#facc15"; ctx.lineWidth = 3 * S; ctx.stroke();
-                  fitText(ctx, "VOTE NEXT VIDEO IN COMMENTS", boxW - 28 * S, 20, 13, S, 900);
+                if (pollText && t >= durVal * 0.66 && t <= durVal * 0.84) {
+                  const winStart = durVal * 0.66, winEnd = durVal * 0.84;
+                  const alpha = t < winStart + 0.3 ? (t - winStart) / 0.3 : t > winEnd - 0.3 ? (winEnd - t) / 0.3 : 1;
+                  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+                  const boxW = W * 0.78, boxH = 104 * S, bx = (W - boxW) * 0.5, by = H * 0.755;
+                  ctx.fillStyle = "rgba(5, 10, 24, 0.90)";
+                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 20 * S); ctx.fill();
+                  ctx.strokeStyle = "#facc15"; ctx.lineWidth = 2.5 * S; ctx.stroke();
+                  fitText(ctx, "NEXT VIDEO? VOTE IN COMMENTS", boxW - 28 * S, 18, 12, S, 900);
                   ctx.fillStyle = "#fde047";
-                  ctx.fillText("VOTE NEXT VIDEO IN COMMENTS", W * 0.5, by + 35 * S);
-                  fitText(ctx, pollText, boxW - 28 * S, 22, 13, S, 800);
+                  ctx.fillText("NEXT VIDEO? VOTE IN COMMENTS", W * 0.5, by + 30 * S);
+                  fitText(ctx, pollText, boxW - 28 * S, 20, 12, S, 800);
                   ctx.fillStyle = "#ffffff";
-                  ctx.fillText(pollText, W * 0.5, by + 74 * S);
-                  fitText(ctx, "SUBSCRIBE TO SEE THE WINNER", boxW - 28 * S, 17, 12, S, 800);
+                  ctx.fillText(pollText, W * 0.5, by + 62 * S);
+                  fitText(ctx, "SUBSCRIBE FOR TOMORROW'S WINNER 🔔", boxW - 28 * S, 15, 11, S, 800);
                   ctx.fillStyle = "#38bdf8";
-                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 110 * S);
+                  ctx.fillText("SUBSCRIBE FOR TOMORROW'S WINNER 🔔", W * 0.5, by + 88 * S);
                 }
                 ctx.restore();
               }
@@ -185,6 +186,7 @@ async function main() {
     console.log(`[shorts-factory] ${events.length} ses olayı sentezleniyor...`);
     const SAMPLE_RATE = 48000;
     const pcm = synthesizeEventsPcm(events, seconds, SAMPLE_RATE);
+    applyIntroSubBass(pcm, SAMPLE_RATE, 0.34);
 
     if (narration) {
       const voiceTmp = await mkdtemp(join(tmpdir(), `shorts-voice-${niche}-`));

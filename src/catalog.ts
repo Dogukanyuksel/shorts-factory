@@ -17,7 +17,9 @@ export type PhysicsNiche =
   | "brachistochrone"
   | "langtons-ant"
   | "metronome-sync"
-  | "monty-hall";
+  | "monty-hall"
+  | "gravity-compare"
+  | "giant-vs-swarm";
 
 export type PhysicsJob = {
   id: string;
@@ -48,6 +50,8 @@ export type PublishJob = PhysicsJob | ExplainerJob;
 const PHYSICS_ROTATION: PhysicsNiche[] = [
   "physics-ring",
   "duel-balls",
+  "gravity-compare",
+  "giant-vs-swarm",
   "pi-collisions",
   "brachistochrone",
   "sorting-race",
@@ -99,6 +103,36 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Even with nearly identical starting speeds, sensitive dependence on initial conditions sends these two simulated spheres on completely different paths. Watch who takes the final point.\n\n#shorts #chaos #physics #simulation",
     tags: ["chaos theory", "physics duel", "ball simulation", "shorts", "science"],
+    categoryId: "28",
+  },
+  {
+    id: "gravity-compare-seed201",
+    channel: "physics",
+    niche: "gravity-compare",
+    seed: 201,
+    seconds: 24,
+    hook: "MOON VS EARTH VS JUPITER",
+    narration:
+      "Drop three identical balls from the same height on the Moon, Earth, and Jupiter. On Jupiter, gravity is over fifteen times stronger than on the Moon — watch how fast the bounce counter explodes.",
+    title: "Dropping a Ball on the Moon vs Earth vs Jupiter #shorts",
+    description:
+      "3-way split-screen gravity comparison: Moon (1.6 m/s²) vs Earth (9.8 m/s²) vs Jupiter (24.8 m/s²). Watch all three simultaneously!\n\n#shorts #space #gravity #physics #nasa",
+    tags: ["planet gravity", "moon vs earth vs jupiter", "physics simulation", "space", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "giant-vs-swarm-seed202",
+    channel: "physics",
+    niche: "giant-vs-swarm",
+    seed: 202,
+    seconds: 24,
+    hook: "1 GIANT BALL VS 100 TINY BALLS",
+    narration:
+      "One massive sphere enters a circular arena packed with a hundred tiny balls. Watch how momentum transfers from the heavy giant into the swarm, launching tiny particles at supersonic speeds.",
+    title: "1 Giant Heavy Ball vs 100 Tiny Balls (Physics Simulation) #shorts",
+    description:
+      "Elastic momentum transfer in a 2D circular arena: 1 heavy sphere (45x mass) colliding with 100 lightweight particles.\n\n#shorts #physics #simulation #satisfying #science",
+    tags: ["physics simulation", "momentum transfer", "elastic collision", "satisfying", "shorts"],
     categoryId: "28",
   },
   {
@@ -371,6 +405,36 @@ export const EXPLAINER_JOBS: ExplainerJob[] = [
     description:
       "Airplane toilets don't flush with heavy water tanks — they use a low-pressure vacuum tank under the floor. When the valve snaps open, pressurized cabin air rushes in with a roar.\n\n#shorts #aviation #howitworks #engineering",
     tags: ["airplane toilet", "aviation engineering", "vacuum physics", "how it works", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-earth-to-marble",
+    channel: "explainer",
+    episode: "earth-to-marble",
+    title: "What If Earth Were Compressed to the Size of a Marble? #shorts",
+    description:
+      "Crush Earth's entire 6-septillion-kilogram mass down to 18 millimeters wide and you cross the Schwarzschild radius — turning our planet into a black hole while the Moon keeps orbiting normally.\n\n#shorts #nasa #space #blackhole #physics",
+    tags: ["black hole", "schwarzschild radius", "nasa", "space physics", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-sun-black-hole",
+    channel: "explainer",
+    episode: "sun-black-hole",
+    title: "If the Sun Turned Into a Black Hole, Earth Wouldn't Get Sucked In #shorts",
+    description:
+      "Black holes aren't cosmic vacuum cleaners: if the Sun became a black hole of the exact same mass, Earth's orbit wouldn't change at all — we'd just freeze in total darkness.\n\n#shorts #space #blackhole #nasa #science",
+    tags: ["sun black hole", "orbital mechanics", "space myth", "astronomy", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-light-speed-mars",
+    channel: "explainer",
+    episode: "light-speed-mars",
+    title: "How Painfully Slow the Speed of Light Looks in Space #shorts",
+    description:
+      "At 299,792 kilometers per second, light circles Earth 7.5 times every second — yet it takes 1.3 seconds to reach the Moon and over 12 minutes to crawl to Mars.\n\n#shorts #speedoflight #space #nasa #physics",
+    tags: ["speed of light", "space scale", "mars", "nasa", "shorts"],
     categoryId: "27",
   },
   {
@@ -843,6 +907,24 @@ const INFINITE_ANGLES: Record<
     titlePrefix: "Monty Hall 1,000-Game Proof",
     topic: "conditional probability and the Monty Hall paradox",
   },
+  "gravity-compare": {
+    hooks: ["MOON VS EARTH VS JUPITER", "3 PLANETS · 1 DROP", "JUPITER GRAVITY IS INSANE"],
+    narrations: [
+      "Watch three identical balls bounce under Moon, Earth, and Jupiter gravity side by side.",
+      "Jupiter pulls over fifteen times harder than the Moon — count how many extra bounces it gets.",
+    ],
+    titlePrefix: "Planet Gravity 3-Way Comparison",
+    topic: "planetary surface gravity across the Solar System",
+  },
+  "giant-vs-swarm": {
+    hooks: ["1 GIANT VS 100 TINY BALLS", "MOMENTUM TRANSFER CHAOS", "HEAVY VS SWARM"],
+    narrations: [
+      "One heavy sphere transfers its momentum into a swarm of a hundred tiny particles.",
+      "Watch conservation of momentum catapult lightweight balls across the arena.",
+    ],
+    titlePrefix: "1 Giant Ball vs 100 Tiny Balls",
+    topic: "elastic momentum transfer and kinetic energy",
+  },
 };
 
 /**
@@ -916,6 +998,8 @@ const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "langtons-ant": "Langton's Ant",
   "metronome-sync": "32 Metronomes Sync",
   "monty-hall": "Monty Hall Paradox",
+  "gravity-compare": "Moon vs Earth vs Jupiter",
+  "giant-vs-swarm": "1 Giant vs 100 Balls",
 };
 
 const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
@@ -936,6 +1020,8 @@ const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
   "langtons-ant": "WAIT FOR THE HIGHWAY TO APPEAR",
   "metronome-sync": "WATCH ALL 32 LOCK TOGETHER",
   "monty-hall": "WOULD YOU SWITCH OR STAY?",
+  "gravity-compare": "WATCH ALL 3 PLANETS AT ONCE",
+  "giant-vs-swarm": "COUNT THE ELASTIC COLLISIONS",
 };
 
 function formatEpisodeLabel(slug: string): string {
