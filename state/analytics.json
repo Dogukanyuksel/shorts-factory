@@ -1,0 +1,113 @@
+{
+  "updatedAt": "2026-11-25T13:48:53.491Z",
+  "totals": {
+    "videos": 4,
+    "views": 1683,
+    "likes": 37,
+    "comments": 1
+  },
+  "topByChannel": {
+    "physics": [
+      {
+        "id": "physics-ring-seed101",
+        "channel": "physics",
+        "title": "Can 1 Ball Shatter 7 Counter-Rotating Rings? #shorts",
+        "videoId": "_d3s2xk_wrU",
+        "url": "https://youtube.com/shorts/_d3s2xk_wrU",
+        "publishedAt": "2026-11-25T10:08:09.835Z",
+        "views": 682,
+        "likes": 14,
+        "comments": 1,
+        "engagementRatePct": 2.49
+      },
+      {
+        "id": "duel-balls-seed102",
+        "channel": "physics",
+        "title": "Cyan vs Magenta: Chaos Theory Arena Duel #shorts",
+        "videoId": "sHx6nTQ79GM",
+        "url": "https://youtube.com/shorts/sHx6nTQ79GM",
+        "publishedAt": "2026-11-25T11:08:33.500Z",
+        "views": 622,
+        "likes": 15,
+        "comments": 0,
+        "engagementRatePct": 2.41
+      }
+    ],
+    "explainer": [
+      {
+        "id": "explainer-airplane-wing",
+        "channel": "explainer",
+        "title": "How Does 400 Tons of Metal Float in Thin Air? #shorts",
+        "videoId": "f7D81Xv-AMk",
+        "url": "https://youtube.com/shorts/f7D81Xv-AMk",
+        "publishedAt": "2026-11-25T11:08:54.612Z",
+        "views": 239,
+        "likes": 6,
+        "comments": 0,
+        "engagementRatePct": 2.51
+      },
+      {
+        "id": "explainer-pin-tumbler-lock",
+        "channel": "explainer",
+        "title": "Why Does ONLY Your Key Open Your Door? #shorts",
+        "videoId": "YKVBMuQOwC0",
+        "url": "https://youtube.com/shorts/YKVBMuQOwC0",
+        "publishedAt": "2026-11-25T10:16:12.546Z",
+        "views": 140,
+        "likes": 2,
+        "comments": 0,
+        "engagementRatePct": 1.43
+      }
+    ]
+  },
+  "videos": [
+    {
+      "id": "physics-ring-seed101",
+      "channel": "physics",
+      "title": "Can 1 Ball Shatter 7 Counter-Rotating Rings? #shorts",
+      "videoId": "_d3s2xk_wrU",
+      "url": "https://youtube.com/shorts/_d3s2xk_wrU",
+      "publishedAt": "2026-11-25T10:08:09.835Z",
+      "views": 682,
+      "likes": 14,
+      "comments": 1,
+      "engagementRatePct": 2.49
+    },
+    {
+      "id": "explainer-pin-tumbler-lock",
+      "channel": "explainer",
+      "title": "Why Does ONLY Your Key Open Your Door? #shorts",
+      "videoId": "YKVBMuQOwC0",
+      "url": "https://youtube.com/shorts/YKVBMuQOwC0",
+      "publishedAt": "2026-11-25T10:16:12.546Z",
+      "views": 140,
+      "likes": 2,
+      "comments": 0,
+      "engagementRatePct": 1.43
+    },
+    {
+      "id": "duel-balls-seed102",
+      "channel": "physics",
+      "title": "Cyan vs Magenta: Chaos Theory Arena Duel #shorts",
+      "videoId": "sHx6nTQ79GM",
+      "url": "https://youtube.com/shorts/sHx6nTQ79GM",
+      "publishedAt": "2026-11-25T11:08:33.500Z",
+      "views": 622,
+      "likes": 15,
+      "comments": 0,
+      "engagementRatePct": 2.41
+    },
+    {
+      "id": "explainer-airplane-wing",
+      "channel": "explainer",
+      "title": "How Does 400 Tons of Metal Float in Thin Air? #shorts",
+      "videoId": "f7D81Xv-AMk",
+      "url": "https://youtube.com/shorts/f7D81Xv-AMk",
+      "publishedAt": "2026-11-25T11:08:54.612Z",
+      "views": 239,
+      "likes": 6,
+      "comments": 0,
+      "engagementRatePct": 2.51
+    }
+  ]
+}
