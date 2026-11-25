@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, pickNextJob } from "../src/catalog.js";
+import { buildInstagramCaption } from "../src/instagram.js";
 import { buildYouTubeVideoPayload } from "../src/youtube.js";
 
 test("pickNextJob (physics): ardışık iki video asla aynı simülasyon mekaniğini tekrarlamaz ve tüm sahneler mevcuttur", () => {
@@ -52,4 +53,11 @@ test("buildYouTubeVideoPayload: İngilizce hedefleme ve güvenli başlık kırpm
   assert.equal(payload.snippet.defaultAudioLanguage, "en");
   assert.equal(payload.status.selfDeclaredMadeForKids, false);
   assert.equal(payload.status.privacyStatus, "public");
+});
+
+test("buildInstagramCaption: #shorts etiketini #reels olarak dönüştürür ve 2200 karakter altında tutar", () => {
+  const caption = buildInstagramCaption("How a Jet Engine Works #shorts", "Inside a jet engine.\n#shorts #aviation");
+  assert.ok(!caption.includes("#shorts"));
+  assert.ok(caption.includes("#reels"));
+  assert.ok(caption.length <= 2200);
 });

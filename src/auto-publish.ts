@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pickNextJob, type ChannelId, type PublishJob } from "./catalog.js";
+import { buildInstagramCaption, uploadReelToInstagram } from "./instagram.js";
 import { uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
 
 export type PublishedRecord = {
@@ -11,6 +12,7 @@ export type PublishedRecord = {
   title: string;
   videoId: string;
   url: string;
+  instagramMediaId?: string;
   publishedAt: string;
 };
 
@@ -143,17 +145,42 @@ async function main() {
     { clientId, clientSecret, refreshToken },
   );
 
+  console.log(`\n✅ [auto-publish] YOUTUBE YAYINLANDI: ${result.url}`);
+
+  // İsteğe bağlı: Meta API secret'ları tanımlıysa aynı MP4'ü Instagram Reels'e de yayınla
+  const igUserId =
+    process.env.IG_USER_ID?.trim() ||
+    (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
+    "";
+  const metaToken = process.env.META_ACCESS_TOKEN?.trim() || "";
+  let instagramMediaId: string | undefined;
+
+  if (igUserId && metaToken) {
+    try {
+      console.log("[auto-publish] Instagram Reels'e yükleniyor...");
+      const igCaption = buildInstagramCaption(job.title, job.description);
+      const igRes = await uploadReelToInstagram(mp4Path, igCaption, {
+        igUserId,
+        accessToken: metaToken,
+      });
+      instagramMediaId = igRes.mediaId;
+      console.log(`✅ [auto-publish] INSTAGRAM REELS YAYINLANDI: mediaId=${igRes.mediaId}`);
+    } catch (igErr) {
+      // Instagram hatası YouTube yayın kaydını engellemesin
+      console.error("[auto-publish] Instagram Reels uyarısı (YouTube başarılı):", igErr);
+    }
+  }
+
   state.published.push({
     id: job.id,
     channel,
     title: job.title,
     videoId: result.videoId,
     url: result.url,
+    ...(instagramMediaId ? { instagramMediaId } : {}),
     publishedAt: new Date().toISOString(),
   });
   await saveState(state);
-
-  console.log(`\n✅ [auto-publish] YAYINLANDI: ${result.url}`);
 }
 
 const isDirectRun = process.argv[1]?.endsWith("auto-publish.ts") || process.argv[1]?.endsWith("auto-publish.js");
