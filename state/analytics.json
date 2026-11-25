@@ -1,8 +1,8 @@
 {
-  "updatedAt": "2026-11-25T13:48:53.491Z",
+  "updatedAt": "2026-11-25T13:49:36.140Z",
   "totals": {
     "videos": 4,
-    "views": 1683,
+    "views": 1685,
     "likes": 37,
     "comments": 1
   },
@@ -18,7 +18,10 @@
         "views": 682,
         "likes": 14,
         "comments": 1,
-        "engagementRatePct": 2.49
+        "engagementRatePct": 2.49,
+        "recentComments": [
+          "That took a while for the video to end gave me *but nobody came* vibes"
+        ]
       },
       {
         "id": "duel-balls-seed102",
@@ -30,7 +33,8 @@
         "views": 622,
         "likes": 15,
         "comments": 0,
-        "engagementRatePct": 2.41
+        "engagementRatePct": 2.41,
+        "recentComments": []
       }
     ],
     "explainer": [
@@ -41,10 +45,11 @@
         "videoId": "f7D81Xv-AMk",
         "url": "https://youtube.com/shorts/f7D81Xv-AMk",
         "publishedAt": "2026-11-25T11:08:54.612Z",
-        "views": 239,
+        "views": 240,
         "likes": 6,
         "comments": 0,
-        "engagementRatePct": 2.51
+        "engagementRatePct": 2.5,
+        "recentComments": []
       },
       {
         "id": "explainer-pin-tumbler-lock",
@@ -53,10 +58,11 @@
         "videoId": "YKVBMuQOwC0",
         "url": "https://youtube.com/shorts/YKVBMuQOwC0",
         "publishedAt": "2026-11-25T10:16:12.546Z",
-        "views": 140,
+        "views": 141,
         "likes": 2,
         "comments": 0,
-        "engagementRatePct": 1.43
+        "engagementRatePct": 1.42,
+        "recentComments": []
       }
     ]
   },
@@ -71,7 +77,10 @@
       "views": 682,
       "likes": 14,
       "comments": 1,
-      "engagementRatePct": 2.49
+      "engagementRatePct": 2.49,
+      "recentComments": [
+        "That took a while for the video to end gave me *but nobody came* vibes"
+      ]
     },
     {
       "id": "explainer-pin-tumbler-lock",
@@ -80,10 +89,11 @@
       "videoId": "YKVBMuQOwC0",
       "url": "https://youtube.com/shorts/YKVBMuQOwC0",
       "publishedAt": "2026-11-25T10:16:12.546Z",
-      "views": 140,
+      "views": 141,
       "likes": 2,
       "comments": 0,
-      "engagementRatePct": 1.43
+      "engagementRatePct": 1.42,
+      "recentComments": []
     },
     {
       "id": "duel-balls-seed102",
@@ -95,7 +105,8 @@
       "views": 622,
       "likes": 15,
       "comments": 0,
-      "engagementRatePct": 2.41
+      "engagementRatePct": 2.41,
+      "recentComments": []
     },
     {
       "id": "explainer-airplane-wing",
@@ -104,10 +115,11 @@
       "videoId": "f7D81Xv-AMk",
       "url": "https://youtube.com/shorts/f7D81Xv-AMk",
       "publishedAt": "2026-11-25T11:08:54.612Z",
-      "views": 239,
+      "views": 240,
       "likes": 6,
       "comments": 0,
-      "engagementRatePct": 2.51
+      "engagementRatePct": 2.5,
+      "recentComments": []
     }
   ]
 }
