@@ -238,42 +238,66 @@ async function renderBrandCardSegment(
   const pcm = trimSilence(new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 2)), SAMPLE_RATE);
 
   const padBefore = mode === "intro" ? 0.35 : 0.45;
-  const padAfter = mode === "intro" ? 1.45 : 2.1;
-  const minDur = mode === "intro" ? 5.5 : 8.0;
+  const padAfter = mode === "intro" ? 2.25 : 2.1;
+  const minDur = mode === "intro" ? 6.4 : 8.0;
   const dur = Math.max(minDur, padBefore + pcm.length / SAMPLE_RATE + padAfter);
   const totalSamples = Math.ceil(dur * SAMPLE_RATE);
   const stereo = new Int16Array(totalSamples * 2);
 
-  // Arka plan ambient + logo sting / kapanış akoru sentezle
+  // Gerçek kanal logo + banner görsellerini base64 olarak yükle (assets/branding/)
+  const brandSlug = plan.channel === "physics" ? "kinetic-lab" : "clear-mechanics";
+  const logoFile = resolve("assets", "branding", `${brandSlug}-logo-800x800.jpg`);
+  const bannerFile = resolve("assets", "branding", `${brandSlug}-banner-2560x1440.jpg`);
+  const logoDataUri = existsSync(logoFile)
+    ? `data:image/jpeg;base64,${(await readFile(logoFile)).toString("base64")}`
+    : "";
+  const bannerDataUri = existsSync(bannerFile)
+    ? `data:image/jpeg;base64,${(await readFile(bannerFile)).toString("base64")}`
+    : "";
+
+  // Arka plan sinematik synth + parçalanıp birleşme kilitlenme darbesi (tam lock anında!)
+  const stingStartSec = dur - 2.45;
+  const lockSec = stingStartSec + 1.02;
   const padStart = Math.floor(padBefore * SAMPLE_RATE);
   for (let i = 0; i < totalSamples; i++) {
     const t = i / SAMPLE_RATE;
     const v = i >= padStart && i - padStart < pcm.length ? pcm[i - padStart] / 32768 : 0;
     let music = 0;
     if (mode === "intro") {
-      // İlk 0.4s yükselen gerilim + logo sting anında (dur - 1.6s) parlak akor
-      const stingT = t - (dur - 1.65);
-      if (stingT >= 0 && stingT < 1.5) {
-        const env = Math.exp(-stingT * 2.8) * Math.min(1, stingT * 30);
-        music += (Math.sin(2 * Math.PI * 220 * stingT) * 0.4 + Math.sin(2 * Math.PI * 330 * stingT) * 0.3 + Math.sin(2 * Math.PI * 440 * stingT) * 0.3) * env * 0.28;
+      // Cold-open alt nabız
+      music += Math.sin(2 * Math.PI * (52 + t * 9) * t) * 0.065 * Math.exp(-t * 0.25);
+      // Parçalar toplanırken yükselen whoosh (stingStart -> lockSec)
+      if (t >= stingStartSec && t < lockSec) {
+        const p = (t - stingStartSec) / Math.max(0.01, lockSec - stingStartSec);
+        const freq = 90 + p * p * 520;
+        music += Math.sin(2 * Math.PI * freq * t) * p * 0.16;
       }
-      music += Math.sin(2 * Math.PI * (55 + t * 8) * t) * 0.06 * Math.exp(-t * 0.4);
+      // Tam birleşme (lock) anında sinematik sub-bass + parlak akor darbesi!
+      const lt = t - lockSec;
+      if (lt >= 0 && lt < 1.6) {
+        const subEnv = Math.exp(-lt * 4.5);
+        const sub = Math.sin(2 * Math.PI * (110 * Math.exp(-lt * 5) + 42) * lt) * subEnv * 0.42;
+        const chordEnv = Math.exp(-lt * 2.2) * Math.min(1, lt * 40);
+        const chord = (Math.sin(2 * Math.PI * 220 * lt) * 0.36 + Math.sin(2 * Math.PI * 329.63 * lt) * 0.32 + Math.sin(2 * Math.PI * 440 * lt) * 0.28 + Math.sin(2 * Math.PI * 659.25 * lt) * 0.18) * chordEnv * 0.3;
+        music += sub + chord;
+      }
     } else {
-      // Outro: sıcak modern belgesel akoru
+      // Outro: sıcak modern belgesel akoru + hafif ritmik nabız
       const fade = Math.min(1, t * 2) * Math.min(1, (dur - t) * 1.5);
-      music += (Math.sin(2 * Math.PI * 196 * t) * 0.35 + Math.sin(2 * Math.PI * 246.94 * t) * 0.3 + Math.sin(2 * Math.PI * 293.66 * t) * 0.25) * 0.12 * fade;
+      const pulse = 0.85 + 0.15 * Math.sin(2 * Math.PI * 2 * t);
+      music += (Math.sin(2 * Math.PI * 196 * t) * 0.34 + Math.sin(2 * Math.PI * 246.94 * t) * 0.28 + Math.sin(2 * Math.PI * 293.66 * t) * 0.24 + Math.sin(2 * Math.PI * 392 * t) * 0.14) * 0.13 * fade * pulse;
     }
-    const sample = Math.round(Math.tanh(v * 0.95 + music) * 32000);
+    const sample = Math.round(Math.tanh(v * 0.94 + music) * 32000);
     stereo[i * 2] = sample;
     stereo[i * 2 + 1] = sample;
   }
-  applyIntroSubBass(stereo, SAMPLE_RATE, mode === "intro" ? 0.38 : 0.22);
+  applyIntroSubBass(stereo, SAMPLE_RATE, mode === "intro" ? 0.4 : 0.22);
 
   const pcmPath = join(tmpDir, `${mode}.pcm`);
   await writeFile(pcmPath, Buffer.from(stereo.buffer, stereo.byteOffset, stereo.byteLength));
 
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  const html = `<!doctype html><html><body style="margin:0;background:#050b18"><canvas id="card" width="1280" height="720"></canvas>
+  const html = `<!doctype html><html><body style="margin:0;background:#040812"><canvas id="card" width="1280" height="720"></canvas>
   <script>
     const cv = document.getElementById("card");
     const g = cv.getContext("2d");
@@ -288,78 +312,228 @@ async function renderBrandCardSegment(
       chapters: plan.chapters.map((c) => c.title),
       dur,
       fps,
+      stingStartSec,
+      lockSec,
       isPhysics: plan.channel === "physics",
+      logoDataUri,
+      bannerDataUri,
     })};
 
-    function drawBg(t) {
-      const bg = g.createRadialGradient(W * 0.5, H * 0.45, 40, W * 0.5, H * 0.5, 820);
-      bg.addColorStop(0, cfg.isPhysics ? "#190c2b" : "#0c1d3d");
-      bg.addColorStop(1, "#040812");
-      g.fillStyle = bg;
-      g.fillRect(0, 0, W, H);
-      g.strokeStyle = cfg.isPhysics ? "rgba(244,114,182,0.07)" : "rgba(56,189,248,0.07)";
-      g.lineWidth = 1;
-      const shift = (t * 24) % 40;
-      for (let x = -40; x < W + 40; x += 40) { g.beginPath(); g.moveTo(x + shift, 0); g.lineTo(x + shift, H); g.stroke(); }
-      for (let y = 0; y < H; y += 40) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+    let logoImg = null, bannerImg = null;
+    window.__brandAssetsReady = false;
+    function loadImg(src) {
+      return new Promise((ok) => {
+        if (!src) return ok(null);
+        const im = new Image();
+        im.onload = () => ok(im);
+        im.onerror = () => ok(null);
+        im.src = src;
+      });
+    }
+    Promise.all([loadImg(cfg.logoDataUri), loadImg(cfg.bannerDataUri)]).then(([l, b]) => {
+      logoImg = l; bannerImg = b;
+      window.__brandAssetsReady = true;
+    });
+
+    // Deterministik 144 parçalık (12x12) logo kırılma & manyetik birleşme tablosu
+    const GRID = 12;
+    const shards = [];
+    for (let r = 0; r < GRID; r++) {
+      for (let c = 0; c < GRID; c++) {
+        const idx = r * GRID + c;
+        const hash = Math.sin(idx * 12.9898 + 78.233) * 43758.5453;
+        const rnd = hash - Math.floor(hash);
+        const ang = (idx / (GRID * GRID)) * Math.PI * 6 + rnd * 2.2;
+        const dist = 240 + rnd * 520;
+        shards.push({
+          r, c,
+          sx0: Math.cos(ang) * dist,
+          sy0: Math.sin(ang) * dist * 0.72,
+          rot0: (rnd - 0.5) * Math.PI * 5,
+          delay: (1 - Math.hypot(c - 5.5, r - 5.5) / 8.5) * 0.22 + rnd * 0.12,
+        });
+      }
     }
 
-    function drawLogo(cx, cy, r, t) {
+    // 60 adet parlayan arka plan enerji parçacığı
+    const sparks = Array.from({ length: 60 }, (_, i) => {
+      const s1 = Math.abs(Math.sin(i * 91.7));
+      const s2 = Math.abs(Math.cos(i * 47.3));
+      return { x: s1 * W, y: s2 * H, vx: (s1 - 0.5) * 48, vy: -18 - s2 * 45, r: 1.4 + (i % 4) * 0.8, ph: i * 0.7 };
+    });
+
+    function drawCinemaBackdrop(t) {
+      g.fillStyle = "#040812";
+      g.fillRect(0, 0, W, H);
+
+      // Gerçek kanal banner'ı sinematik Ken Burns hareketiyle arka planda akar
+      if (bannerImg) {
+        const zoom = 1.04 + 0.06 * (t / Math.max(1, cfg.dur));
+        const dx = Math.sin(t * 0.45) * 26;
+        g.save();
+        g.globalAlpha = 0.28;
+        g.translate(W * 0.5 + dx, H * 0.5);
+        g.scale(zoom, zoom);
+        g.drawImage(bannerImg, -W * 0.5, -H * 0.5, W, H);
+        g.restore();
+      }
+
+      // Derin radyal karartma (yazılar ve logo jilet gibi öne çıksın)
+      const vig = g.createRadialGradient(W * 0.5, H * 0.46, 80, W * 0.5, H * 0.5, 860);
+      vig.addColorStop(0, cfg.isPhysics ? "rgba(22,10,40,0.45)" : "rgba(8,22,48,0.45)");
+      vig.addColorStop(1, "rgba(3,7,18,0.92)");
+      g.fillStyle = vig;
+      g.fillRect(0, 0, W, H);
+
+      // 3D perspektif zemin ızgarası (alt bölümde akan dinamik derinlik)
       g.save();
-      g.translate(cx, cy);
-      g.strokeStyle = cfg.accent;
-      g.lineWidth = 4;
-      g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.stroke();
-      g.rotate(t * 1.4);
-      g.strokeStyle = "rgba(255,255,255,0.65)";
-      g.lineWidth = 3;
-      g.setLineDash([14, 10]);
-      g.beginPath(); g.arc(0, 0, r * 0.78, 0, Math.PI * 2); g.stroke();
-      g.setLineDash([]);
-      if (cfg.isPhysics) {
-        g.fillStyle = "#38bdf8"; g.beginPath(); g.arc(r * 0.42, 0, 10, 0, Math.PI * 2); g.fill();
-        g.fillStyle = "#f472b6"; g.beginPath(); g.arc(-r * 0.42, 0, 10, 0, Math.PI * 2); g.fill();
-      } else {
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          g.fillStyle = cfg.accent;
-          g.fillRect(Math.cos(a) * (r * 0.45) - 5, Math.sin(a) * (r * 0.45) - 5, 10, 10);
-        }
+      g.strokeStyle = cfg.isPhysics ? "rgba(244,114,182,0.12)" : "rgba(56,189,248,0.12)";
+      g.lineWidth = 1;
+      const horizonY = H * 0.62;
+      for (let i = -10; i <= 10; i++) {
+        g.beginPath();
+        g.moveTo(W * 0.5 + i * 38, horizonY);
+        g.lineTo(W * 0.5 + i * 210, H);
+        g.stroke();
+      }
+      for (let j = 0; j < 7; j++) {
+        const p = ((j / 7) + (t * 0.45)) % 1;
+        const yy = horizonY + p * p * (H - horizonY);
+        g.beginPath(); g.moveTo(0, yy); g.lineTo(W, yy); g.stroke();
       }
       g.restore();
+
+      // Yüzen neon enerji kıvılcımları
+      for (const sp of sparks) {
+        const x = ((sp.x + sp.vx * t) % W + W) % W;
+        const y = ((sp.y + sp.vy * t) % H + H) % H;
+        const a = 0.25 + 0.55 * Math.abs(Math.sin(t * 3 + sp.ph));
+        g.fillStyle = cfg.isPhysics ? "rgba(244,114,182," + a.toFixed(2) + ")" : "rgba(56,189,248," + a.toFixed(2) + ")";
+        g.beginPath(); g.arc(x, y, sp.r, 0, Math.PI * 2); g.fill();
+      }
+    }
+
+    function drawRealLogoCircle(cx, cy, radius, spinRad, sheenProg) {
+      g.save();
+      g.translate(cx, cy);
+
+      // Dış hologram çift dönen halkalar
+      g.save();
+      g.rotate(spinRad * 1.6);
+      g.strokeStyle = cfg.accent;
+      g.lineWidth = 3.5;
+      g.setLineDash([28, 14, 8, 14]);
+      g.beginPath(); g.arc(0, 0, radius + 16, 0, Math.PI * 2); g.stroke();
+      g.restore();
+
+      g.save();
+      g.rotate(-spinRad * 1.1);
+      g.strokeStyle = "rgba(255,255,255,0.45)";
+      g.lineWidth = 2;
+      g.setLineDash([10, 18]);
+      g.beginPath(); g.arc(0, 0, radius + 28, 0, Math.PI * 2); g.stroke();
+      // Yörüngede dönen 2 enerji küresi
+      g.fillStyle = "#facc15";
+      g.beginPath(); g.arc(radius + 28, 0, 5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = cfg.accent;
+      g.beginPath(); g.arc(-(radius + 28), 0, 5, 0, Math.PI * 2); g.fill();
+      g.restore();
+
+      // Gerçek yüksek çözünürlüklü logo (dairesel maskeli + yumuşak dönüş)
+      g.save();
+      g.beginPath(); g.arc(0, 0, radius, 0, Math.PI * 2); g.clip();
+      g.rotate(cfg.isPhysics ? Math.sin(spinRad * 1.5) * 0.08 : spinRad * 0.35);
+      if (logoImg) {
+        g.drawImage(logoImg, -radius, -radius, radius * 2, radius * 2);
+      } else {
+        g.fillStyle = "#0f172a"; g.fillRect(-radius, -radius, radius * 2, radius * 2);
+      }
+      // Çapraz parlak ışık geçişi (light sweep sheen)
+      if (sheenProg >= 0 && sheenProg <= 1) {
+        const sx = -radius * 2.2 + sheenProg * radius * 4.4;
+        const sheen = g.createLinearGradient(sx - 45, -radius, sx + 45, radius);
+        sheen.addColorStop(0, "rgba(255,255,255,0)");
+        sheen.addColorStop(0.5, "rgba(255,255,255,0.48)");
+        sheen.addColorStop(1, "rgba(255,255,255,0)");
+        g.fillStyle = sheen;
+        g.fillRect(-radius, -radius, radius * 2, radius * 2);
+      }
+      g.restore();
+
+      // Parlak dış çerçeve
+      g.strokeStyle = cfg.accent;
+      g.lineWidth = 4;
+      g.beginPath(); g.arc(0, 0, radius, 0, Math.PI * 2); g.stroke();
+      g.restore();
+    }
+
+    function drawShatterLogoAssembly(cx, cy, radius, prog) {
+      // prog: 0 -> 1 (144 gerçek logo parçası havadan dönerek manyetik olarak birleşir!)
+      const size = radius * 2;
+      const cell = size / GRID;
+      for (const sh of shards) {
+        const localP = Math.max(0, Math.min(1, (prog - sh.delay) / Math.max(0.15, 1 - sh.delay)));
+        const ease = 1 - Math.pow(1 - localP, 3);
+        const inv = 1 - ease;
+        const tx = cx - radius + sh.c * cell + cell * 0.5;
+        const ty = cy - radius + sh.r * cell + cell * 0.5;
+        // Daire dışındaki köşe parçalarını atla ki dairesel logo jilet gibi birleşsin
+        if (Math.hypot(tx - cx, ty - cy) > radius + cell * 0.35) continue;
+
+        const curX = tx + sh.sx0 * inv;
+        const curY = ty + sh.sy0 * inv;
+        const curRot = sh.rot0 * inv;
+        const curScale = 0.35 + 0.65 * ease;
+
+        // Uçuş izi (enerji çizgisi)
+        if (inv > 0.06) {
+          g.strokeStyle = cfg.isPhysics ? "rgba(244,114,182," + (inv * 0.45).toFixed(2) + ")" : "rgba(56,189,248," + (inv * 0.45).toFixed(2) + ")";
+          g.lineWidth = 1.5;
+          g.beginPath(); g.moveTo(curX, curY); g.lineTo(curX + sh.sx0 * 0.08 * inv, curY + sh.sy0 * 0.08 * inv); g.stroke();
+        }
+
+        g.save();
+        g.translate(curX, curY);
+        g.rotate(curRot);
+        g.scale(curScale, curScale);
+        g.globalAlpha = Math.min(1, localP * 1.8);
+        if (logoImg) {
+          const sw = logoImg.width / GRID, shH = logoImg.height / GRID;
+          g.drawImage(logoImg, sh.c * sw, sh.r * shH, sw, shH, -cell * 0.52, -cell * 0.52, cell * 1.04, cell * 1.04);
+        }
+        g.restore();
+      }
     }
 
     window.renderFrame = (f) => {
       const t = f / cfg.fps;
-      drawBg(t);
+      drawCinemaBackdrop(t);
 
       if (cfg.mode === "intro") {
-        const stingStart = cfg.dur - 1.75;
-        if (t < stingStart) {
-          // Cold-Open Teaser: heyecan verici kanca + bölüm önizleme şeridi
+        if (t < cfg.stingStartSec) {
+          // COLD-OPEN TEASER: Gerçek mini logo + heyecan verici kanca + kayan bölüm önizlemesi
           const pulse = 0.85 + 0.15 * Math.sin(t * 10);
           g.fillStyle = "rgba(250,204,21,0.16)";
           g.strokeStyle = "#facc15";
           g.lineWidth = 2;
-          g.beginPath(); g.roundRect(W * 0.5 - 230, 110, 460, 44, 22); g.fill(); g.stroke();
+          g.beginPath(); g.roundRect(W * 0.5 - 230, 88, 460, 44, 22); g.fill(); g.stroke();
           g.fillStyle = "#fde047";
           g.font = "900 18px monospace";
           g.textAlign = "center";
-          g.fillText("⚡  COLD OPEN  •  DON'T BLINK", W * 0.5, 138);
+          g.fillText("⚡  COLD OPEN  •  DON'T BLINK", W * 0.5, 116);
 
           g.fillStyle = "#ffffff";
           g.font = "900 50px -apple-system, sans-serif";
-          g.fillText(cfg.teaser, W * 0.5, 255, 1120);
+          g.fillText(cfg.teaser, W * 0.5, 225, 1140);
 
-          // Hareketli bölüm rozetleri
-          const visible = Math.min(cfg.chapters.length, Math.floor((t / Math.max(0.5, stingStart - 0.3)) * cfg.chapters.length) + 2);
+          const visible = Math.min(cfg.chapters.length, Math.floor((t / Math.max(0.5, cfg.stingStartSec - 0.3)) * cfg.chapters.length) + 2);
           for (let i = 0; i < Math.min(6, cfg.chapters.length); i++) {
             const col = i % 2, row = Math.floor(i / 2);
-            const bx = 210 + col * 440, by = 330 + row * 72;
+            const bx = 210 + col * 440, by = 295 + row * 72;
             const active = i < visible;
-            g.fillStyle = active ? "rgba(56,189,248,0.18)" : "rgba(15,23,42,0.5)";
+            g.fillStyle = active ? "rgba(15,23,42,0.82)" : "rgba(15,23,42,0.45)";
             g.strokeStyle = active ? cfg.accent : "rgba(148,163,184,0.2)";
-            g.lineWidth = 1.8;
+            g.lineWidth = 2;
             g.beginPath(); g.roundRect(bx, by, 410, 54, 12); g.fill(); g.stroke();
             g.fillStyle = active ? "#ffffff" : "#64748b";
             g.font = "700 18px -apple-system, sans-serif";
@@ -367,72 +541,105 @@ async function renderBrandCardSegment(
             g.fillText(String(i + 1).padStart(2, "0") + ". " + cfg.chapters[i], bx + 18, by + 33, 374);
           }
 
-          // Alt yükleme barı
-          const p = Math.min(1, t / stingStart);
+          const p = Math.min(1, t / cfg.stingStartSec);
           g.fillStyle = "rgba(148,163,184,0.2)";
-          g.beginPath(); g.roundRect(240, 610, 800, 10, 5); g.fill();
+          g.beginPath(); g.roundRect(240, 595, 800, 10, 5); g.fill();
           g.fillStyle = cfg.accent;
           g.globalAlpha = pulse;
-          g.beginPath(); g.roundRect(240, 610, 800 * p, 10, 5); g.fill();
+          g.beginPath(); g.roundRect(240, 595, 800 * p, 10, 5); g.fill();
           g.globalAlpha = 1;
         } else {
-          // 1.75s Animasyonlu Logo Intro Sting
-          const st = t - stingStart;
-          const scale = Math.min(1, 0.72 + st * 0.9);
-          g.save();
-          g.translate(W * 0.5, H * 0.5);
-          g.scale(scale, scale);
-          g.translate(-W * 0.5, -H * 0.5);
-          drawLogo(W * 0.5, 250, 74, t * 2.2);
-          g.textAlign = "center";
-          g.fillStyle = "#ffffff";
-          g.font = "900 72px -apple-system, sans-serif";
-          g.fillText(cfg.brand, W * 0.5, 415);
-          g.fillStyle = cfg.accent;
-          g.font = "800 22px monospace";
-          g.fillText(cfg.tagline, W * 0.5, 468);
-          g.restore();
+          // PARÇALANIP BİRLEŞEN + DÖNEN GERÇEK LOGO STING (2.45 sn)
+          const st = t - cfg.stingStartSec;
+          const lockDur = cfg.lockSec - cfg.stingStartSec;
+          const logoCx = W * 0.5, logoCy = 265, logoR = 132;
+
+          if (st < lockDur) {
+            const prog = st / lockDur;
+            drawShatterLogoAssembly(logoCx, logoCy, logoR, prog);
+          } else {
+            const post = st - lockDur;
+            // Kilitlenme şok dalgası (expanding neon shockwave rings)
+            if (post < 0.85) {
+              const rp = post / 0.85;
+              g.strokeStyle = cfg.accent;
+              g.globalAlpha = (1 - rp) * 0.85;
+              g.lineWidth = 6 * (1 - rp) + 1;
+              g.beginPath(); g.arc(logoCx, logoCy, logoR + rp * 340, 0, Math.PI * 2); g.stroke();
+              g.strokeStyle = "#ffffff";
+              g.globalAlpha = (1 - rp) * 0.55;
+              g.lineWidth = 3 * (1 - rp);
+              g.beginPath(); g.arc(logoCx, logoCy, logoR + rp * 220, 0, Math.PI * 2); g.stroke();
+              g.globalAlpha = 1;
+            }
+
+            // Birleşmiş gerçek dönen logo + çapraz ışık geçişi
+            drawRealLogoCircle(logoCx, logoCy, logoR, post * 1.4, (post - 0.1) / 0.75);
+
+            // Kanal adı + neon alt çizgi
+            const titleAlpha = Math.min(1, post * 4.5);
+            g.save();
+            g.globalAlpha = titleAlpha;
+            g.textAlign = "center";
+            g.shadowColor = cfg.accent;
+            g.shadowBlur = 22;
+            g.fillStyle = "#ffffff";
+            g.font = "900 72px -apple-system, sans-serif";
+            g.fillText(cfg.brand, W * 0.5, 502);
+            g.shadowBlur = 0;
+
+            const barW = Math.min(520, post * 950);
+            g.fillStyle = cfg.accent;
+            g.fillRect(W * 0.5 - barW * 0.5, 522, barW, 4);
+
+            g.fillStyle = cfg.isPhysics ? "#fbcfe8" : "#7dd3fc";
+            g.font = "800 22px monospace";
+            g.fillText(cfg.tagline, W * 0.5, 566);
+            g.restore();
+          }
         }
       } else {
-        // 8 sn YouTube End-Screen Outro: Sol Subscribe Dairesi + Sağ Watch Next 16:9 Kartı
+        // 8 SN YOUTUBE END-SCREEN OUTRO (Gerçek Dönen Logo + Sonar Subscribe + Holografik Watch Next)
         g.textAlign = "center";
         g.fillStyle = "#facc15";
         g.font = "900 22px monospace";
-        g.fillText("THANKS FOR WATCHING  •  " + cfg.brand, W * 0.5, 84);
+        g.fillText("THANKS FOR WATCHING  •  " + cfg.brand, W * 0.5, 78);
 
-        // Sol: YouTube End-Screen Subscribe Dairesi
-        const pulse = 1 + 0.04 * Math.sin(t * 6);
+        // Sol: Sonar halkalı + gerçek logolu SUBSCRIBE dairesi
+        const subX = 330, subY = 340;
+        const wave = (t * 0.8) % 1;
+        g.strokeStyle = "rgba(239,68,68," + ((1 - wave) * 0.7).toFixed(2) + ")";
+        g.lineWidth = 3;
+        g.beginPath(); g.arc(subX, subY, 128 + wave * 65, 0, Math.PI * 2); g.stroke();
+
+        const pulse = 1 + 0.03 * Math.sin(t * 6);
         g.save();
-        g.translate(330, 355);
+        g.translate(subX, subY);
         g.scale(pulse, pulse);
-        g.fillStyle = "rgba(239,68,68,0.16)";
-        g.strokeStyle = "#ef4444";
-        g.lineWidth = 4;
-        g.beginPath(); g.arc(0, 0, 128, 0, Math.PI * 2); g.fill(); g.stroke();
-        drawLogo(0, -18, 44, t);
-        g.fillStyle = "#ffffff";
-        g.font = "900 24px -apple-system, sans-serif";
-        g.fillText("SUBSCRIBE 🔔", 0, 72);
+        drawRealLogoCircle(0, 0, 108, t * 0.9, ((t * 0.5) % 2) - 0.5);
         g.restore();
 
         // Kırmızı CTA hapı
         g.fillStyle = "#ef4444";
-        g.beginPath(); g.roundRect(195, 520, 270, 50, 25); g.fill();
+        g.shadowColor = "rgba(239,68,68,0.65)";
+        g.shadowBlur = 18;
+        g.beginPath(); g.roundRect(185, 505, 290, 56, 28); g.fill();
+        g.shadowBlur = 0;
         g.fillStyle = "#ffffff";
-        g.font = "900 20px -apple-system, sans-serif";
-        g.fillText("JOIN FOR DAILY VIDEOS", 330, 552);
+        g.font = "900 22px -apple-system, sans-serif";
+        g.fillText("🔔  SUBSCRIBE NOW", 330, 541);
 
-        // Sağ: YouTube End-Screen Watch Next 16:9 Çerçevesi
-        g.fillStyle = "rgba(15,23,42,0.75)";
+        // Sağ: Holografik YouTube End-Screen Watch Next 16:9 Çerçevesi
+        g.fillStyle = "rgba(8,15,32,0.82)";
         g.strokeStyle = cfg.accent;
         g.lineWidth = 3.5;
-        g.beginPath(); g.roundRect(620, 200, 530, 300, 20); g.fill(); g.stroke();
+        g.beginPath(); g.roundRect(620, 195, 540, 304, 20); g.fill(); g.stroke();
         g.fillStyle = cfg.accent;
-        g.font = "900 22px monospace";
-        g.fillText("▶  WATCH NEXT DEEP DIVE", 885, 345);
-        g.fillStyle = "#94a3b8";
+        g.font = "900 24px monospace";
+        g.fillText("▶  WATCH NEXT DEEP DIVE", 890, 340);
+        g.fillStyle = "#cbd5e1";
         g.font = "600 18px -apple-system, sans-serif";
-        g.fillText("New 16:9 episode every single day", 885, 385);
+        g.fillText("New 16:9 episode every single day", 890, 382);
       }
 
       return cv.toDataURL("image/jpeg", 0.92).slice(23);
@@ -440,6 +647,7 @@ async function renderBrandCardSegment(
   </script></body></html>`;
 
   await page.setContent(html);
+  await page.waitForFunction(() => (globalThis as unknown as { __brandAssetsReady?: boolean }).__brandAssetsReady === true);
   const rawVid = join(tmpDir, `${mode}.raw.mp4`);
   const ff = spawn(
     ffmpegPath,

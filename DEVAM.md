@@ -36,9 +36,9 @@
 
 ### 16:9 Uzun Video Stüdyosu (2 Kanal, Günlük Otomatik)
 - [x] `src/render-longform.ts`:
-  - **5.5 sn Cold-Open Hook + Animasyonlu Logo Intro Sting** (Clear Mechanics & Kinetic Lab ayrı marka dili)
+  - **Gerçek Kanal Logosu + Banner Entegrasyonu (`assets/branding/`):** 144 parçalık (12×12) **parçalanıp havadan dönerek manyetik birleşen gerçek logo** + kilitlenme anında şok dalgası, sub-bass darbesi, çapraz ışık geçişi, 3D perspektif zemin ızgarası ve Ken Burns banner arka planı!
   - **3. bölümde orta-video kırmızı `🔔 SUBSCRIBE` hapı**
-  - **8 sn YouTube End-Screen Outro** (sol `SUBSCRIBE 🔔` dairesi + sağ `▶ WATCH NEXT DEEP DIVE` 16:9 çerçevesi)
+  - **8 sn YouTube End-Screen Outro** (gerçek dönen kanal logolu sonar `SUBSCRIBE 🔔` dairesi + sağda `▶ WATCH NEXT DEEP DIVE` 16:9 çerçevesi)
   - Clear Mechanics için temalı 8–10 bölümlük belgesel + 38 bölümden sonsuz rotasyon
   - Kinetic Lab için günlük taze seed’li 6 rauntluk sonsuz fizik turnuvası
 - [x] `src/publish-longform.ts`: Otomatik `00:00` YouTube chapter’ları + `state/published.json`’dan çekilen **son 6 gerçek YouTube Shorts linki** (`🔥 Watch the Viral Shorts Versions`) + YouTube yükleme.
