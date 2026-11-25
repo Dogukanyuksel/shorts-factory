@@ -1,0 +1,132 @@
+<!doctype html>
+<!-- Simülasyon #5: 4-Marble Gravity Pegboard Race -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, HOOK = 'PICK A COLOR · WHO WINS?';
+let pegs = [], marbles = [], events = [], simTime = 0, winner = null, rng = 1;
+const COLORS = [
+  { name: 'RED', col: '#ef4444' },
+  { name: 'CYAN', col: '#38bdf8' },
+  { name: 'GOLD', col: '#facc15' },
+  { name: 'GREEN', col: '#4ade80' },
+];
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60;
+  HOOK = cfg.hook || 'PICK A COLOR · WHO WINS?';
+  cv.width = W; cv.height = H;
+  rng = (cfg.seed || 1) * 77113 + 11;
+  const S = W / 720;
+  pegs = [];
+  for (let r = 0; r < 11; r++) {
+    const cols = r % 2 === 0 ? 7 : 6;
+    const spacing = 84 * S;
+    const xStart = W * 0.5 - ((cols - 1) * spacing) / 2;
+    for (let c = 0; c < cols; c++) {
+      pegs.push({ x: xStart + c * spacing, y: (300 + r * 74) * S, r: 9 * S, flash: 0 });
+    }
+  }
+  marbles = COLORS.map((c, i) => ({
+    ...c,
+    x: W * (0.28 + i * 0.145) + (rand() - 0.5) * 18 * S,
+    y: 210 * S + rand() * 14 * S,
+    vx: (rand() - 0.5) * 90 * S,
+    vy: 20 * S,
+    r: 17 * S,
+    trail: [],
+    done: false,
+  }));
+  events = []; simTime = 0; winner = null;
+};
+
+function step(dt) {
+  const S = W / 720, finishY = H * 0.875;
+  const sub = 4, sdt = dt / sub;
+  for (let s = 0; s < sub; s++) {
+    simTime += sdt;
+    for (const p of pegs) if (p.flash > 0) p.flash = Math.max(0, p.flash - sdt * 4);
+    for (const m of marbles) {
+      if (m.done) continue;
+      m.vy += 540 * S * sdt;
+      m.x += m.vx * sdt; m.y += m.vy * sdt;
+      if (m.x < 56 * S) { m.x = 56 * S; m.vx = Math.abs(m.vx) * 0.7; }
+      if (m.x > W - 56 * S) { m.x = W - 56 * S; m.vx = -Math.abs(m.vx) * 0.7; }
+      for (const p of pegs) {
+        const dx = m.x - p.x, dy = m.y - p.y, d = Math.hypot(dx, dy);
+        if (d < m.r + p.r) {
+          const nx = dx / Math.max(1e-4, d), ny = dy / Math.max(1e-4, d);
+          m.x = p.x + nx * (m.r + p.r + 0.5);
+          m.y = p.y + ny * (m.r + p.r + 0.5);
+          const dot = m.vx * nx + m.vy * ny;
+          if (dot < 0) {
+            m.vx = (m.vx - 2 * dot * nx) * 0.68 + (rand() - 0.5) * 65 * S;
+            m.vy = (m.vy - 2 * dot * ny) * 0.68;
+            p.flash = 1;
+            events.push({ t: simTime, type: 'bounce', pitchIndex: Math.floor((p.y / H) * 14), intensity: 0.55 });
+          }
+        }
+      }
+      if (m.y >= finishY) {
+        m.y = finishY; m.done = true;
+        if (!winner) {
+          winner = m;
+          events.push({ t: simTime, type: 'win', pitchIndex: 11, intensity: 1.0 });
+        }
+      }
+    }
+  }
+  for (const m of marbles) {
+    m.trail.push({ x: m.x, y: m.y });
+    if (m.trail.length > 18) m.trail.shift();
+  }
+}
+
+function draw() {
+  const S = W / 720, finishY = H * 0.875;
+  ctx.fillStyle = '#050712'; ctx.fillRect(0, 0, W, H);
+  // Bitiş çizgisi
+  ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 5 * S; ctx.setLineDash([14 * S, 10 * S]);
+  ctx.beginPath(); ctx.moveTo(40 * S, finishY); ctx.lineTo(W - 40 * S, finishY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (const p of pegs) {
+    ctx.fillStyle = p.flash > 0.2 ? '#ffffff' : '#334155';
+    ctx.strokeStyle = p.flash > 0.2 ? '#38bdf8' : '#64748b'; ctx.lineWidth = 2.5 * S;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  for (const m of marbles) {
+    for (let i = 1; i < m.trail.length; i++) {
+      ctx.strokeStyle = m.col; ctx.globalAlpha = (i / m.trail.length) * 0.55; ctx.lineWidth = m.r * (i / m.trail.length);
+      ctx.beginPath(); ctx.moveTo(m.trail[i - 1].x, m.trail[i - 1].y); ctx.lineTo(m.trail[i].x, m.trail[i].y); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.save(); ctx.fillStyle = m.col; ctx.shadowColor = m.col; ctx.shadowBlur = 18 * S;
+    ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.arc(m.x - 5 * S, m.y - 5 * S, 5 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(40 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
+  ctx.fillText(HOOK, W * 0.5, H * 0.115);
+  if (winner) {
+    ctx.font = `900 ${Math.round(48 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = winner.col;
+    ctx.fillText(`${winner.name} WINS! 🏆`, W * 0.5, H * 0.945);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (_s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { step(1 / FPS); draw(); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

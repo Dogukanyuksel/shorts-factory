@@ -1,0 +1,105 @@
+<!doctype html>
+<!-- Simülasyon #3: 2-Ball Territory Battle (Cyan vs Magenta karo savaşı) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, HOOK = 'CYAN VS PINK · WHO WINS?';
+const COLS = 12, ROWS = 14;
+let grid = [], balls = [], events = [], simTime = 0, hits = 0, rng = 1;
+let bx, by, cell;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60;
+  HOOK = cfg.hook || 'CYAN VS PINK · WHO WINS?';
+  cv.width = W; cv.height = H;
+  rng = (cfg.seed || 1) * 65537 + 3;
+  const S = W / 720;
+  cell = Math.floor(48 * S);
+  bx = (W - COLS * cell) / 2;
+  by = H * 0.25;
+  grid = Array.from({ length: ROWS }, (_, r) => Array.from({ length: COLS }, (_, c) => (c < COLS / 2 ? 0 : 1)));
+  balls = [
+    { team: 0, x: bx + cell * 2.5, y: by + cell * (4 + rand() * 5), vx: (340 + rand() * 90) * S, vy: (290 + rand() * 80) * S, r: 15 * S, col: '#0ea5e9', ballCol: '#f43f5e' },
+    { team: 1, x: bx + cell * (COLS - 2.5), y: by + cell * (4 + rand() * 5), vx: -(340 + rand() * 90) * S, vy: -(290 + rand() * 80) * S, r: 15 * S, col: '#ec4899', ballCol: '#38bdf8' },
+  ];
+  events = []; simTime = 0; hits = 0;
+};
+
+function step(dt) {
+  const sub = 3, sdt = dt / sub;
+  const maxW = COLS * cell, maxH = ROWS * cell;
+  for (let s = 0; s < sub; s++) {
+    simTime += sdt;
+    for (const b of balls) {
+      b.x += b.vx * sdt; b.y += b.vy * sdt;
+      if (b.x - b.r < bx) { b.x = bx + b.r; b.vx = Math.abs(b.vx); }
+      if (b.x + b.r > bx + maxW) { b.x = bx + maxW - b.r; b.vx = -Math.abs(b.vx); }
+      if (b.y - b.r < by) { b.y = by + b.r; b.vy = Math.abs(b.vy); }
+      if (b.y + b.r > by + maxH) { b.y = by + maxH - b.r; b.vy = -Math.abs(b.vy); }
+
+      const c = Math.max(0, Math.min(COLS - 1, Math.floor((b.x - bx) / cell)));
+      const r = Math.max(0, Math.min(ROWS - 1, Math.floor((b.y - by) / cell)));
+      // Rakip karoya çarpınca fethet ve sek!
+      if (grid[r][c] !== b.team) {
+        grid[r][c] = b.team;
+        const cx = bx + (c + 0.5) * cell, cy = by + (r + 0.5) * cell;
+        if (Math.abs(b.x - cx) > Math.abs(b.y - cy)) b.vx *= -1; else b.vy *= -1;
+        hits++;
+        events.push({ t: simTime, type: 'bounce', pitchIndex: b.team === 0 ? (hits % 7) : (7 + (hits % 7)), intensity: 0.68 });
+      }
+    }
+  }
+}
+
+function draw() {
+  const S = W / 720;
+  ctx.fillStyle = '#050712'; ctx.fillRect(0, 0, W, H);
+  let c0 = 0, c1 = 0;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const t = grid[r][c];
+      if (t === 0) c0++; else c1++;
+      ctx.fillStyle = t === 0 ? '#0284c7' : '#db2777';
+      ctx.fillRect(bx + c * cell + 1.5, by + r * cell + 1.5, cell - 3, cell - 3);
+    }
+  }
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4 * S;
+  ctx.strokeRect(bx, by, COLS * cell, ROWS * cell);
+
+  for (const b of balls) {
+    ctx.save();
+    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = b.team === 0 ? '#38bdf8' : '#f472b6';
+    ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 18 * S; ctx.lineWidth = 5 * S;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  const pct0 = Math.round((c0 / (COLS * ROWS)) * 100);
+  const pct1 = 100 - pct0;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(40 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
+  ctx.fillText(HOOK, W * 0.5, H * 0.13);
+
+  // Canlı skor çubuğu
+  const barW = COLS * cell, barY = H * 0.175, barH = 42 * S;
+  ctx.fillStyle = '#0284c7'; ctx.fillRect(bx, barY, barW * (pct0 / 100), barH);
+  ctx.fillStyle = '#db2777'; ctx.fillRect(bx + barW * (pct0 / 100), barY, barW * (pct1 / 100), barH);
+  ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'left'; ctx.fillText(`CYAN ${pct0}%`, bx + 14 * S, barY + 29 * S);
+  ctx.textAlign = 'right'; ctx.fillText(`${pct1}% PINK`, bx + barW - 14 * S, barY + 29 * S);
+  ctx.restore();
+}
+
+window.renderBatch = (_s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { step(1 / FPS); draw(); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>
