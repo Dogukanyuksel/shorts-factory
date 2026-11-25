@@ -66,7 +66,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "physics-ring",
     seed: 101,
-    seconds: 32,
+    seconds: 24,
     hook: "CAN IT SHATTER ALL 7 RINGS?",
     narration:
       "Each spinning ring rotates in the opposite direction, and every collision transfers kinetic energy back into the ball. Watch how fast it accelerates once the inner barriers break.",
@@ -81,7 +81,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "duel-balls",
     seed: 102,
-    seconds: 32,
+    seconds: 24,
     hook: "CYAN VS MAGENTA: WHO SURVIVES?",
     narration:
       "Two elastic spheres start with identical energy inside a shrinking arena. Tiny differences in their launch angles compound into complete chaos in under thirty seconds. Pick your color.",
@@ -96,7 +96,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "sorting-race",
     seed: 103,
-    seconds: 32,
+    seconds: 24,
     hook: "WHICH ALGORITHM WINS THE RACE?",
     narration:
       "Every time you search your phone or stream a video, sorting algorithms run in the background. Watch how a divide-and-conquer algorithm crushes brute force in real time.",
@@ -111,7 +111,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "double-pendulum",
     seed: 104,
-    seconds: 32,
+    seconds: 24,
     hook: "0.001 RADIANS APART — WATCH CHAOS",
     narration:
       "Both double pendulums are released from almost the exact same angle — separated by just one thousandth of a radian. For a few seconds they look identical, and then chaos theory tears them completely apart.",
@@ -126,7 +126,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "marble-drop",
     seed: 105,
-    seconds: 32,
+    seconds: 24,
     hook: "WHICH MARBLE WINS THE GAUNTLET?",
     narration:
       "Gravity pulls every marble with the exact same acceleration, yet peg collisions turn a simple drop into a Galton-board probability race. Watch which lane breaks away at the bottom.",
@@ -141,7 +141,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "gravity-orbit",
     seed: 106,
-    seconds: 32,
+    seconds: 24,
     hook: "THE UNSOLVABLE 3-BODY PROBLEM",
     narration:
       "Two planets orbiting each other are easy to predict forever. Add a third body and Newton's gravity becomes mathematically unsolvable — creating wild gravitational slingshots that never repeat.",
@@ -156,7 +156,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "pendulum-wave",
     seed: 107,
-    seconds: 32,
+    seconds: 24,
     hook: "WAIT FOR THE PERFECT SYNC...",
     narration:
       "Fifteen uncoupled pendulums with slightly different lengths create traveling waves, double helices, and total chaos — before snapping back into perfect harmony at the end.",
@@ -171,7 +171,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "maze-race",
     seed: 108,
-    seconds: 32,
+    seconds: 24,
     hook: "BLIND SEARCH VS A* AI PATHFINDING",
     narration:
       "On the left, Breadth-First Search blindly floods every single corridor. On the right, the A-star heuristic algorithm estimates distance to the goal — the exact math behind GPS navigation and game AI.",
@@ -186,7 +186,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "ball-grow",
     seed: 109,
-    seconds: 32,
+    seconds: 24,
     hook: "IT GROWS ON EVERY SINGLE BOUNCE",
     narration:
       "Every wall collision expands the ball's radius by a fixed percentage. That turns simple bouncing into exponential growth until the sphere completely fills the circle.",
@@ -201,7 +201,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "domino-chain",
     seed: 110,
-    seconds: 32,
+    seconds: 24,
     hook: "1 TINY DOMINO TOPPLES A GIANT",
     narration:
       "A single domino can knock over another domino one and a half times its own size. That geometric energy amplification means a chain of just twenty-nine dominoes could topple the Empire State Building.",
@@ -216,7 +216,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "wave-interference",
     seed: 111,
-    seconds: 32,
+    seconds: 24,
     hook: "WHEN TWO WAVES CANCEL EACH OTHER",
     narration:
       "When two wave crests meet, they amplify into a glowing bright peak. When a crest meets a trough, they erase each other completely — the exact same physics behind Wi-Fi dead zones and noise-canceling headphones.",
@@ -231,7 +231,7 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     channel: "physics",
     niche: "fourier-draw",
     seed: 112,
-    seconds: 32,
+    seconds: 24,
     hook: "DRAWING ANY SHAPE USING ONLY CIRCLES",
     narration:
       "Joseph Fourier proved that almost any shape or sound wave in the universe can be built by stacking rotating circles at different speeds. Watch these harmonic epicycles trace pure geometry out of thin air.",
@@ -692,7 +692,7 @@ export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): Publ
         channel: "physics",
         niche,
         seed,
-        seconds: 32,
+        seconds: 24,
         hook,
         narration,
         title: `${meta.titlePrefix} #${seed - 199} #shorts`,
@@ -837,7 +837,7 @@ export function pickJobByKey(
         channel: "physics",
         niche,
         seed,
-        seconds: 32,
+        seconds: 24,
         hook,
         narration,
         title: `YOU VOTED FOR THIS: ${meta.titlePrefix} #shorts`.slice(0, 100),

@@ -39,7 +39,7 @@ window.init = (cfg) => {
       gapHalf: 0.34 + (6 - i) * 0.012,
       color: RING_COLORS[i],
       broken: false, flash: 0,
-      deadline: ((i + 1) / 7) * (DUR - 3.6), // Her halka zamanında mutlaka kırılır!
+      deadline: ((i + 1) / 7) * (DUR - 2.2), // Her halka zamanında kırılır, sonda ölü boşluk kalmaz!
     });
   }
   ball = { x: cx + 22 * S, y: cy - 30 * S, vx: 290 * S, vy: -220 * S, r: 16 * S };

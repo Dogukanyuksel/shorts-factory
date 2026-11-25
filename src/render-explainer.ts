@@ -88,7 +88,7 @@ async function main() {
       const dur = pcm.length / SAMPLE_RATE;
       timed.push({ ...line, start: t, end: t + dur });
       chunks.push(pcm);
-      const gap = i + 1 < script.length ? 0.14 : 0.75;
+      const gap = i + 1 < script.length ? 0.12 : 0.35;
       chunks.push(new Int16Array(Math.round(gap * SAMPLE_RATE)));
       t += dur + gap;
     }
