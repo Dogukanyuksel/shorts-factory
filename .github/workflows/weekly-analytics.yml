@@ -52,7 +52,8 @@ jobs:
 
       - name: state/analytics.json güvenli kaydet
         if: steps.check.outputs.ready == 'true'
-        run: npx tsx src/safe-git-push.ts state/analytics.json "chore(analytics): haftalik YouTube performans raporu guncellendi"
+        run: |
+          npx tsx src/safe-git-push.ts state/analytics.json "chore(analytics): haftalik YouTube performans raporu guncellendi"
 
       - name: Hata durumunda Telegram uyarısı
         if: failure()

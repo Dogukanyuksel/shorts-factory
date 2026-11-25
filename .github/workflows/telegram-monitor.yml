@@ -58,4 +58,5 @@ jobs:
 
       - name: Bildirim durumunu güvenli kaydet
         if: steps.check.outputs.ready == 'true'
-        run: npx tsx src/safe-git-push.ts state/telegram-notified.json "chore(telegram): bildirim durumu guncellendi"
+        run: |
+          npx tsx src/safe-git-push.ts state/telegram-notified.json "chore(telegram): bildirim durumu guncellendi"
