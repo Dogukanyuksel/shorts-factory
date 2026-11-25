@@ -84,3 +84,37 @@ export function mergePublishedRecords<T extends MinimalPublishedRecord>(
   }
   return [...byId.values()];
 }
+
+/** Senkron bekleme (CLI script'lerinde retry backoff için). */
+export function sleepSync(ms: number): void {
+  if (ms <= 0) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Bir kanalın belirli türdeki (short / longform) en son yayınından bu yana geçen süre (saat).
+ * Hiç yayın yoksa Infinity döner.
+ */
+export function hoursSinceLastPublish(
+  records: Array<{ id: string; channel?: unknown; publishedAt?: unknown }>,
+  channel: string,
+  kind: "short" | "longform",
+  now: Date = new Date(),
+): number {
+  let latest = -Infinity;
+  for (const r of records) {
+    if (r.channel !== channel) continue;
+    const isLong = r.id.startsWith("longform-");
+    if ((kind === "longform") !== isLong) continue;
+    const t = Date.parse(String(r.publishedAt ?? ""));
+    if (Number.isFinite(t) && t > latest) latest = t;
+  }
+  return latest === -Infinity ? Infinity : (now.getTime() - latest) / 3_600_000;
+}
+
+/** MIN_PUBLISH_GAP_HOURS / FORCE_PUBLISH ortam değişkenlerinden yayın aralığı korumasını okur (0 = kapalı). */
+export function resolveMinGapHours(env: NodeJS.ProcessEnv = process.env): number {
+  if (env.FORCE_PUBLISH === "true") return 0;
+  const n = Number(env.MIN_PUBLISH_GAP_HOURS || 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}

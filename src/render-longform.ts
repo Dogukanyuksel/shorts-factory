@@ -83,7 +83,10 @@ function fmtTimestamp(sec: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-/** Günlük temalı Clear Mechanics (Explainer) uzun video paketleri (sonrasında 38 bölümden sonsuz rotasyon). */
+/**
+ * Günlük temalı Clear Mechanics (Explainer) uzun video paketleri (sonrasında mevcut bölümlerden sonsuz rotasyon).
+ * Metinlerde sayı yerine {n} / {nWord} / {teaserIdx} / {teaserWord} kullan: gerçek bölüm sayısıyla doldurulur.
+ */
 const EXPLAINER_THEMES: Array<{
   slug: string;
   title: string;
@@ -94,10 +97,10 @@ const EXPLAINER_THEMES: Array<{
 }> = [
   {
     slug: "everyday-machines",
-    title: "How 10 Everyday Machines Actually Work (Animated Engineering Deep Dive)",
-    teaser: "WAIT UNTIL #7 — THIS TRICK BREAKS INTUITION",
-    intro: "Ever wondered what happens inside the machines you touch every single day? Wait until chapter seven — it will completely change how you see everyday engineering.",
-    lead: "In this animated engineering deep dive, we cut open 10 everyday inventions with clean visual breakdowns.",
+    title: "How {n} Everyday Machines Actually Work (Animated Engineering Deep Dive)",
+    teaser: "WAIT UNTIL #{teaserIdx} — THIS TRICK BREAKS INTUITION",
+    intro: "Ever wondered what happens inside the machines you touch every single day? Wait until chapter {teaserWord} — it will completely change how you see everyday engineering.",
+    lead: "In this animated engineering deep dive, we cut open {n} everyday inventions with clean visual breakdowns.",
     slugs: [
       "pin-tumbler-lock", "airplane-wing", "noise-canceling", "car-differential", "touchscreen",
       "submarine", "qr-code", "mechanical-watch", "wifi-walls", "bulletproof-vest",
@@ -108,7 +111,7 @@ const EXPLAINER_THEMES: Array<{
     title: "Space, Black Holes & Extreme Physics Explained (Animated Science Documentary)",
     teaser: "WHAT IF EARTH BECAME A BLACK HOLE?",
     intro: "Squeeze Earth into a glass marble and space itself tears open. Today we dive into black holes, light speed, and the wildest physics in the universe.",
-    lead: "From black holes and light speed to extreme engineering, explore 8 mind-bending science breakdowns in full 16:9.",
+    lead: "From black holes and light speed to extreme engineering, explore {n} mind-bending science breakdowns in full 16:9.",
     slugs: [
       "earth-to-marble", "sun-black-hole", "light-speed-mars", "space-suit",
       "nuclear-reactor", "maglev-train", "gps-relativity", "laser-beam",
@@ -116,10 +119,10 @@ const EXPLAINER_THEMES: Array<{
   },
   {
     slug: "hidden-engineering",
-    title: "8 Genius Engineering Tricks Hidden in Plain Sight (Animated Breakdown)",
+    title: "{n} Genius Engineering Tricks Hidden in Plain Sight (Animated Breakdown)",
     teaser: "YOU USED THESE TODAY WITHOUT NOTICING",
-    intro: "Why is every tape measure hook deliberately loose? And how does a giant steel ball stop a skyscraper from falling? Let us uncover eight genius tricks hiding in plain sight.",
-    lead: "Discover 8 hidden mechanical secrets engineered into everyday objects and mega-structures.",
+    intro: "Why is every tape measure hook deliberately loose? And how does a giant steel ball stop a skyscraper from falling? Let us uncover {nWord} genius tricks hiding in plain sight.",
+    lead: "Discover {n} hidden mechanical secrets engineered into everyday objects and mega-structures.",
     slugs: [
       "tape-measure-hook", "airplane-vacuum-toilet", "tuned-mass-damper", "abs-brakes",
       "car-airbag", "escalator-comb", "elevator-brakes", "zipper-teeth",
@@ -129,7 +132,7 @@ const EXPLAINER_THEMES: Array<{
     slug: "modern-tech-inside",
     title: "Inside Modern Technology: Batteries, Fiber Optics & Microchips Explained",
     teaser: "HOW LIGHT CARRIES THE ENTIRE INTERNET",
-    intro: "Every second, beams of light bounce inside glass hairs thinner than your hair to carry the entire internet. Here is how eight modern technologies actually work under the hood.",
+    intro: "Every second, beams of light bounce inside glass hairs thinner than your hair to carry the entire internet. Here is how {nWord} modern technologies actually work under the hood.",
     lead: "An animated visual tour inside the modern electronics and physics powering our connected world.",
     slugs: [
       "fiber-optic", "lithium-battery", "microwave-oven", "induction-cooktop",
@@ -138,47 +141,114 @@ const EXPLAINER_THEMES: Array<{
   },
 ];
 
+/** Slug'ı otomatik Title Case yapınca anlamsız/yanlış yazılan bölümler için elle düzeltilmiş adlar. */
+const SLUG_LABEL_OVERRIDES: Record<string, string> = {
+  "sun-black-hole": "Sun into a Black Hole",
+  "earth-to-marble": "Earth Squeezed to a Marble",
+  "light-speed-mars": "Light Speed to Mars",
+  "wifi-walls": "Wi-Fi Through Walls",
+  "gps-satellites": "GPS Satellites",
+  "mri-scanner": "MRI Scanner",
+  "qr-code": "QR Code",
+  "lidar-sensor": "LiDAR Sensor",
+  "key-fob-rolling-code": "Key Fob Rolling Code",
+  "pop-up-toaster": "Pop-Up Toaster",
+  "noise-canceling": "Noise-Canceling Headphones",
+};
+
 function prettySlug(slug: string): string {
+  if (SLUG_LABEL_OVERRIDES[slug]) return SLUG_LABEL_OVERRIDES[slug];
   return slug
     .split("-")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
 
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+
+/** Sayıyı seslendirme için İngilizce kelimeye çevirir (12'den büyükse rakam olarak bırakır). */
+export function numberWord(n: number): string {
+  return NUMBER_WORDS[n] ?? String(n);
+}
+
+/** Tema metinlerindeki {n}, {nWord}, {teaserIdx}, {teaserWord} yer tutucularını gerçek bölüm sayısıyla doldurur. */
+function fillCount(text: string, n: number): string {
+  const teaserIdx = Math.max(1, n - 1);
+  return text
+    .replace(/\{n\}/g, String(n))
+    .replace(/\{nWord\}/g, numberWord(n))
+    .replace(/\{teaserIdx\}/g, String(teaserIdx))
+    .replace(/\{teaserWord\}/g, numberWord(teaserIdx));
+}
+
+/** Bir temanın kendi başlığıyla yayınlanabilmesi için gereken minimum mevcut bölüm sayısı. */
+const MIN_THEME_CHAPTERS = 6;
+
 /** Kanal + bölüm indeksine göre günlük benzersiz uzun video planı üretir (asla tükenmez). */
 export function buildLongformPlan(channel: ChannelKind, episodeNumber: number, maxChapters = 8): LongformEpisodePlan {
   const epIdx = Math.max(1, episodeNumber);
 
   if (channel === "explainer") {
-    const existingSlugs = EXPLAINER_JOBS
+    const catalogSlugs = EXPLAINER_JOBS
       .map((j) => j.episode || "")
       .filter((s) => s && existsSync(resolve("niches", "how-it-works", "episodes", `${s}.html`)));
+    // Rotasyon havuzu: önce temalardaki bölümler (tema sırasıyla), sonra katalogdaki diğerleri.
+    // Böylece ep1 teması havuzun başını oluşturur ve sonraki bölümler onunla çakışmaz.
+    const existingSlugs = [
+      ...new Set([...EXPLAINER_THEMES.flatMap((t) => t.slugs).filter((s) => catalogSlugs.includes(s)), ...catalogSlugs]),
+    ];
 
-    const theme = EXPLAINER_THEMES[(epIdx - 1) % EXPLAINER_THEMES.length];
-    let chosenSlugs = theme.slugs.filter((s) => existingSlugs.includes(s));
-    if (epIdx > EXPLAINER_THEMES.length || chosenSlugs.length < 6) {
-      // Sonsuz rotasyon: tüm mevcut bölümlerden deterministik kaydırmalı 8 bölüm seç
-      const offset = ((epIdx - 1) * 5) % Math.max(1, existingSlugs.length);
+    const theme = epIdx <= EXPLAINER_THEMES.length ? EXPLAINER_THEMES[epIdx - 1] : undefined;
+    const themeSlugs = theme ? theme.slugs.filter((s) => existingSlugs.includes(s)).slice(0, maxChapters) : [];
+    const useTheme = Boolean(theme) && themeSlugs.length >= MIN_THEME_CHAPTERS;
+
+    let chosenSlugs: string[];
+    let title: string;
+    let teaserHeadline: string;
+    let introVoice: string;
+    let descriptionLead: string;
+
+    if (useTheme && theme) {
+      // Tema yeterli sayıda gerçek bölüme sahip: başlık/intro içerikle birebir eşleşir
+      chosenSlugs = themeSlugs;
+      const n = chosenSlugs.length;
+      title = fillCount(theme.title, n);
+      teaserHeadline = fillCount(theme.teaser, n);
+      introVoice = fillCount(theme.intro, n);
+      descriptionLead = fillCount(theme.lead, n);
+    } else {
+      // Tema eksik veya tükendi: deterministik rotasyon + içerikten türetilen JENERİK başlık
+      // (tema başlığı ASLA alakasız içerikle kullanılmaz)
+      // Her bölüm bir öncekinin bittiği yerden başlar → tam tur tamamlanana kadar tekrar yok
+      const offset = ((epIdx - 1) * Math.max(1, maxChapters)) % Math.max(1, existingSlugs.length);
       chosenSlugs = [];
       for (let i = 0; i < Math.min(maxChapters, existingSlugs.length); i++) {
         chosenSlugs.push(existingSlugs[(offset + i) % existingSlugs.length]);
       }
-    } else {
-      chosenSlugs = chosenSlugs.slice(0, maxChapters);
+      const n = chosenSlugs.length;
+      const [a, b] = chosenSlugs.map(prettySlug);
+      const highlight = a && b ? `: ${a}, ${b} & More` : "";
+      title = `${n} Science & Engineering Breakdowns${highlight} (Deep Dive #${epIdx})`;
+      if (title.length > 100) title = `${n} Science & Engineering Breakdowns (Animated Deep Dive #${epIdx})`;
+      teaserHeadline = fillCount("WAIT UNTIL #{teaserIdx} — IT BREAKS INTUITION", n);
+      introVoice =
+        `Today we break down ${numberWord(n)} wonders of science and engineering` +
+        (a && b ? `, from ${a} to ${b}` : "") +
+        `. Wait until chapter ${numberWord(Math.max(1, n - 1))} — it will change how you see everyday engineering.`;
+      descriptionLead = `In this animated engineering deep dive, we break down ${n} inventions and science phenomena with clean visual explanations.`;
     }
 
-    const volSuffix = epIdx > EXPLAINER_THEMES.length ? ` (Vol. ${epIdx})` : "";
     return {
       id: `longform-explainer-ep${epIdx}`,
       channel: "explainer",
       brandName: "CLEAR MECHANICS",
       brandTagline: "ANIMATED ENGINEERING DEEP DIVE",
       accentHex: "#38bdf8",
-      title: `${theme.title}${volSuffix}`,
-      teaserHeadline: theme.teaser,
-      introVoice: theme.intro,
+      title,
+      teaserHeadline,
+      introVoice,
       outroVoice: "Subscribe to Clear Mechanics and click the next engineering breakdown on screen to keep exploring how the world works.",
-      descriptionLead: theme.lead,
+      descriptionLead,
       tags: ["engineering", "how it works", "science", "documentary", "animation", "clear mechanics"],
       chapters: chosenSlugs.map((slug) => ({
         slug,
@@ -213,7 +283,7 @@ export function buildLongformPlan(channel: ChannelKind, episodeNumber: number, m
     accentHex: "#f472b6",
     title: `Satisfying Physics Arena Tournament #${epIdx} (${roundCount} Wild Simulations)`,
     teaserHeadline: `WHO SURVIVES ROUND ${roundCount}? WATCH TO THE END`,
-    introVoice: `Welcome to Kinetic Lab Tournament number ${epIdx}. Six wild physics simulations, zero mercy, and a final round nobody predicted. Pick your winner before the timer runs out.`,
+    introVoice: `Welcome to Kinetic Lab Tournament number ${epIdx}. ${numberWord(roundCount).replace(/^./, (c) => c.toUpperCase())} wild physics simulations, zero mercy, and a final round nobody predicted. Pick your winner before the timer runs out.`,
     outroVoice: "Did your prediction win? Subscribe to Kinetic Lab and click the next tournament on screen for more satisfying physics simulations.",
     descriptionLead: `Watch ${roundCount} back-to-back satisfying physics simulations with live telemetry, custom sound design, and unpredictable endings.`,
     tags: ["physics simulation", "satisfying", "kinetic lab", "oddly satisfying", "animation", "chaos theory"],

@@ -19,7 +19,9 @@ import {
   tallyABVotes,
   uploadReelToInstagram,
 } from "./instagram.js";
+import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
 import { runVideoQc } from "./qc.js";
+import { syncPublishedStateFromRemote } from "./state-sync.js";
 import { fetchYouTubeComments, uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
 
 export type PublishedRecord = {
@@ -122,6 +124,8 @@ async function main() {
   const privacyStatus: PrivacyStatus =
     privacyRaw === "private" || privacyRaw === "unlisted" ? privacyRaw : "public";
 
+  // Başka bir run (ör. watchdog yeniden denemesi) bu arada yayın yaptıysa onu da gör
+  syncPublishedStateFromRemote(STATE_PATH);
   const state = await loadState();
 
   if (syncIgOnly) {
@@ -150,6 +154,17 @@ async function main() {
       await saveState(state);
       console.log(`✅ [sync-instagram] YÜKLENDİ: ${job.id} → mediaId=${igRes.mediaId}`);
     }
+    return;
+  }
+
+  // Yayın aralığı koruması: gecikmiş cron + watchdog tetiklemesi aynı slotta 2 video yayınlamasın
+  const minGapHours = resolveMinGapHours();
+  const sinceLast = hoursSinceLastPublish(state.published, channel, "short");
+  if (!dryRun && minGapHours > 0 && sinceLast < minGapHours) {
+    console.log(
+      `[auto-publish] "${channel}" kanalında son short ${sinceLast.toFixed(1)} saat önce yayınlandı (< ${minGapHours} saat). ` +
+        "Çift yayını önlemek için atlanıyor (zorlamak için FORCE_PUBLISH=true).",
+    );
     return;
   }
 
@@ -282,6 +297,24 @@ async function main() {
 
   console.log(`\n✅ [auto-publish] YOUTUBE YAYINLANDI: ${result.url}`);
 
+  // Kaydı HEMEN yaz: sonraki adımlarda (Instagram, push) hata olsa bile aynı video tekrar yüklenmesin
+  const record: PublishedRecord = {
+    id: job.id,
+    channel,
+    title: job.title,
+    videoId: result.videoId,
+    url: result.url,
+    poll: {
+      optionAKey: kit.optionAKey,
+      optionBKey: kit.optionBKey,
+      optionA: kit.optionA,
+      optionB: kit.optionB,
+    },
+    publishedAt: new Date().toISOString(),
+  };
+  state.published.push(record);
+  await saveState(state);
+
   // İsteğe bağlı: Meta API secret'ları tanımlıysa aynı MP4'ü Instagram Reels'e de yayınla + A/B ilk yorum at
   const igUserId =
     process.env.IG_USER_ID?.trim() ||
@@ -310,22 +343,10 @@ async function main() {
     }
   }
 
-  state.published.push({
-    id: job.id,
-    channel,
-    title: job.title,
-    videoId: result.videoId,
-    url: result.url,
-    ...(instagramMediaId ? { instagramMediaId } : {}),
-    poll: {
-      optionAKey: kit.optionAKey,
-      optionBKey: kit.optionBKey,
-      optionA: kit.optionA,
-      optionB: kit.optionB,
-    },
-    publishedAt: new Date().toISOString(),
-  });
-  await saveState(state);
+  if (instagramMediaId) {
+    record.instagramMediaId = instagramMediaId;
+    await saveState(state);
+  }
 }
 
 const isDirectRun = process.argv[1]?.endsWith("auto-publish.ts") || process.argv[1]?.endsWith("auto-publish.js");

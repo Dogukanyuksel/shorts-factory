@@ -46,6 +46,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: YT & IG raporlarını ve yeni yorumları Telegram'a yolla
+        id: monitor
         if: steps.check.outputs.ready == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -57,6 +58,7 @@ jobs:
         run: npm run telegram:monitor
 
       - name: Bildirim durumunu güvenli kaydet
-        if: steps.check.outputs.ready == 'true'
+        # always(): rapor yarıda hata verse bile gönderilmiş yorumlar kaydedilsin (tekrar bildirim gelmesin)
+        if: always() && (steps.monitor.outcome == 'success' || steps.monitor.outcome == 'failure')
         run: |
           npx tsx src/safe-git-push.ts state/telegram-notified.json "chore(telegram): bildirim durumu guncellendi"

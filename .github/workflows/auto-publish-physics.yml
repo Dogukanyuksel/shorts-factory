@@ -10,6 +10,10 @@ on:
         description: "Sadece render al, YouTube'a yükleme (test)"
         type: boolean
         default: false
+      force:
+        description: "Yayın aralığı korumasını (3 saat) yok say ve yine de yayınla"
+        type: boolean
+        default: false
       sync_instagram_only:
         description: "Sadece YouTube'da olup Instagram'da eksik olan Reels'leri eşitle"
         type: boolean
@@ -72,6 +76,7 @@ jobs:
           npx playwright-core install chromium --with-deps
 
       - name: Render al ve YouTube + Instagram'a yükle
+        id: publish
         if: steps.check_secrets.outputs.ready == 'true'
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
@@ -83,10 +88,14 @@ jobs:
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           SYNC_INSTAGRAM_ONLY: ${{ inputs.sync_instagram_only == true && 'true' || 'false' }}
+          # Gecikmiş cron + watchdog tetiklemesi aynı slotta 2. videoyu yayınlamasın
+          MIN_PUBLISH_GAP_HOURS: "3"
+          FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:physics
 
       - name: Yayın durumunu (state/published.json) güvenli kaydet
-        if: steps.check_secrets.outputs.ready == 'true' && inputs.dry_run != true
+        # always(): YouTube yüklemesinden SONRA bir hata olsa bile kayıt push edilsin (tekrar yüklemeyi önler)
+        if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure') && inputs.dry_run != true
         run: |
           npx tsx src/safe-git-push.ts state/published.json "chore(publish): physics short yayinlandi"
 

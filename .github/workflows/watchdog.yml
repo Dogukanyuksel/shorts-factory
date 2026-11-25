@@ -2,10 +2,11 @@ name: Publish Watchdog (7/24 Bulut Hata & Gecikme Kontrolü)
 
 on:
   schedule:
-    # Shorts saatlerinden ~18 dk sonra kontrol et (Physics :07 -> :25, Explainer :37 -> :55)
-    - cron: "25,55 11,17,23 * * *"
-    # Günlük 16:9 uzun video saatlerinden ~30 dk sonra kontrol et (UTC 14:45, 15:45)
-    - cron: "45 14,15 * * *"
+    # Her cron satırı TEK bir hedefe bağlıdır (hedef dakikadan tahmin edilmez → gecikmeye dayanıklı):
+    - cron: "25 11,17,23 * * *" # Physics Shorts (:07'den ~18 dk sonra)
+    - cron: "55 11,17,23 * * *" # Explainer Shorts (:37'den ~18 dk sonra)
+    - cron: "45 14 * * *" # Clear Mechanics 16:9 (14:15'ten 30 dk sonra)
+    - cron: "45 15 * * *" # Kinetic Lab 16:9 (15:15'ten 30 dk sonra)
   workflow_dispatch:
 
 permissions:
@@ -21,54 +22,80 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Son Physics ve Explainer yayınlarını bulutta denetle (gerekirse 1x oto-yenile)
+      - name: Son yayınları bulutta denetle (gerekirse 1x oto-yenile)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
         run: |
           NOW_EPOCH=$(date -u +%s)
-          NOW_MIN=$(date -u +%M)
           ALERTS=""
-
-          # :25'te Physics Shorts, :55'te Explainer Shorts, :45'te Daily Long-Form, manuel çalışmada hepsi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TARGET_WFS="auto-publish-physics.yml auto-publish-explainer.yml auto-publish-longform.yml"
-          elif [ "${{ github.event.schedule }}" = "45 14,15 * * *" ]; then
-            TARGET_WFS="auto-publish-longform.yml"
-          elif [ "$NOW_MIN" -lt 40 ]; then
-            TARGET_WFS="auto-publish-physics.yml"
-          else
-            TARGET_WFS="auto-publish-explainer.yml"
-          fi
-
           NL=$'\n'
-          for WF in $TARGET_WFS; do
-            ROW=$(gh run list -R "$REPO" --workflow="$WF" --limit 1 --json databaseId,conclusion,status,url,createdAt,event --jq '.[0] | "\(.databaseId)|\(.status)|\(.conclusion)|\(.createdAt)|\(.url)|\(.event)"')
-            RUN_ID=$(echo "$ROW" | cut -d'|' -f1)
+
+          # Hedef = "workflow_dosyası:longform_kanalı" (shorts için kanal boş)
+          case "$SCHEDULE" in
+            "25 11,17,23 * * *") TARGETS="auto-publish-physics.yml:" ;;
+            "55 11,17,23 * * *") TARGETS="auto-publish-explainer.yml:" ;;
+            "45 14 * * *")       TARGETS="auto-publish-longform.yml:explainer" ;;
+            "45 15 * * *")       TARGETS="auto-publish-longform.yml:physics" ;;
+            *)
+              if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                TARGETS="auto-publish-physics.yml: auto-publish-explainer.yml: auto-publish-longform.yml:explainer auto-publish-longform.yml:physics"
+              else
+                echo "::warning::Bilinmeyen watchdog schedule'ı: '$SCHEDULE'"; exit 0
+              fi
+              ;;
+          esac
+
+          for T in $TARGETS; do
+            WF="${T%%:*}"
+            LF_CH="${T#*:}"
+            LABEL="$WF${LF_CH:+ ($LF_CH)}"
+
+            if [ -n "$LF_CH" ]; then
+              # Long-form: run-name "Long-Form <kanal>" veya "Long-Form both" olan en son koşu
+              JQ_FILTER="[.[] | select(.displayTitle | test(\"Long-Form (${LF_CH}|both)\"))][0]"
+              RETRY_ARGS="-f channel=${LF_CH}"
+            else
+              JQ_FILTER=".[0]"
+              RETRY_ARGS=""
+            fi
+
+            ROW=$(gh run list -R "$REPO" --workflow="$WF" --limit 20 \
+              --json databaseId,conclusion,status,url,createdAt,event,displayTitle \
+              --jq "$JQ_FILTER | if . == null then \"\" else \"\(.databaseId)|\(.status)|\(.conclusion)|\(.createdAt)|\(.url)|\(.event)\" end")
+
             STATUS=$(echo "$ROW" | cut -d'|' -f2)
             CONC=$(echo "$ROW" | cut -d'|' -f3)
             CREATED=$(echo "$ROW" | cut -d'|' -f4)
             URL=$(echo "$ROW" | cut -d'|' -f5)
             EVENT=$(echo "$ROW" | cut -d'|' -f6)
 
-            CREATED_EPOCH=$(date -u -d "$CREATED" +%s 2>/dev/null || echo 0)
+            if [ -n "$CREATED" ]; then
+              CREATED_EPOCH=$(date -u -d "$CREATED" +%s 2>/dev/null || echo 0)
+            else
+              CREATED_EPOCH=0
+            fi
             AGE_MIN=$(( (NOW_EPOCH - CREATED_EPOCH) / 60 ))
-            echo "[watchdog] $WF -> status=$STATUS conclusion=$CONC age=${AGE_MIN}m event=$EVENT"
+            echo "[watchdog] $LABEL -> status=$STATUS conclusion=$CONC age=${AGE_MIN}m event=$EVENT"
 
             # 1) Hata durumu (tamamlandı ama success/skipped değil)
             if [ "$STATUS" = "completed" ] && [ "$CONC" != "success" ] && [ "$CONC" != "skipped" ]; then
-              ALERTS="${ALERTS}${NL}• ❌ <b>${WF}</b> başarısız oldu (${CONC}) — ${URL}"
-              # Son 60 dk içindeyse ve zaten manuel retry değilse 1 kez otomatik yeniden dene
+              ALERTS="${ALERTS}${NL}• ❌ <b>${LABEL}</b> başarısız oldu (${CONC}) — ${URL}"
+              # Son 60 dk içindeyse ve zaten manuel/oto retry değilse 1 kez yeniden dene.
+              # Çift yayın riski yok: publish script'leri güncel state'i okur + yayın aralığı korumasına uyar.
               if [ "$AGE_MIN" -le 60 ] && [ "$EVENT" != "workflow_dispatch" ]; then
-                gh workflow run "$WF" -R "$REPO" --ref main && \
+                gh workflow run "$WF" -R "$REPO" --ref main $RETRY_ARGS && \
                   ALERTS="${ALERTS}${NL}  ↻ Bulut watchdog 1 kez otomatik yeniden başlattı." || true
               fi
             # 2) Cron tamamen atlandıysa (son 50 dk içinde hiç koşmadıysa)
-            elif [ "$AGE_MIN" -gt 50 ] && [ "${{ github.event_name }}" = "schedule" ]; then
-              ALERTS="${ALERTS}${NL}• ⏰ <b>${WF}</b> son ${AGE_MIN} dk'dır tetiklenmedi (GitHub cron atladı)."
-              gh workflow run "$WF" -R "$REPO" --ref main && \
+            elif [ "$AGE_MIN" -gt 50 ] && [ "$EVENT_NAME" = "schedule" ]; then
+              ALERTS="${ALERTS}${NL}• ⏰ <b>${LABEL}</b> son ${AGE_MIN} dk'dır tetiklenmedi (GitHub cron atladı/gecikti)."
+              # Gecikmiş cron sonradan gelirse yayın aralığı koruması onu otomatik atlar (çift video olmaz)
+              gh workflow run "$WF" -R "$REPO" --ref main $RETRY_ARGS && \
                 ALERTS="${ALERTS}${NL}  ↻ Bulut watchdog şimdi otomatik tetikledi." || true
             fi
           done

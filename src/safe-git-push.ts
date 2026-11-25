@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { mergePublishedRecords, type MinimalPublishedRecord } from "./devops.js";
+import { mergePublishedRecords, sleepSync, type MinimalPublishedRecord } from "./devops.js";
 
 /**
  * GitHub Actions'da state/*.json dosyalarını yarışma (race condition) olmadan main'e push eder.
@@ -65,6 +65,10 @@ function main() {
     } catch (err) {
       console.warn(`[safe-git-push] Deneme ${attempt}/4 başarısız:`, err instanceof Error ? err.message.slice(0, 200) : err);
       if (attempt === 4) throw err;
+      // Üstel geri çekilme + jitter: paralel workflow'larla aynı saniyede tekrar çakışmayı önler
+      const waitMs = 2000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 1500);
+      console.log(`[safe-git-push] ${Math.round(waitMs / 1000)} sn sonra tekrar denenecek...`);
+      sleepSync(waitMs);
     }
   }
 }

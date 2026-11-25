@@ -2,7 +2,10 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ChannelId as ChannelKind } from "./catalog.js";
+import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
+import { runVideoQc } from "./qc.js";
 import { renderLongformVideo } from "./render-longform.js";
+import { syncPublishedStateFromRemote } from "./state-sync.js";
 import { uploadVideoToYouTube } from "./youtube.js";
 
 interface PublishedRecord {
@@ -62,7 +65,21 @@ async function main() {
   const dryRun = process.env.DRY_RUN === "true" || process.argv.includes("--dry-run");
   const privacy = (process.env.YOUTUBE_PRIVACY || parseArg("privacy", "public")) as "public" | "unlisted" | "private";
 
+  // Başka bir run bu arada yayın yaptıysa bölüm numarası ve aralık kontrolü için onu da gör
+  syncPublishedStateFromRemote(STATE_PATH);
   const state = await loadState();
+
+  // Yayın aralığı koruması: watchdog yeniden denemesi + cron aynı gün 2 uzun video yayınlamasın
+  const minGapHours = resolveMinGapHours();
+  const sinceLast = hoursSinceLastPublish(state.published, channel, "longform");
+  if (!dryRun && minGapHours > 0 && sinceLast < minGapHours) {
+    console.log(
+      `[publish-longform] "${channel}" kanalında son uzun video ${sinceLast.toFixed(1)} saat önce yayınlandı (< ${minGapHours} saat). ` +
+        "Çift yayını önlemek için atlanıyor (zorlamak için FORCE_PUBLISH=true).",
+    );
+    return;
+  }
+
   const prevLongformCount = state.published.filter(
     (r) => r.channel === channel && r.id.startsWith(`longform-${channel}-`),
   ).length;
@@ -75,6 +92,13 @@ async function main() {
     fps: 30,
     maxChapters: channel === "physics" ? 6 : 8,
   });
+
+  console.log("[qc] 16:9 uzun video kalite kontrolü çalışıyor...");
+  const qc = await runVideoQc(rendered.mp4Path, { width: 1920, height: 1080, minSec: 60, maxSec: 4 * 3600 });
+  if (!qc.ok) {
+    throw new Error(`QC Gate REDDETTİ (yayın durduruldu): ${qc.errors.join(" | ")}`);
+  }
+  console.log(`✅ [qc] GEÇTİ: ${qc.width}x${qc.height}, ${qc.durationSec.toFixed(1)}s, ${(qc.fileSizeBytes / 1024 / 1024).toFixed(1)} MB`);
 
   const shortsLinks = buildLinkedShortsSection(state, channel);
   const fullDescription =
