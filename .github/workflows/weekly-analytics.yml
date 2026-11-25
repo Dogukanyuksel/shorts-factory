@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: weekly-analytics
+  cancel-in-progress: false
+
 jobs:
   analytics:
     runs-on: ubuntu-latest
@@ -17,27 +21,48 @@ jobs:
       - name: Repo indir
         uses: actions/checkout@v4
 
+      - name: Secret kontrolü
+        id: check
+        env:
+          HAS_KEY: ${{ secrets.YOUTUBE_API_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::YOUTUBE_API_KEY tanımlı olmadığı için haftalık analitik atlandı."
+          fi
+
       - name: Node.js 22 kur
+        if: steps.check.outputs.ready == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
       - name: Bağımlılıklar
+        if: steps.check.outputs.ready == 'true'
         run: npm ci --ignore-scripts
 
       - name: YouTube analitiklerini çek
+        if: steps.check.outputs.ready == 'true'
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: npm run analytics
 
-      - name: state/analytics.json kaydet
+      - name: state/analytics.json güvenli kaydet
+        if: steps.check.outputs.ready == 'true'
+        run: npx tsx src/safe-git-push.ts state/analytics.json "chore(analytics): haftalik YouTube performans raporu guncellendi"
+
+      - name: Hata durumunda Telegram uyarısı
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if ! git diff --quiet state/analytics.json || [ -n "$(git ls-files --others --exclude-standard state/analytics.json)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add state/analytics.json
-            git commit -m "chore(analytics): haftalik YouTube performans raporu guncellendi"
-            git pull --rebase origin main
-            git push origin main
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"🚨 <b>Shorts Factory HATA</b>\nWorkflow: <b>Weekly Analytics</b>\nLog: ${RUN_URL}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}" || true
           fi

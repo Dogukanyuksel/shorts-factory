@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fetchYouTubeStatistics } from "./analytics.js";
 import { loadState } from "./auto-publish.js";
+import { fetchWithRetry, isValidInstagramMediaId } from "./devops.js";
 
 type NotifiedState = {
   seenCommentKeys: string[];
@@ -62,12 +63,15 @@ async function sendTelegramMessage(
       inline_keyboard: [[{ text: button.text, url: button.url }]],
     };
   }
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(20_000),
-  });
+  const res = await fetchWithRetry(
+    `https://api.telegram.org/bot${botToken}/sendMessage`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    { retries: 3, timeoutMs: 20_000 },
+  );
   const text = await res.text();
   if (!res.ok) {
     throw new Error(`Telegram sendMessage hatası (${res.status}): ${text.slice(0, 300)}`);
@@ -133,8 +137,12 @@ async function fetchInstagramMediaInfo(
   permalink: string;
   comments: Array<{ id: string; author: string; text: string }>;
 } | null> {
-  const url = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}?fields=like_count,comments_count,permalink,comments.limit(25){id,text,username}&access_token=${encodeURIComponent(accessToken)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  const url = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}?fields=like_count,comments_count,permalink,comments.limit(25){id,text,username}`;
+  const res = await fetchWithRetry(
+    url,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    { retries: 2, timeoutMs: 20_000 },
+  );
   if (!res.ok) return null;
   const json = (await res.json()) as {
     like_count?: number;
@@ -195,6 +203,9 @@ async function main() {
     let topTitle = "";
     let topViews = -1;
 
+    // Yorum taramasını en güncel 30 video ile sınırla (kota ve 5 dk timeout koruması)
+    const recentYtIds = new Set(ytRecs.slice(-30).map((r) => r.videoId));
+
     for (const rec of ytRecs) {
       const s = stats.get(rec.videoId) || { views: 0, likes: 0, comments: 0 };
       totalViews += s.views;
@@ -207,7 +218,7 @@ async function main() {
         topTitle = rec.title;
       }
 
-      if (s.comments > 0) {
+      if (s.comments > 0 && recentYtIds.has(rec.videoId)) {
         const comments = await fetchYouTubeCommentDetails(rec.videoId, ytApiKey);
         for (const c of comments) {
           const key = `yt:${c.id}`;
@@ -244,13 +255,14 @@ async function main() {
 
   // ================= 2) INSTAGRAM REELS =================
   if (metaToken && igChat) {
-    const igRecs = state.published.filter((r) => Boolean(r.instagramMediaId));
+    const igRecs = state.published.filter((r) => isValidInstagramMediaId(r.instagramMediaId));
+    const recentIgRecs = igRecs.slice(-30);
     let igLikes = 0;
     let igComments = 0;
     let physLikes = 0;
     let expLikes = 0;
 
-    for (const rec of igRecs) {
+    for (const rec of recentIgRecs) {
       if (!rec.instagramMediaId) continue;
       const info = await fetchInstagramMediaInfo(rec.instagramMediaId, metaToken);
       if (!info) continue;

@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { fetchWithRetry } from "./devops.js";
 
 export type PrivacyStatus = "public" | "private" | "unlisted";
 
@@ -49,12 +50,15 @@ export async function refreshAccessToken(creds: YouTubeCredentials): Promise<str
     grant_type: "refresh_token",
   });
 
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body,
-    signal: AbortSignal.timeout(30_000),
-  });
+  const res = await fetchWithRetry(
+    "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+    },
+    { retries: 3, timeoutMs: 30_000 },
+  );
 
   const text = await res.text();
   if (!res.ok) {
@@ -77,7 +81,7 @@ export async function uploadVideoToYouTube(
   const fileStat = await stat(filePath);
   const payload = buildYouTubeVideoPayload(meta);
 
-  const initRes = await fetch(
+  const initRes = await fetchWithRetry(
     "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
     {
       method: "POST",
@@ -88,8 +92,8 @@ export async function uploadVideoToYouTube(
         "x-upload-content-type": "video/mp4",
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30_000),
     },
+    { retries: 3, timeoutMs: 30_000 },
   );
 
   if (!initRes.ok) {

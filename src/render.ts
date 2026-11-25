@@ -56,9 +56,10 @@ async function main() {
 
   const outDir = resolve("out");
   await mkdir(outDir, { recursive: true });
+  const workTmp = await mkdtemp(join(tmpdir(), `shorts-render-${niche}-`));
   const baseName = `${niche}-seed${seed}`;
-  const rawMp4 = join(outDir, `${baseName}.raw.mp4`);
-  const pcmPath = join(outDir, `${baseName}.pcm`);
+  const rawMp4 = join(workTmp, `${baseName}.raw.mp4`);
+  const pcmPath = join(workTmp, `${baseName}.pcm`);
   const finalMp4 = join(outDir, `${baseName}.mp4`);
   const previewJpg = join(outDir, `${baseName}-preview.jpg`);
 
@@ -230,6 +231,7 @@ async function main() {
     console.log(`[shorts-factory] Önizleme: ${previewJpg}`);
   } finally {
     await browser.close();
+    await rm(workTmp, { recursive: true, force: true }).catch(() => {});
   }
 }
 

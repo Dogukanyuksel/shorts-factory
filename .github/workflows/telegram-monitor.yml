@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: telegram-monitor
+  cancel-in-progress: false
+
 jobs:
   telegram-report:
     runs-on: ubuntu-latest
@@ -52,14 +56,6 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: npm run telegram:monitor
 
-      - name: Bildirim durumunu kaydet
+      - name: Bildirim durumunu güvenli kaydet
         if: steps.check.outputs.ready == 'true'
-        run: |
-          if ! git diff --quiet state/telegram-notified.json || [ -n "$(git ls-files --others --exclude-standard state/telegram-notified.json)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add state/telegram-notified.json
-            git commit -m "chore(telegram): bildirim durumu guncellendi"
-            git pull --rebase origin main
-            git push origin main
-          fi
+        run: npx tsx src/safe-git-push.ts state/telegram-notified.json "chore(telegram): bildirim durumu guncellendi"

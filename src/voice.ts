@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
+import { fetchWithRetry } from "./devops.js";
 
 function runBin(bin: string, args: string[]): Promise<void> {
   return new Promise((ok, no) => {
@@ -13,18 +14,21 @@ function runBin(bin: string, args: string[]): Promise<void> {
 
 /**
  * İngilizce seslendirme üretir.
- * 1) Birincil: haber.yukselmedya.com TTS API (doğal insan sesi)
+ * 1) Birincil: haber.yukselmedya.com TTS API (doğal insan sesi, 3 deneme + üstel bekleme)
  * 2) Yedek (macOS): `say`
  * 3) Yedek (Linux / GitHub Actions): `espeak-ng` veya `espeak`
  */
 export async function synthesizeVoice(text: string, outFile: string): Promise<string> {
   try {
-    const r = await fetch("https://haber.yukselmedya.com/api/v1/ses", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ metin: text, ses: "erkek", dil: "en" }),
-      signal: AbortSignal.timeout(20_000),
-    });
+    const r = await fetchWithRetry(
+      "https://haber.yukselmedya.com/api/v1/ses",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ metin: text, ses: "erkek", dil: "en" }),
+      },
+      { retries: 3, baseDelayMs: 2000, timeoutMs: 25_000 },
+    );
     if (r.ok) {
       const buf = Buffer.from(await r.arrayBuffer());
       if (buf.length > 400) {
@@ -32,8 +36,8 @@ export async function synthesizeVoice(text: string, outFile: string): Promise<st
         return outFile;
       }
     }
-  } catch {
-    // Çevrimdışıysa yerel sentezleyiciye düş
+  } catch (err) {
+    console.warn(`[voice] Birincil nöral TTS başarısız, yerel yedeğe geçiliyor: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   if (process.platform === "darwin") {

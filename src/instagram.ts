@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { fetchWithRetry } from "./devops.js";
 
 export type InstagramCredentials = {
   igUserId: string;
@@ -28,8 +29,12 @@ async function waitForContainerReady(
 ): Promise<void> {
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
-    const url = `${GRAPH_BASE}/${encodeURIComponent(containerId)}?fields=status_code,status&access_token=${encodeURIComponent(accessToken)}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    const url = `${GRAPH_BASE}/${encodeURIComponent(containerId)}?fields=status_code,status`;
+    const res = await fetchWithRetry(
+      url,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+      { retries: 2, timeoutMs: 20_000 },
+    );
     const text = await res.text();
     if (!res.ok) {
       throw new Error(`Instagram container durum sorgusu hatası (${res.status}): ${text.slice(0, 400)}`);
@@ -158,8 +163,12 @@ export async function fetchInstagramComments(
   creds: InstagramCredentials,
   limit = 100,
 ): Promise<string[]> {
-  const url = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?fields=text&limit=${limit}&access_token=${encodeURIComponent(creds.accessToken)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  const url = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?fields=text&limit=${limit}`;
+  const res = await fetchWithRetry(
+    url,
+    { headers: { Authorization: `Bearer ${creds.accessToken}` } },
+    { retries: 2, timeoutMs: 20_000 },
+  );
   const text = await res.text();
   if (!res.ok) {
     throw new Error(`Instagram yorum okuma hatası (${res.status}): ${text.slice(0, 400)}`);
