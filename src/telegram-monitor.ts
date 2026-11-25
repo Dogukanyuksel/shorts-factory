@@ -176,7 +176,10 @@ async function main() {
   const metaToken = process.env.META_ACCESS_TOKEN?.trim() || "";
   const sep = "━━━━━━━━━━━━━━━━━━━━";
 
-  // ================= 1) YOUTUBE SHORTS RAPORU & YENİ YORUMLAR =================
+  let ytBlock = "";
+  let igBlock = "";
+
+  // ================= 1) YOUTUBE SHORTS =================
   if (ytApiKey && ytChat) {
     const ytRecs = state.published.filter((r) => Boolean(r.videoId));
     const stats = await fetchYouTubeStatistics(
@@ -187,17 +190,22 @@ async function main() {
     let totalViews = 0;
     let totalLikes = 0;
     let totalComments = 0;
-    const physLines: string[] = [];
-    const expLines: string[] = [];
+    let physViews = 0;
+    let expViews = 0;
+    let topTitle = "";
+    let topViews = -1;
 
     for (const rec of ytRecs) {
       const s = stats.get(rec.videoId) || { views: 0, likes: 0, comments: 0 };
       totalViews += s.views;
       totalLikes += s.likes;
       totalComments += s.comments;
-      const line = `  • ${escapeHtml(shortTitle(rec.title))}\n    👀 <b>${s.views.toLocaleString("tr-TR")}</b>  •  👍 ${s.likes}  •  💬 ${s.comments}`;
-      if (rec.channel === "physics") physLines.push(line);
-      else expLines.push(line);
+      if (rec.channel === "physics") physViews += s.views;
+      else expViews += s.views;
+      if (s.views > topViews) {
+        topViews = s.views;
+        topTitle = rec.title;
+      }
 
       if (s.comments > 0) {
         const comments = await fetchYouTubeCommentDetails(rec.videoId, ytApiKey);
@@ -205,52 +213,42 @@ async function main() {
           const key = `yt:${c.id}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          const channelLabel = rec.channel === "physics" ? "⚡ Kinetic Lab" : "⚙️ Clear Mechanics";
+          const channelLabel = rec.channel === "physics" ? "Kinetic Lab" : "Clear Mechanics";
           const reply = suggestReply(c.text, rec.channel);
           const msg = [
-            `💬 <b>YOUTUBE YENİ YORUM</b>`,
-            sep,
-            `${channelLabel}`,
-            `🎬 ${escapeHtml(shortTitle(rec.title, 60))}`,
+            `💬 <b>YENİ YORUM • ${channelLabel}</b>`,
+            `🎬 ${escapeHtml(rec.title)}`,
+            `👤 ${escapeHtml(c.author)}`,
             ``,
-            `👤 <b>${escapeHtml(c.author)}</b>`,
             `<blockquote>${escapeHtml(c.text)}</blockquote>`,
             ``,
-            `📋 <b>Hazır Cevap (tek tıkla kopyala):</b>`,
+            `📋 <b>Hazır Yanıt:</b>`,
             `<pre>${escapeHtml(reply)}</pre>`,
+            `🔗 ${rec.url}`,
           ].join("\n");
-          await sendTelegramMessage(botToken, ytChat, msg, {
-            text: "🎬 YouTube'da Aç & Yanıtla",
-            url: rec.url,
-          });
+          await sendTelegramMessage(botToken, ytChat, msg);
         }
       }
     }
 
-    const ytSummary = [
-      `📺 <b>YOUTUBE SHORTS RAPORU</b>`,
-      sep,
-      `👀 İzlenme: <b>${totalViews.toLocaleString("tr-TR")}</b>`,
-      `👍 Beğeni: <b>${totalLikes.toLocaleString("tr-TR")}</b>   •   💬 Yorum: <b>${totalComments}</b>`,
-      ``,
-      `⚡ <b>Kinetic Lab (${physLines.length} video)</b>`,
-      ...physLines.slice(-4),
-      ``,
-      `⚙️ <b>Clear Mechanics (${expLines.length} video)</b>`,
-      ...expLines.slice(-4),
-    ].join("\n");
-
-    await sendTelegramMessage(botToken, ytChat, ytSummary);
-    console.log(`[telegram-monitor] YouTube raporu gönderildi (${totalViews} izlenme).`);
+    ytBlock = [
+      `📺 <b>YOUTUBE SHORTS</b>`,
+      `• Video: <b>${ytRecs.length}</b> | İzlenme: <b>${totalViews.toLocaleString("tr-TR")}</b>`,
+      `• Etkileşim: <b>${totalLikes.toLocaleString("tr-TR")}</b> beğeni • <b>${totalComments}</b> yorum`,
+      `• Kanal Dağılımı: Kinetic Lab (${physViews.toLocaleString("tr-TR")}) • Clear Mechanics (${expViews.toLocaleString("tr-TR")})`,
+      topTitle ? `• Lider: ${escapeHtml(topTitle)} (${topViews.toLocaleString("tr-TR")})` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
-  // ================= 2) INSTAGRAM REELS RAPORU & YENİ YORUMLAR =================
+  // ================= 2) INSTAGRAM REELS =================
   if (metaToken && igChat) {
     const igRecs = state.published.filter((r) => Boolean(r.instagramMediaId));
     let igLikes = 0;
     let igComments = 0;
-    const physLines: string[] = [];
-    const expLines: string[] = [];
+    let physLikes = 0;
+    let expLikes = 0;
 
     for (const rec of igRecs) {
       if (!rec.instagramMediaId) continue;
@@ -258,51 +256,52 @@ async function main() {
       if (!info) continue;
       igLikes += info.likes;
       igComments += info.commentsCount;
-      const line = `  • ${escapeHtml(shortTitle(rec.title))}\n    ❤️ <b>${info.likes}</b>  •  💬 ${info.commentsCount}`;
-      if (rec.channel === "physics") physLines.push(line);
-      else expLines.push(line);
+      if (rec.channel === "physics") physLikes += info.likes;
+      else expLikes += info.likes;
 
       for (const c of info.comments) {
         const key = `ig:${c.id}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const channelLabel = rec.channel === "physics" ? "⚡ Kinetic Lab IG" : "⚙️ Clear Mechanics IG";
+        const channelLabel = rec.channel === "physics" ? "Kinetic Lab IG" : "Clear Mechanics IG";
         const reply = suggestReply(c.text, rec.channel);
         const msg = [
-          `💬 <b>INSTAGRAM YENİ YORUM</b>`,
-          sep,
-          `${channelLabel}`,
-          `🎬 ${escapeHtml(shortTitle(rec.title, 60))}`,
+          `💬 <b>YENİ YORUM • ${channelLabel}</b>`,
+          `🎬 ${escapeHtml(rec.title)}`,
+          `👤 @${escapeHtml(c.author)}`,
           ``,
-          `👤 <b>@${escapeHtml(c.author)}</b>`,
           `<blockquote>${escapeHtml(c.text)}</blockquote>`,
           ``,
-          `📋 <b>Hazır Cevap (tek tıkla kopyala):</b>`,
+          `📋 <b>Hazır Yanıt:</b>`,
           `<pre>${escapeHtml(reply)}</pre>`,
-        ].join("\n");
-        await sendTelegramMessage(
-          botToken,
-          igChat,
-          msg,
-          info.permalink ? { text: "📸 Instagram'da Aç & Yanıtla", url: info.permalink } : undefined,
-        );
+          info.permalink ? `🔗 ${info.permalink}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        await sendTelegramMessage(botToken, igChat, msg);
       }
     }
 
-    const igSummary = [
-      `📸 <b>INSTAGRAM REELS RAPORU</b>`,
-      sep,
-      `❤️ Beğeni: <b>${igLikes.toLocaleString("tr-TR")}</b>   •   💬 Yorum: <b>${igComments}</b>`,
-      ``,
-      `⚡ <b>Kinetic Lab IG (${physLines.length} reels)</b>`,
-      ...physLines.slice(-4),
-      ``,
-      `⚙️ <b>Clear Mechanics IG (${expLines.length} reels)</b>`,
-      ...expLines.slice(-4),
+    igBlock = [
+      `📸 <b>INSTAGRAM REELS</b>`,
+      `• Reels: <b>${igRecs.length}</b> | Etkileşim: <b>${igLikes.toLocaleString("tr-TR")}</b> beğeni • <b>${igComments}</b> yorum`,
+      `• Kanal Dağılımı: Kinetic Lab IG (${physLikes}) • Clear Mechanics IG (${expLikes})`,
     ].join("\n");
+  }
 
-    await sendTelegramMessage(botToken, igChat, igSummary);
-    console.log(`[telegram-monitor] Instagram raporu gönderildi (${igLikes} beğeni).`);
+  // Tek chat varsa birleşik özet, iki ayrı chat varsa ayrı gönder
+  if (ytChat && igChat && ytChat === igChat) {
+    const combined = [`📊 <b>6 SAATLİK ÖZET RAPOR</b>`, sep, ytBlock, ``, igBlock].filter(Boolean).join("\n");
+    if (ytBlock || igBlock) {
+      await sendTelegramMessage(botToken, ytChat, combined);
+    }
+  } else {
+    if (ytBlock && ytChat) {
+      await sendTelegramMessage(botToken, ytChat, [`📊 <b>6 SAATLİK ÖZET RAPOR</b>`, sep, ytBlock].join("\n"));
+    }
+    if (igBlock && igChat) {
+      await sendTelegramMessage(botToken, igChat, [`📊 <b>6 SAATLİK ÖZET RAPOR</b>`, sep, igBlock].join("\n"));
+    }
   }
 
   notified.seenCommentKeys = [...seen];
