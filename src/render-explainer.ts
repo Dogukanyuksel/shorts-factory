@@ -105,71 +105,57 @@ async function main() {
     );
 
     if (epBadge || pollLine) {
-      await page.evaluate(
-        ({ fpsVal, durVal, badgeText, pollText }) => {
+      await page.addScriptTag({
+        content: `(() => {
+          const fpsVal = ${JSON.stringify(fps)};
+          const durVal = ${JSON.stringify(totalSec)};
+          const badgeText = ${JSON.stringify(epBadge)};
+          const pollText = ${JSON.stringify(pollLine)};
           let frameIdx = 0;
           const orig = HTMLCanvasElement.prototype.toDataURL;
-          HTMLCanvasElement.prototype.toDataURL = function (...args: Parameters<typeof orig>) {
+          function fitText(ctx, text, maxW, maxPx, minPx, S, weight) {
+            let px = Math.round(maxPx * S);
+            const minScaled = Math.round(minPx * S);
+            while (px > minScaled) {
+              ctx.font = weight + " " + px + "px -apple-system, sans-serif";
+              if (ctx.measureText(text).width <= maxW) break;
+              px -= 1;
+            }
+            ctx.font = weight + " " + px + "px -apple-system, sans-serif";
+          }
+          HTMLCanvasElement.prototype.toDataURL = function (...args) {
             if (this.id === "c") {
               const tSec = frameIdx / fpsVal;
               frameIdx++;
               const ctx = this.getContext("2d");
               if (ctx) {
-                const W = this.width;
-                const H = this.height;
-                const S = W / 720;
-                const fitText = (text: string, maxW: number, maxPx: number, minPx: number, weight = 800) => {
-                  let px = Math.round(maxPx * S);
-                  const minScaled = Math.round(minPx * S);
-                  while (px > minScaled) {
-                    ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
-                    if (ctx.measureText(text).width <= maxW) break;
-                    px -= 1;
-                  }
-                  ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
-                };
+                const W = this.width, H = this.height, S = W / 720;
                 ctx.save();
-                // Sol üst seri rozeti (Safe-Zone içinde)
                 if (badgeText) {
-                  const bw = 118 * S;
-                  const bh = 40 * S;
-                  const bx = 36 * S;
-                  const by = H * 0.068;
+                  const bw = 118 * S, bh = 40 * S, bx = 36 * S, by = H * 0.068;
                   ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
-                  ctx.beginPath();
-                  ctx.roundRect(bx, by, bw, bh, 20 * S);
-                  ctx.fill();
-                  ctx.strokeStyle = "#fbbf24";
-                  ctx.lineWidth = 2.2 * S;
-                  ctx.stroke();
+                  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 20 * S); ctx.fill();
+                  ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 2.2 * S; ctx.stroke();
                   ctx.textAlign = "center";
-                  fitText(badgeText, bw - 18 * S, 20, 13, 900);
+                  fitText(ctx, badgeText, bw - 18 * S, 20, 13, S, 900);
                   ctx.fillStyle = "#fde68a";
                   ctx.fillText(badgeText, bx + bw * 0.5, by + 27 * S);
                 }
-                // Son 3.0 sn: Safe-Zone içinde A/B oylama + abone ol kartı
                 if (pollText && tSec >= durVal - 3.0) {
                   const alpha = Math.min(1, (tSec - (durVal - 3.0)) / 0.35);
                   ctx.globalAlpha = Math.max(0, alpha);
-                  const boxW = W * 0.82;
-                  const boxH = 120 * S;
-                  const bx = (W - boxW) * 0.5;
-                  const by = H * 0.685;
+                  const boxW = W * 0.82, boxH = 120 * S, bx = (W - boxW) * 0.5, by = H * 0.685;
                   ctx.fillStyle = "rgba(5, 10, 24, 0.93)";
-                  ctx.beginPath();
-                  ctx.roundRect(bx, by, boxW, boxH, 20 * S);
-                  ctx.fill();
-                  ctx.strokeStyle = "#fbbf24";
-                  ctx.lineWidth = 3 * S;
-                  ctx.stroke();
+                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 20 * S); ctx.fill();
+                  ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 3 * S; ctx.stroke();
                   ctx.textAlign = "center";
-                  fitText("VOTE NEXT EPISODE IN COMMENTS", boxW - 26 * S, 19, 12, 900);
+                  fitText(ctx, "VOTE NEXT EPISODE IN COMMENTS", boxW - 26 * S, 19, 12, S, 900);
                   ctx.fillStyle = "#fde047";
                   ctx.fillText("VOTE NEXT EPISODE IN COMMENTS", W * 0.5, by + 32 * S);
-                  fitText(pollText, boxW - 26 * S, 21, 12, 800);
+                  fitText(ctx, pollText, boxW - 26 * S, 21, 12, S, 800);
                   ctx.fillStyle = "#ffffff";
                   ctx.fillText(pollText, W * 0.5, by + 68 * S);
-                  fitText("SUBSCRIBE TO SEE THE WINNER", boxW - 26 * S, 16, 11, 800);
+                  fitText(ctx, "SUBSCRIBE TO SEE THE WINNER", boxW - 26 * S, 16, 11, S, 800);
                   ctx.fillStyle = "#38bdf8";
                   ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 100 * S);
                 }
@@ -178,9 +164,8 @@ async function main() {
             }
             return orig.apply(this, args);
           };
-        },
-        { fpsVal: fps, durVal: totalSec, badgeText: epBadge, pollText: pollLine },
-      );
+        })();`,
+      });
     }
 
     const totalFrames = Math.ceil(totalSec * fps);

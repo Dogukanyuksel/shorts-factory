@@ -78,72 +78,58 @@ async function main() {
     );
 
     if (introCta || pollLine) {
-      await page.evaluate(
-        ({ fpsVal, durVal, ctaText, pollText }) => {
+      await page.addScriptTag({
+        content: `(() => {
+          const fpsVal = ${JSON.stringify(fps)};
+          const durVal = ${JSON.stringify(seconds)};
+          const ctaText = ${JSON.stringify(introCta)};
+          const pollText = ${JSON.stringify(pollLine)};
           let frameIdx = 0;
           const orig = HTMLCanvasElement.prototype.toDataURL;
-          HTMLCanvasElement.prototype.toDataURL = function (...args: Parameters<typeof orig>) {
+          function fitText(ctx, text, maxW, maxPx, minPx, S, weight) {
+            let px = Math.round(maxPx * S);
+            const minScaled = Math.round(minPx * S);
+            while (px > minScaled) {
+              ctx.font = weight + " " + px + "px -apple-system, sans-serif";
+              if (ctx.measureText(text).width <= maxW) break;
+              px -= 1;
+            }
+            ctx.font = weight + " " + px + "px -apple-system, sans-serif";
+          }
+          HTMLCanvasElement.prototype.toDataURL = function (...args) {
             if (this.id === "c") {
               const t = frameIdx / fpsVal;
               frameIdx++;
               const ctx = this.getContext("2d");
               if (ctx) {
-                const W = this.width;
-                const H = this.height;
-                const S = W / 720;
-                const fitText = (text: string, maxW: number, maxPx: number, minPx: number, weight = 800) => {
-                  let px = Math.round(maxPx * S);
-                  const minScaled = Math.round(minPx * S);
-                  while (px > minScaled) {
-                    ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
-                    if (ctx.measureText(text).width <= maxW) break;
-                    px -= 1;
-                  }
-                  ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
-                };
+                const W = this.width, H = this.height, S = W / 720;
                 ctx.save();
                 ctx.textAlign = "center";
-                // İlk 3.5 sn: Safe-Zone içinde tahmin/yorum tetikleyici rozet
                 if (ctaText && t <= 3.5) {
                   const alpha = t < 0.3 ? t / 0.3 : t > 3.0 ? (3.5 - t) / 0.5 : 1;
                   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-                  const boxW = W * 0.82;
-                  const boxH = 52 * S;
-                  const bx = (W - boxW) * 0.5;
-                  const by = H * 0.168;
+                  const boxW = W * 0.82, boxH = 52 * S, bx = (W - boxW) * 0.5, by = H * 0.168;
                   ctx.fillStyle = "rgba(8, 15, 34, 0.88)";
-                  ctx.beginPath();
-                  ctx.roundRect(bx, by, boxW, boxH, 26 * S);
-                  ctx.fill();
-                  ctx.strokeStyle = "#38bdf8";
-                  ctx.lineWidth = 2.5 * S;
-                  ctx.stroke();
-                  fitText(ctaText, boxW - 32 * S, 22, 13, 800);
+                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 26 * S); ctx.fill();
+                  ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.5 * S; ctx.stroke();
+                  fitText(ctx, ctaText, boxW - 32 * S, 22, 13, S, 800);
                   ctx.fillStyle = "#e0f2fe";
                   ctx.fillText(ctaText, W * 0.5, by + 33 * S);
                 }
-                // Son 3.4 sn: Safe-Zone (sağ butonlar ve alt yazı alanından uzak) A/B oylama + abone ol kartı
                 if (pollText && t >= durVal - 3.4) {
                   const alpha = Math.min(1, (t - (durVal - 3.4)) / 0.35);
                   ctx.globalAlpha = Math.max(0, alpha);
-                  const boxW = W * 0.82;
-                  const boxH = 132 * S;
-                  const bx = (W - boxW) * 0.5;
-                  const by = H * 0.72;
+                  const boxW = W * 0.82, boxH = 132 * S, bx = (W - boxW) * 0.5, by = H * 0.72;
                   ctx.fillStyle = "rgba(5, 10, 24, 0.93)";
-                  ctx.beginPath();
-                  ctx.roundRect(bx, by, boxW, boxH, 22 * S);
-                  ctx.fill();
-                  ctx.strokeStyle = "#facc15";
-                  ctx.lineWidth = 3 * S;
-                  ctx.stroke();
-                  fitText("VOTE NEXT VIDEO IN COMMENTS", boxW - 28 * S, 20, 13, 900);
+                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 22 * S); ctx.fill();
+                  ctx.strokeStyle = "#facc15"; ctx.lineWidth = 3 * S; ctx.stroke();
+                  fitText(ctx, "VOTE NEXT VIDEO IN COMMENTS", boxW - 28 * S, 20, 13, S, 900);
                   ctx.fillStyle = "#fde047";
                   ctx.fillText("VOTE NEXT VIDEO IN COMMENTS", W * 0.5, by + 35 * S);
-                  fitText(pollText, boxW - 28 * S, 22, 13, 800);
+                  fitText(ctx, pollText, boxW - 28 * S, 22, 13, S, 800);
                   ctx.fillStyle = "#ffffff";
                   ctx.fillText(pollText, W * 0.5, by + 74 * S);
-                  fitText("SUBSCRIBE TO SEE THE WINNER", boxW - 28 * S, 17, 12, 800);
+                  fitText(ctx, "SUBSCRIBE TO SEE THE WINNER", boxW - 28 * S, 17, 12, S, 800);
                   ctx.fillStyle = "#38bdf8";
                   ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 110 * S);
                 }
@@ -152,9 +138,8 @@ async function main() {
             }
             return orig.apply(this, args);
           };
-        },
-        { fpsVal: fps, durVal: seconds, ctaText: introCta, pollText: pollLine },
-      );
+        })();`,
+      });
     }
 
     const totalFrames = Math.ceil(seconds * fps);
