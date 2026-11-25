@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import { synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
+import { synthesizeVoice } from "./voice.js";
 
 const require = createRequire(import.meta.url);
 const ffmpegPath: string = require("ffmpeg-static");
@@ -41,28 +42,6 @@ function runCmd(bin: string, args: string[]): Promise<void> {
     p.stderr.on("data", (d) => { err = (err + String(d)).slice(-800); });
     p.on("close", (c) => (c === 0 ? ok() : no(new Error(`${bin} exit ${c}: ${err}`))));
   });
-}
-
-async function synthesizeVoice(text: string, outFile: string): Promise<string> {
-  try {
-    const r = await fetch("https://haber.yukselmedya.com/api/v1/ses", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ metin: text, ses: "erkek", dil: "en" }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (r.ok) {
-      const buf = Buffer.from(await r.arrayBuffer());
-      if (buf.length > 400) {
-        await writeFile(outFile, buf);
-        return outFile;
-      }
-    }
-  } catch {}
-  // Yerel macOS İngilizce ses yedeği
-  const aiff = `${outFile}.aiff`;
-  await runCmd("say", ["-v", "Samantha", "-r", "195", "-o", aiff, text]);
-  return aiff;
 }
 
 async function main() {

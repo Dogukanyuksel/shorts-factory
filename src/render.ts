@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import { synthesizeEventsPcm, type SoundEvent } from "./audio.js";
+import { synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
+import { synthesizeVoice } from "./voice.js";
 
 const require = createRequire(import.meta.url);
 const ffmpegPath: string = require("ffmpeg-static");
@@ -43,6 +45,7 @@ async function main() {
   const width = Number(parseArg("width", "720")) || 720;
   const height = Number(parseArg("height", "1280")) || 1280;
   const hook = parseArg("hook", "CAN IT ESCAPE ALL 7 RINGS?");
+  const narration = parseArg("narration", "").trim();
 
   const scenePath = resolve("niches", niche, "scene.html");
   if (!existsSync(scenePath)) {
@@ -112,7 +115,36 @@ async function main() {
       () => (globalThis as unknown as { getEvents: () => SoundEvent[] }).getEvents(),
     );
     console.log(`[shorts-factory] ${events.length} ses olayı sentezleniyor...`);
-    const pcm = synthesizeEventsPcm(events, seconds, 48000);
+    const SAMPLE_RATE = 48000;
+    const pcm = synthesizeEventsPcm(events, seconds, SAMPLE_RATE);
+
+    if (narration) {
+      const voiceTmp = await mkdtemp(join(tmpdir(), `shorts-voice-${niche}-`));
+      try {
+        console.log("[shorts-factory] İngilizce sesli anlatım ekleniyor (YPP özgünlük katmanı)...");
+        const voiceIn = await synthesizeVoice(narration, join(voiceTmp, "narration.mp3"));
+        const voiceRaw = join(voiceTmp, "narration.raw");
+        await runFfmpeg(["-y", "-i", voiceIn, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", voiceRaw]);
+        const vBuf = await readFile(voiceRaw);
+        const vPcm = trimSilence(new Int16Array(vBuf.buffer, vBuf.byteOffset, Math.floor(vBuf.length / 2)), SAMPLE_RATE);
+        const startSample = Math.round(0.25 * SAMPLE_RATE);
+        const totalStereoFrames = Math.floor(pcm.length / 2);
+        for (let i = 0; i < vPcm.length && startSample + i < totalStereoFrames; i++) {
+          const idx = (startSample + i) * 2;
+          const v = vPcm[i] / 32768;
+          const sl = pcm[idx] / 32768;
+          const sr = pcm[idx + 1] / 32768;
+          // Anlatım sırasında SFX'i hafifçe kıs (ducking), ses net duyulsun
+          pcm[idx] = Math.round(Math.tanh(v * 0.92 + sl * 0.45) * 32000);
+          pcm[idx + 1] = Math.round(Math.tanh(v * 0.92 + sr * 0.45) * 32000);
+        }
+      } catch (err) {
+        console.warn(`[shorts-factory] Sesli anlatım üretilemedi, sadece SFX ile devam ediliyor: ${String(err)}`);
+      } finally {
+        await rm(voiceTmp, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+
     await writeFile(pcmPath, Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength));
 
     console.log("[shorts-factory] 1080×1920 60fps MP4 birleştiriliyor...");

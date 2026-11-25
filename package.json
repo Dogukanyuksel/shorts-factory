@@ -7,6 +7,9 @@
     "render": "tsx src/render.ts",
     "explainer": "tsx src/render-explainer.ts",
     "batch": "tsx src/render-batch.ts",
+    "youtube:auth": "tsx src/youtube-auth.ts",
+    "publish:physics": "tsx src/auto-publish.ts --channel physics",
+    "publish:explainer": "tsx src/auto-publish.ts --channel explainer",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

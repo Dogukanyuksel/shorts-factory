@@ -1,0 +1,90 @@
+name: Auto-Publish How-It-Works Shorts (2x Daily US Prime Time)
+
+on:
+  schedule:
+    # ABD Doğu Yakası (ET) sabah 09:30-10:30 ve akşam 18:30-19:30 (UTC 14:30 & 23:30)
+    - cron: "30 14,23 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Sadece render al, YouTube'a yükleme (test)"
+        type: boolean
+        default: false
+      privacy:
+        description: "Video gizlilik durumu"
+        type: choice
+        default: public
+        options:
+          - public
+          - unlisted
+          - private
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-publish-explainer
+  cancel-in-progress: false
+
+jobs:
+  publish-explainer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Repo indir
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret kontrolü
+        id: check_secrets
+        env:
+          HAS_ID: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}
+          HAS_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' }}
+          HAS_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_EXPLAINER != '' }}
+          IS_DRY: ${{ inputs.dry_run == true }}
+        run: |
+          if [ "$IS_DRY" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_ID" = "true" ] && [ "$HAS_SECRET" = "true" ] && [ "$HAS_TOKEN" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::YouTube Explainer secret'ları henüz tanımlanmadığı için bu çalışma atlandı. Kurulum: docs/CHANNEL_SETUP_GUIDE.md"
+          fi
+
+      - name: Node.js 22 kur
+        if: steps.check_secrets.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bağımlılıklar + Chromium + espeak-ng
+        if: steps.check_secrets.outputs.ready == 'true'
+        run: |
+          npm ci
+          sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+          npx playwright-core install chromium --with-deps
+
+      - name: Render al ve YouTube'a yükle
+        if: steps.check_secrets.outputs.ready == 'true'
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_EXPLAINER }}
+          YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+        run: npm run publish:explainer
+
+      - name: Yayın durumunu (state/published.json) kaydet
+        if: steps.check_secrets.outputs.ready == 'true' && inputs.dry_run != true
+        run: |
+          if ! git diff --quiet state/published.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state/published.json
+            git commit -m "chore(publish): explainer short yayinlandi"
+            git pull --rebase origin main
+            git push origin main
+          fi
