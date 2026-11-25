@@ -1,13 +1,13 @@
-name: Publish Watchdog (Video Saatleri Hata Kontrolü)
+name: Publish Watchdog (7/24 Bulut Hata & Gecikme Kontrolü)
 
 on:
   schedule:
-    # Video saatlerinden ~18 dk sonra kontrol et (Physics :07 -> :25, Explainer :37 -> :55)
+    # Video saatlerinden ~18 dk sonra bulutta kontrol et (Physics :07 -> :25, Explainer :37 -> :55)
     - cron: "25,55 11,17,23 * * *"
   workflow_dispatch:
 
 permissions:
-  actions: read
+  actions: write
   contents: read
 
 concurrency:
@@ -15,38 +15,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-recent-runs:
+  check-and-heal:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Son Physics ve Explainer çalışmalarını denetle
+      - name: Son Physics ve Explainer yayınlarını bulutta denetle (gerekirse 1x oto-yenile)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
         run: |
-          FAILED_LINES=""
-          for WF in auto-publish-physics.yml auto-publish-explainer.yml; do
-            ROW=$(gh run list -R "$REPO" --workflow="$WF" --limit 1 --json databaseId,conclusion,status,url,createdAt --jq '.[0] | "\(.status)|\(.conclusion)|\(.createdAt)|\(.url)"')
-            STATUS=$(echo "$ROW" | cut -d'|' -f1)
-            CONC=$(echo "$ROW" | cut -d'|' -f2)
-            CREATED=$(echo "$ROW" | cut -d'|' -f3)
-            URL=$(echo "$ROW" | cut -d'|' -f4)
-            echo "[watchdog] $WF -> status=$STATUS conclusion=$CONC created=$CREATED"
+          NOW_EPOCH=$(date -u +%s)
+          NOW_MIN=$(date -u +%M)
+          ALERTS=""
+
+          # :25'te Physics, :55'te Explainer, manuel çalışmada ikisini de denetle
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET_WFS="auto-publish-physics.yml auto-publish-explainer.yml"
+          elif [ "$NOW_MIN" -lt 40 ]; then
+            TARGET_WFS="auto-publish-physics.yml"
+          else
+            TARGET_WFS="auto-publish-explainer.yml"
+          fi
+
+          for WF in $TARGET_WFS; do
+            ROW=$(gh run list -R "$REPO" --workflow="$WF" --limit 1 --json databaseId,conclusion,status,url,createdAt,event --jq '.[0] | "\(.databaseId)|\(.status)|\(.conclusion)|\(.createdAt)|\(.url)|\(.event)"')
+            RUN_ID=$(echo "$ROW" | cut -d'|' -f1)
+            STATUS=$(echo "$ROW" | cut -d'|' -f2)
+            CONC=$(echo "$ROW" | cut -d'|' -f3)
+            CREATED=$(echo "$ROW" | cut -d'|' -f4)
+            URL=$(echo "$ROW" | cut -d'|' -f5)
+            EVENT=$(echo "$ROW" | cut -d'|' -f6)
+
+            CREATED_EPOCH=$(date -u -d "$CREATED" +%s 2>/dev/null || echo 0)
+            AGE_MIN=$(( (NOW_EPOCH - CREATED_EPOCH) / 60 ))
+            echo "[watchdog] $WF -> status=$STATUS conclusion=$CONC age=${AGE_MIN}m event=$EVENT"
+
+            # 1) Hata durumu (tamamlandı ama success/skipped değil)
             if [ "$STATUS" = "completed" ] && [ "$CONC" != "success" ] && [ "$CONC" != "skipped" ]; then
-              FAILED_LINES="${FAILED_LINES}\n• <b>${WF}</b> (${CONC}) — ${URL}"
+              ALERTS="${ALERTS}\n• ❌ <b>${WF}</b> başarısız oldu (${CONC}) — ${URL}"
+              # Son 60 dk içindeyse ve zaten manuel retry değilse 1 kez otomatik yeniden dene
+              if [ "$AGE_MIN" -le 60 ] && [ "$EVENT" != "workflow_dispatch" ]; then
+                gh workflow run "$WF" -R "$REPO" --ref main && \
+                  ALERTS="${ALERTS}\n  ↻ Bulut watchdog 1 kez otomatik yeniden başlattı." || true
+              fi
+            # 2) Cron tamamen atlandıysa (son 50 dk içinde hiç koşmadıysa)
+            elif [ "$AGE_MIN" -gt 50 ] && [ "${{ github.event_name }}" = "schedule" ]; then
+              ALERTS="${ALERTS}\n• ⏰ <b>${WF}</b> son ${AGE_MIN} dk'dır tetiklenmedi (GitHub cron atladı)."
+              gh workflow run "$WF" -R "$REPO" --ref main && \
+                ALERTS="${ALERTS}\n  ↻ Bulut watchdog şimdi otomatik tetikledi." || true
             fi
           done
 
-          if [ -n "$FAILED_LINES" ]; then
-            echo "::warning::Başarısız yayın tespit edildi!"
+          if [ -n "$ALERTS" ]; then
+            echo "::warning::Watchdog müdahale etti!"
             if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-              MSG="🚨 <b>Shorts Factory Watchdog Uyarısı</b>\nSon video saatinde hata tespit edildi:${FAILED_LINES}"
+              MSG="🛡️ <b>Shorts Factory Bulut Watchdog</b>${ALERTS}"
               curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                 -H "Content-Type: application/json" \
                 -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$MSG" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" || true
             fi
           else
-            echo "✅ [watchdog] Tüm son yayınlar sağlıklı."
+            echo "✅ [watchdog] Tüm yayınlar bulutta sağlıklı."
           fi
