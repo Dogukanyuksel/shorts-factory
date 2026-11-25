@@ -1,25 +1,24 @@
 <!doctype html>
-<!-- Simülasyon #2: Growing Ball (Her sekmede büyüyen ve hızlanan top) -->
+<!-- Simülasyon #2: Growing Ball — 32 sn kesin %100 dolma ve patlama finali! -->
 <meta charset="utf-8">
 <style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script>
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-let W = 720, H = 1280, FPS = 60, HOOK = 'IT GROWS EVERY BOUNCE!';
-let ball, trail = [], sparks = [], events = [], simTime = 0, bounces = 0, rng = 1, arenaR = 290, hue = 190, shake = 0;
-
+let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = 'IT GROWS EVERY BOUNCE!';
+let ball, trail = [], sparks = [], events = [], simTime = 0, bounces = 0, rng = 1, arenaR = 295, hue = 190, shake = 0, finished = false;
 const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
 
 window.init = (cfg) => {
-  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60;
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 32;
   HOOK = cfg.hook || 'IT GROWS EVERY BOUNCE!';
   cv.width = W; cv.height = H;
   rng = (cfg.seed || 1) * 48271 + 9;
   const S = W / 720;
   arenaR = 295 * S;
-  ball = { x: W * 0.5 - 35 * S, y: H * 0.50 - 40 * S, vx: 310 * S, vy: -190 * S, r: 16 * S };
-  trail = []; sparks = []; events = []; simTime = 0; bounces = 0; hue = 190; shake = 0;
+  ball = { x: W * 0.5 - 35 * S, y: H * 0.50 - 40 * S, vx: 340 * S, vy: -220 * S, r: 16 * S };
+  trail = []; sparks = []; events = []; simTime = 0; bounces = 0; hue = 190; shake = 0; finished = false;
 };
 
 function step(dt) {
@@ -27,7 +26,7 @@ function step(dt) {
   const sub = 4, sdt = dt / sub;
   for (let s = 0; s < sub; s++) {
     simTime += sdt;
-    if (ball.r >= arenaR - 4 * S) continue;
+    if (finished) continue;
     ball.vy += 880 * S * sdt;
     ball.x += ball.vx * sdt;
     ball.y += ball.vy * sdt;
@@ -38,25 +37,36 @@ function step(dt) {
       ball.y = cy + ny * (arenaR - ball.r - 0.5);
       const dot = ball.vx * nx + ball.vy * ny;
       if (dot > 0) {
-        ball.vx = (ball.vx - 2 * dot * nx) * 1.02;
-        ball.vy = (ball.vy - 2 * dot * ny) * 1.02;
+        ball.vx = (ball.vx - 2 * dot * nx) * 1.022;
+        ball.vy = (ball.vy - 2 * dot * ny) * 1.022;
         const spd = Math.hypot(ball.vx, ball.vy);
-        if (spd > 1150 * S) { ball.vx = (ball.vx / spd) * 1150 * S; ball.vy = (ball.vy / spd) * 1150 * S; }
-        ball.r = Math.min(arenaR - 3 * S, ball.r + 5.8 * S);
-        bounces++;
-        hue = (hue + 14) % 360;
-        shake = 6 * S;
+        if (spd > 1250 * S) { ball.vx = (ball.vx / spd) * 1250 * S; ball.vy = (ball.vy / spd) * 1250 * S; }
+        // Kalan süreye göre büyüme hızı ayarlanır — 28.5 sn civarı kesin %100!
+        const minTargetR = 16 * S + (arenaR - 18 * S) * Math.min(1, simTime / (DUR - 3.2));
+        ball.r = Math.min(arenaR - 2 * S, Math.max(ball.r + 3.2 * S, minTargetR));
+        bounces++; hue = (hue + 11) % 360; shake = 6 * S;
         const col = `hsl(${hue}, 95%, 60%)`;
-        for (let k = 0; k < 12; k++) {
-          const a = rand() * Math.PI * 2, sp = 120 + rand() * 320;
-          sparks.push({ x: ball.x + nx * ball.r, y: ball.y + ny * ball.r, vx: Math.cos(a) * sp * S, vy: Math.sin(a) * sp * S, life: 0.45, col });
+        for (let k = 0; k < 10; k++) {
+          const a = rand() * Math.PI * 2, sp = (120 + rand() * 320) * S;
+          sparks.push({ x: ball.x + nx * ball.r, y: ball.y + ny * ball.r, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.5, col });
         }
-        events.push({ t: simTime, type: ball.r >= arenaR - 6 * S ? 'win' : 'bounce', pitchIndex: bounces, intensity: 0.85 });
+        if (ball.r >= arenaR - 6 * S || simTime >= DUR - 3.0) {
+          ball.r = arenaR; ball.x = cx; ball.y = cy; finished = true; shake = 18 * S;
+          for (let k = 0; k < 60; k++) {
+            const a = rand() * Math.PI * 2, sp = (180 + rand() * 480) * S;
+            sparks.push({ x: cx + Math.cos(a) * arenaR, y: cy + Math.sin(a) * arenaR, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.9, col: '#facc15' });
+          }
+          events.push({ t: simTime, type: 'win', pitchIndex: 12, intensity: 1.0 });
+        } else {
+          events.push({ t: simTime, type: 'bounce', pitchIndex: bounces, intensity: 0.8 });
+        }
       }
     }
   }
-  trail.push({ x: ball.x, y: ball.y, r: ball.r, col: `hsl(${hue},95%,60%)` });
-  if (trail.length > 22) trail.shift();
+  if (!finished) {
+    trail.push({ x: ball.x, y: ball.y, r: ball.r, col: `hsl(${hue},95%,60%)` });
+    if (trail.length > 20) trail.shift();
+  }
   for (let i = sparks.length - 1; i >= 0; i--) {
     const p = sparks[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
     if (p.life <= 0) sparks.splice(i, 1);
@@ -66,45 +76,43 @@ function step(dt) {
 
 function draw() {
   const S = W / 720, cx = W * 0.5, cy = H * 0.53;
-  const col = `hsl(${hue}, 95%, 60%)`;
+  const col = finished ? '#facc15' : `hsl(${hue}, 95%, 60%)`;
   ctx.fillStyle = '#050712'; ctx.fillRect(0, 0, W, H);
   ctx.save();
   if (shake > 0.3) ctx.translate((rand() - 0.5) * shake, (rand() - 0.5) * shake);
-
-  // Arena çemberi
-  ctx.strokeStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 22 * S; ctx.lineWidth = 10 * S;
+  ctx.strokeStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 24 * S; ctx.lineWidth = 10 * S;
   ctx.beginPath(); ctx.arc(cx, cy, arenaR, 0, Math.PI * 2); ctx.stroke();
   ctx.shadowBlur = 0;
-
-  // İz
   for (let i = 0; i < trail.length; i++) {
     const tr = trail[i];
     ctx.strokeStyle = tr.col; ctx.globalAlpha = (i / trail.length) * 0.35; ctx.lineWidth = 3 * S;
     ctx.beginPath(); ctx.arc(tr.x, tr.y, tr.r, 0, Math.PI * 2); ctx.stroke();
   }
   ctx.globalAlpha = 1;
-
-  // Kıvılcımlar
   for (const p of sparks) {
-    ctx.fillStyle = p.col; ctx.globalAlpha = Math.max(0, p.life / 0.45);
-    ctx.beginPath(); ctx.arc(p.x, p.y, 4.5 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = p.col; ctx.globalAlpha = Math.max(0, p.life / 0.8);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 5.5 * S, 0, Math.PI * 2); ctx.fill();
   }
   ctx.globalAlpha = 1;
-
-  // Büyüyen Neon Top
   const bg = ctx.createRadialGradient(ball.x - ball.r * 0.25, ball.y - ball.r * 0.25, ball.r * 0.1, ball.x, ball.y, ball.r);
-  bg.addColorStop(0, '#ffffff'); bg.addColorStop(0.55, col); bg.addColorStop(1, `hsl(${(hue + 35) % 360}, 90%, 40%)`);
+  bg.addColorStop(0, '#ffffff'); bg.addColorStop(0.55, col); bg.addColorStop(1, finished ? '#ea580c' : `hsl(${(hue + 35) % 360}, 90%, 40%)`);
   ctx.fillStyle = bg; ctx.shadowColor = col; ctx.shadowBlur = 24 * S;
   ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
   ctx.shadowBlur = 0;
   ctx.restore();
 
-  // Üst başlık + Sayaç
   ctx.save(); ctx.textAlign = 'center';
   ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
   ctx.fillText(HOOK, W * 0.5, H * 0.145);
   ctx.font = `800 ${Math.round(28 * S)}px -apple-system, sans-serif`; ctx.fillStyle = col;
   ctx.fillText(`BOUNCES: ${bounces}  ·  SIZE: ${Math.round((ball.r / arenaR) * 100)}%`, W * 0.5, H * 0.195);
+  if (finished) {
+    ctx.fillStyle = 'rgba(2,6,18,0.82)';
+    ctx.beginPath(); ctx.roundRect(W * 0.12, H * 0.45, W * 0.76, 124 * S, 26 * S); ctx.fill();
+    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 5 * S; ctx.stroke();
+    ctx.font = `900 ${Math.round(52 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#fde047';
+    ctx.fillText('100% FULL! 💥', W * 0.5, H * 0.512);
+  }
   ctx.restore();
 }
 

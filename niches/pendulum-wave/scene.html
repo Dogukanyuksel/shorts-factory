@@ -1,61 +1,61 @@
 <!doctype html>
-<!-- Simülasyon #6: Hypnotic 15-Pendulum Harmonic Wave -->
+<!-- Simülasyon #6: Hypnotic 15-Pendulum Wave — Tam 30 sn'de mükemmel hizalanma finali! -->
 <meta charset="utf-8">
 <style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script>
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-let W = 720, H = 1280, FPS = 60, HOOK = 'WAIT FOR THE ALIGNMENT...';
+let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = 'WAIT FOR THE ALIGNMENT...';
 const COUNT = 15;
-let prevSign = [], events = [], simTime = 0;
+let prevSign = [], events = [], alignedTriggered = false;
 
 window.init = (cfg) => {
-  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60;
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 32;
   HOOK = cfg.hook || 'WAIT FOR THE ALIGNMENT...';
   cv.width = W; cv.height = H;
   prevSign = Array(COUNT).fill(1);
-  events = []; simTime = 0;
+  events = []; alignedTriggered = false;
 };
 
 function drawFrame(t) {
   const S = W / 720, cx = W * 0.5, pivotY = H * 0.21;
+  const cycleSec = DUR - 2.2; // 29.8 saniyede tüm 15 sarkaç TEK ÇİZGİDE tam hizalanır!
+  const tEff = Math.min(t, cycleSec);
+  const aligned = t >= cycleSec - 0.15;
+  if (aligned && !alignedTriggered) {
+    alignedTriggered = true;
+    events.push({ t, type: 'win', pitchIndex: 11, intensity: 1.0 });
+  }
+
   ctx.fillStyle = '#050712'; ctx.fillRect(0, 0, W, H);
-  // Merkez çizgisi
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2 * S;
+  ctx.strokeStyle = aligned ? 'rgba(250,204,21,0.55)' : 'rgba(255,255,255,0.12)'; ctx.lineWidth = (aligned ? 4 : 2) * S;
   ctx.beginPath(); ctx.moveTo(cx, pivotY); ctx.lineTo(cx, H * 0.86); ctx.stroke();
 
   const pts = [];
   for (let i = 0; i < COUNT; i++) {
-    // Harmonik frekans merdiveni (her 16 sn'de tam hizalanma!)
-    const freq = (12 + i) * ((Math.PI * 2) / 32);
-    const angle = Math.cos(t * freq) * 0.68;
+    const freq = (12 + i) * ((Math.PI * 2) / cycleSec);
+    const angle = Math.cos(tEff * freq) * 0.68;
     const sign = angle >= 0 ? 1 : -1;
-    if (t > 0.05 && sign !== prevSign[i]) {
+    if (!aligned && t > 0.05 && sign !== prevSign[i]) {
       prevSign[i] = sign;
-      events.push({ t, type: 'bounce', pitchIndex: i, intensity: 0.42 });
+      events.push({ t, type: 'bounce', pitchIndex: i, intensity: 0.38 });
     }
     const len = (170 + i * 44) * S;
-    const bx = cx + Math.sin(angle) * len;
-    const by = pivotY + Math.cos(angle) * len;
-    const hue = (i / COUNT) * 280 + 170;
-    const col = `hsl(${hue % 360}, 95%, 62%)`;
+    const bx = cx + Math.sin(angle) * len, by = pivotY + Math.cos(angle) * len;
+    const col = aligned ? '#facc15' : `hsl(${((i / COUNT) * 280 + 170) % 360}, 95%, 62%)`;
     pts.push({ x: bx, y: by, col });
-
     ctx.strokeStyle = 'rgba(148,163,184,0.22)'; ctx.lineWidth = 2 * S;
     ctx.beginPath(); ctx.moveTo(cx, pivotY); ctx.lineTo(bx, by); ctx.stroke();
   }
 
-  // Sarkaçları bağlayan neon dalga çizgisi
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 3 * S;
+  ctx.strokeStyle = aligned ? '#fde047' : 'rgba(255,255,255,0.45)'; ctx.lineWidth = (aligned ? 5 : 3) * S;
   ctx.beginPath();
   pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
   ctx.stroke();
 
-  // Parlayan sarkaç topları
   for (const p of pts) {
-    ctx.save();
-    ctx.fillStyle = p.col; ctx.shadowColor = p.col; ctx.shadowBlur = 18 * S;
+    ctx.save(); ctx.fillStyle = p.col; ctx.shadowColor = p.col; ctx.shadowBlur = 18 * S;
     ctx.beginPath(); ctx.arc(p.x, p.y, 15 * S, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(p.x - 4 * S, p.y - 4 * S, 4 * S, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
@@ -64,15 +64,19 @@ function drawFrame(t) {
   ctx.save(); ctx.textAlign = 'center';
   ctx.font = `900 ${Math.round(40 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
   ctx.fillText(HOOK, W * 0.5, H * 0.13);
+  if (aligned) {
+    ctx.fillStyle = 'rgba(2,6,18,0.84)';
+    ctx.beginPath(); ctx.roundRect(W * 0.08, H * 0.45, W * 0.84, 120 * S, 26 * S); ctx.fill();
+    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 5 * S; ctx.stroke();
+    ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#fde047';
+    ctx.fillText('PERFECT ALIGNMENT! ✨', W * 0.5, H * 0.512);
+  }
   ctx.restore();
 }
 
 window.renderBatch = (startFrame, count) => {
   const out = [];
-  for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
-    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
-  }
+  for (let i = 0; i < count; i++) { drawFrame((startFrame + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
   return out;
 };
 window.getEvents = () => events;

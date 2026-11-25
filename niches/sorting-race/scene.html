@@ -1,14 +1,14 @@
 <!doctype html>
-<!-- Simülasyon #4: Algorithm Sorting Race (QuickSort vs SelectionSort vs BubbleSort) -->
+<!-- Simülasyon #4: Algorithm Sorting Race — 32 sn kesin podyum bitişi! -->
 <meta charset="utf-8">
 <style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script>
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-let W = 720, H = 1280, FPS = 60, HOOK = 'WHICH ALGORITHM WINS?';
-let lanes = [], events = [], simTime = 0, rng = 1;
-const N = 36;
+let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = 'WHICH ALGORITHM WINS?';
+let lanes = [], events = [], simTime = 0, rng = 1, allDone = false;
+const N = 42;
 const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
 
 function recordQuick(a) {
@@ -16,22 +16,17 @@ function recordQuick(a) {
   function qs(l, r) {
     if (l >= r) return;
     let p = arr[r], i = l;
-    for (let j = l; j < r; j++) {
-      if (arr[j] < p) { [arr[i], arr[j]] = [arr[j], arr[i]]; steps.push({ arr: [...arr], hi: i }); i++; }
-    }
+    for (let j = l; j < r; j++) if (arr[j] < p) { [arr[i], arr[j]] = [arr[j], arr[i]]; steps.push({ arr: [...arr], hi: i }); i++; }
     [arr[i], arr[r]] = [arr[r], arr[i]]; steps.push({ arr: [...arr], hi: i });
     qs(l, i - 1); qs(i + 1, r);
   }
-  qs(0, arr.length - 1);
-  return steps;
+  qs(0, arr.length - 1); return steps;
 }
 function recordSelection(a) {
   const steps = [], arr = [...a];
   for (let i = 0; i < arr.length; i++) {
-    let m = i;
-    for (let j = i + 1; j < arr.length; j++) if (arr[j] < arr[m]) m = j;
-    [arr[i], arr[m]] = [arr[m], arr[i]];
-    steps.push({ arr: [...arr], hi: i });
+    let m = i; for (let j = i + 1; j < arr.length; j++) if (arr[j] < arr[m]) m = j;
+    [arr[i], arr[m]] = [arr[m], arr[i]]; steps.push({ arr: [...arr], hi: i });
   }
   return steps;
 }
@@ -46,22 +41,25 @@ function recordBubble(a) {
 }
 
 window.init = (cfg) => {
-  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60;
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 32;
   HOOK = cfg.hook || 'WHICH ALGORITHM WINS?';
   cv.width = W; cv.height = H;
   rng = (cfg.seed || 1) * 19381 + 5;
   const base = Array.from({ length: N }, (_, i) => i + 1);
   for (let i = N - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [base[i], base[j]] = [base[j], base[i]]; }
+  const qS = recordQuick(base), sS = recordSelection(base), bS = recordBubble(base);
+  // 32 saniyeye tam yayılan gerçekçi bitiş süreleri (Quick 11s, Selection 21s, Bubble 29s)
   lanes = [
-    { name: 'QUICKSORT · O(n log n)', steps: recordQuick(base), idx: 0, rate: 0.45, done: false, col: '#4ade80' },
-    { name: 'SELECTION SORT · O(n²)', steps: recordSelection(base), idx: 0, rate: 0.14, done: false, col: '#38bdf8' },
-    { name: 'BUBBLE SORT · O(n²)', steps: recordBubble(base), idx: 0, rate: 0.65, done: false, col: '#fb7185' },
+    { name: 'QUICKSORT · O(n log n)', steps: qS, idx: 0, rate: qS.length / (11 * FPS), done: false, rank: 0, col: '#4ade80' },
+    { name: 'SELECTION SORT · O(n²)', steps: sS, idx: 0, rate: sS.length / (21 * FPS), done: false, rank: 0, col: '#38bdf8' },
+    { name: 'BUBBLE SORT · O(n²)', steps: bS, idx: 0, rate: bS.length / ((DUR - 3.2) * FPS), done: false, rank: 0, col: '#fb7185' },
   ];
-  events = []; simTime = 0;
+  events = []; simTime = 0; allDone = false;
 };
 
 function step(dt) {
   simTime += dt;
+  let finishedCount = lanes.filter((l) => l.done).length;
   for (const ln of lanes) {
     if (ln.done) continue;
     const prev = Math.floor(ln.idx);
@@ -69,13 +67,14 @@ function step(dt) {
     const cur = Math.floor(ln.idx);
     if (cur !== prev && cur % 2 === 0) {
       const hi = ln.steps[cur].hi;
-      events.push({ t: simTime, type: 'bounce', pitchIndex: Math.floor((hi / N) * 14), intensity: 0.48 });
+      events.push({ t: simTime, type: 'bounce', pitchIndex: Math.floor((hi / N) * 14), intensity: 0.45 });
     }
     if (cur >= ln.steps.length - 1 && !ln.done) {
-      ln.done = true;
-      events.push({ t: simTime, type: 'win', pitchIndex: 10, intensity: 0.9 });
+      ln.done = true; finishedCount++; ln.rank = finishedCount;
+      events.push({ t: simTime, type: finishedCount === 3 ? 'win' : 'break', pitchIndex: 6 + finishedCount * 2, intensity: 0.9 });
     }
   }
+  if (finishedCount === 3) allDone = true;
 }
 
 function draw() {
@@ -83,28 +82,35 @@ function draw() {
   ctx.fillStyle = '#050712'; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';
   ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
-  ctx.fillText(HOOK, W * 0.5, H * 0.12);
+  ctx.fillText(HOOK, W * 0.5, H * 0.11);
 
   lanes.forEach((ln, idx) => {
-    const x0 = 56 * S, y0 = (210 + idx * 320) * S, bw = W - 112 * S, bh = 230 * S;
+    const x0 = 56 * S, y0 = (205 + idx * 315) * S, bw = W - 112 * S, bh = 225 * S;
     ctx.fillStyle = 'rgba(15,23,42,0.75)'; ctx.strokeStyle = ln.done ? '#4ade80' : 'rgba(148,163,184,0.28)';
     ctx.lineWidth = 3 * S;
     ctx.beginPath(); ctx.roundRect(x0 - 14 * S, y0 - 48 * S, bw + 28 * S, bh + 66 * S, 20 * S); ctx.fill(); ctx.stroke();
 
     ctx.textAlign = 'left'; ctx.font = `800 ${Math.round(23 * S)}px -apple-system, sans-serif`;
     ctx.fillStyle = ln.done ? '#4ade80' : ln.col;
-    ctx.fillText(ln.done ? `${ln.name}  ✓ DONE!` : ln.name, x0, y0 - 16 * S);
+    const badge = ln.rank === 1 ? '  🏆 1ST PLACE!' : ln.rank === 2 ? '  🥈 2ND' : ln.rank === 3 ? '  🥉 3RD' : '';
+    ctx.fillText(ln.name + badge, x0, y0 - 16 * S);
 
     const st = ln.steps[Math.floor(ln.idx)] || ln.steps[0];
     const barW = bw / N;
     for (let i = 0; i < N; i++) {
-      const val = st.arr[i];
-      const h = (val / N) * bh;
-      const hue = (val / N) * 280;
-      ctx.fillStyle = i === st.hi && !ln.done ? '#ffffff' : `hsl(${hue}, 90%, 58%)`;
+      const val = st.arr[i], h = (val / N) * bh;
+      ctx.fillStyle = i === st.hi && !ln.done ? '#ffffff' : `hsl(${(val / N) * 280}, 90%, 58%)`;
       ctx.fillRect(x0 + i * barW + 1, y0 + bh - h, barW - 2, h);
     }
   });
+
+  if (allDone) {
+    ctx.fillStyle = 'rgba(2,6,18,0.86)';
+    ctx.beginPath(); ctx.roundRect(W * 0.10, H * 0.44, W * 0.80, 124 * S, 26 * S); ctx.fill();
+    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 5 * S; ctx.stroke();
+    ctx.textAlign = 'center'; ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#4ade80';
+    ctx.fillText('QUICKSORT WINS! 🏆', W * 0.5, H * 0.505);
+  }
 }
 
 window.renderBatch = (_s, c) => {

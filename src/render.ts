@@ -38,7 +38,7 @@ function runFfmpeg(args: string[]): Promise<void> {
 async function main() {
   const niche = parseArg("niche", "physics-ring");
   const seed = Number(parseArg("seed", "1")) || 1;
-  const seconds = Math.max(5, Math.min(60, Number(parseArg("seconds", "18")) || 18));
+  const seconds = Math.max(5, Math.min(60, Number(parseArg("seconds", "32")) || 32));
   const fps = Math.max(30, Math.min(60, Number(parseArg("fps", "60")) || 60));
   const width = Number(parseArg("width", "720")) || 720;
   const height = Number(parseArg("height", "1280")) || 1280;
@@ -87,7 +87,7 @@ async function main() {
       ff.on("close", (c) => (c === 0 ? ok() : no(new Error(`ffmpeg pipe ${c}: ${ffErr}`)))),
     );
 
-    const previewFrame = Math.floor(totalFrames * 0.35);
+    const previewFrame = Math.floor(totalFrames * 0.94);
     const batch = 30;
     const t0 = Date.now();
     for (let f = 0; f < totalFrames; f += batch) {

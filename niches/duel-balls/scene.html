@@ -1,42 +1,59 @@
 <!doctype html>
-<!-- Simülasyon #3: 2-Ball Territory Battle (Cyan vs Magenta karo savaşı) -->
+<!-- Simülasyon #3: 2-Ball Territory Battle — 32 sn kesin kazananlı final! -->
 <meta charset="utf-8">
 <style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script>
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-let W = 720, H = 1280, FPS = 60, HOOK = 'CYAN VS PINK · WHO WINS?';
-const COLS = 12, ROWS = 14;
-let grid = [], balls = [], events = [], simTime = 0, hits = 0, rng = 1;
-let bx, by, cell;
+let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = 'CYAN VS PINK · WHO WINS?';
+const COLS = 10, ROWS = 12;
+let grid = [], balls = [], sparks = [], events = [], simTime = 0, hits = 0, rng = 1, winner = null;
+let bx, by, cell, favoredTeam = 0;
 
 const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
 
 window.init = (cfg) => {
   W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 32;
   HOOK = cfg.hook || 'CYAN VS PINK · WHO WINS?';
   cv.width = W; cv.height = H;
   rng = (cfg.seed || 1) * 65537 + 3;
+  favoredTeam = (cfg.seed || 1) % 2 === 1 ? 0 : 1; // Tohum tekse Cyan, çiftse Pink avantajlı final!
   const S = W / 720;
-  cell = Math.floor(48 * S);
+  cell = Math.floor(56 * S);
   bx = (W - COLS * cell) / 2;
   by = H * 0.25;
-  grid = Array.from({ length: ROWS }, (_, r) => Array.from({ length: COLS }, (_, c) => (c < COLS / 2 ? 0 : 1)));
+  grid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, (_, c) => (c < COLS / 2 ? 0 : 1)));
   balls = [
-    { team: 0, x: bx + cell * 2.5, y: by + cell * (4 + rand() * 5), vx: (340 + rand() * 90) * S, vy: (290 + rand() * 80) * S, r: 15 * S, col: '#0ea5e9', ballCol: '#f43f5e' },
-    { team: 1, x: bx + cell * (COLS - 2.5), y: by + cell * (4 + rand() * 5), vx: -(340 + rand() * 90) * S, vy: -(290 + rand() * 80) * S, r: 15 * S, col: '#ec4899', ballCol: '#38bdf8' },
+    { team: 0, x: bx + cell * 2.5, y: by + cell * (3 + rand() * 5), vx: (390 + rand() * 70) * S, vy: (330 + rand() * 60) * S, r: 16 * S, col: '#38bdf8' },
+    { team: 1, x: bx + cell * (COLS - 2.5), y: by + cell * (3 + rand() * 5), vx: -(390 + rand() * 70) * S, vy: -(330 + rand() * 60) * S, r: 16 * S, col: '#f472b6' },
   ];
-  events = []; simTime = 0; hits = 0;
+  sparks = []; events = []; simTime = 0; hits = 0; winner = null;
 };
 
+function burst(x, y, col, n = 16) {
+  const S = W / 720;
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2, sp = (140 + rand() * 340) * S;
+    sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.7, col });
+  }
+}
+
 function step(dt) {
-  const sub = 3, sdt = dt / sub;
+  const S = W / 720;
+  const sub = 4, sdt = dt / sub;
   const maxW = COLS * cell, maxH = ROWS * cell;
+  const finale = simTime > DUR - 10; // Son 10 sn'de tempo artar ve bir taraf kesin domine eder!
+
   for (let s = 0; s < sub; s++) {
     simTime += sdt;
+    if (winner) continue;
+
     for (const b of balls) {
-      b.x += b.vx * sdt; b.y += b.vy * sdt;
+      const boost = finale ? (b.team === favoredTeam ? 1.48 : 0.76) : 1.0 + (simTime / DUR) * 0.25;
+      b.x += b.vx * boost * sdt;
+      b.y += b.vy * boost * sdt;
       if (b.x - b.r < bx) { b.x = bx + b.r; b.vx = Math.abs(b.vx); }
       if (b.x + b.r > bx + maxW) { b.x = bx + maxW - b.r; b.vx = -Math.abs(b.vx); }
       if (b.y - b.r < by) { b.y = by + b.r; b.vy = Math.abs(b.vy); }
@@ -44,15 +61,39 @@ function step(dt) {
 
       const c = Math.max(0, Math.min(COLS - 1, Math.floor((b.x - bx) / cell)));
       const r = Math.max(0, Math.min(ROWS - 1, Math.floor((b.y - by) / cell)));
-      // Rakip karoya çarpınca fethet ve sek!
       if (grid[r][c] !== b.team) {
         grid[r][c] = b.team;
+        // Final hamlesinde kazanan top komşu 1 karoyu da sıçramayla ele geçirir (kesin 100% zafer!)
+        if (finale && b.team === favoredTeam) {
+          for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nr = r + dr, nc = c + dc;
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] !== b.team) {
+              grid[nr][nc] = b.team; break;
+            }
+          }
+        }
         const cx = bx + (c + 0.5) * cell, cy = by + (r + 0.5) * cell;
         if (Math.abs(b.x - cx) > Math.abs(b.y - cy)) b.vx *= -1; else b.vy *= -1;
         hits++;
-        events.push({ t: simTime, type: 'bounce', pitchIndex: b.team === 0 ? (hits % 7) : (7 + (hits % 7)), intensity: 0.68 });
+        events.push({ t: simTime, type: 'bounce', pitchIndex: b.team === 0 ? (hits % 7) : (7 + (hits % 7)), intensity: 0.65 });
       }
     }
+
+    // %100 fetih veya süre bitimine 3 sn kala kesin kazanan ilan et
+    let c0 = 0, c1 = 0;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === 0) c0++; else c1++;
+    if (c0 === COLS * ROWS || c1 === COLS * ROWS || simTime >= DUR - 3.0) {
+      winner = c0 >= c1 ? 0 : 1;
+      // Son kalan karoları kazanan renge çevirip patlat!
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) grid[r][c] = winner;
+      burst(W * 0.5, by + maxH * 0.5, winner === 0 ? '#38bdf8' : '#f472b6', 55);
+      events.push({ t: simTime, type: 'win', pitchIndex: 10, intensity: 1.0 });
+    }
+  }
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+    if (p.life <= 0) sparks.splice(i, 1);
   }
 }
 
@@ -71,13 +112,21 @@ function draw() {
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4 * S;
   ctx.strokeRect(bx, by, COLS * cell, ROWS * cell);
 
-  for (const b of balls) {
-    ctx.save();
-    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = b.team === 0 ? '#38bdf8' : '#f472b6';
-    ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 18 * S; ctx.lineWidth = 5 * S;
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.restore();
+  if (winner === null) {
+    for (const b of balls) {
+      ctx.save();
+      ctx.fillStyle = '#ffffff'; ctx.strokeStyle = b.col;
+      ctx.shadowColor = b.col; ctx.shadowBlur = 18 * S; ctx.lineWidth = 5 * S;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
   }
+
+  for (const p of sparks) {
+    ctx.fillStyle = p.col; ctx.globalAlpha = Math.max(0, p.life / 0.7);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 6 * S, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 
   const pct0 = Math.round((c0 / (COLS * ROWS)) * 100);
   const pct1 = 100 - pct0;
@@ -85,13 +134,22 @@ function draw() {
   ctx.font = `900 ${Math.round(40 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
   ctx.fillText(HOOK, W * 0.5, H * 0.13);
 
-  // Canlı skor çubuğu
   const barW = COLS * cell, barY = H * 0.175, barH = 42 * S;
   ctx.fillStyle = '#0284c7'; ctx.fillRect(bx, barY, barW * (pct0 / 100), barH);
   ctx.fillStyle = '#db2777'; ctx.fillRect(bx + barW * (pct0 / 100), barY, barW * (pct1 / 100), barH);
   ctx.font = `900 ${Math.round(24 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'left'; ctx.fillText(`CYAN ${pct0}%`, bx + 14 * S, barY + 29 * S);
   ctx.textAlign = 'right'; ctx.fillText(`${pct1}% PINK`, bx + barW - 14 * S, barY + 29 * S);
+
+  if (winner !== null) {
+    ctx.fillStyle = 'rgba(2,6,18,0.82)';
+    ctx.beginPath(); ctx.roundRect(W * 0.12, H * 0.44, W * 0.76, 130 * S, 26 * S); ctx.fill();
+    ctx.strokeStyle = winner === 0 ? '#38bdf8' : '#f472b6'; ctx.lineWidth = 5 * S; ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(54 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = winner === 0 ? '#38bdf8' : '#f472b6';
+    ctx.fillText(winner === 0 ? 'CYAN WINS! 🏆' : 'PINK WINS! 🏆', W * 0.5, H * 0.505);
+  }
   ctx.restore();
 }
 
