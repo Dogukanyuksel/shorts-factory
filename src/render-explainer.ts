@@ -137,15 +137,15 @@ async function main() {
                   ctx.fillStyle = "#fde68a";
                   ctx.fillText(badgeText, bx + bw * 0.5, by + 28 * S);
                 }
-                // Son 3.0 sn: A) / B) sonraki bölüm oylama kartı (altyazının hemen üstünde)
+                // Son 3.0 sn: A) / B) sonraki bölüm oylama + abone ol kartı
                 if (pollText && tSec >= durVal - 3.0) {
                   const alpha = Math.min(1, (tSec - (durVal - 3.0)) / 0.35);
                   ctx.globalAlpha = Math.max(0, alpha);
                   const boxW = W * 0.9;
-                  const boxH = 98 * S;
+                  const boxH = 122 * S;
                   const bx = (W - boxW) * 0.5;
-                  const by = H * 0.725;
-                  ctx.fillStyle = "rgba(5, 10, 24, 0.92)";
+                  const by = H * 0.708;
+                  ctx.fillStyle = "rgba(5, 10, 24, 0.93)";
                   ctx.beginPath();
                   ctx.roundRect(bx, by, boxW, boxH, 20 * S);
                   ctx.fill();
@@ -153,12 +153,15 @@ async function main() {
                   ctx.lineWidth = 3 * S;
                   ctx.stroke();
                   ctx.textAlign = "center";
-                  ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+                  ctx.font = `900 ${Math.round(19 * S)}px -apple-system, sans-serif`;
                   ctx.fillStyle = "#fde047";
-                  ctx.fillText("VOTE NEXT EPISODE IN COMMENTS", W * 0.5, by + 35 * S);
-                  ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+                  ctx.fillText("VOTE NEXT EPISODE IN COMMENTS", W * 0.5, by + 32 * S);
+                  ctx.font = `800 ${Math.round(21 * S)}px -apple-system, sans-serif`;
                   ctx.fillStyle = "#ffffff";
-                  ctx.fillText(pollText, W * 0.5, by + 72 * S);
+                  ctx.fillText(pollText, W * 0.5, by + 68 * S);
+                  ctx.font = `800 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+                  ctx.fillStyle = "#38bdf8";
+                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 102 * S);
                 }
                 ctx.restore();
               }

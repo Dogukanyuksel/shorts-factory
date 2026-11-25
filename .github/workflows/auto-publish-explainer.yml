@@ -1,9 +1,9 @@
-name: Auto-Publish How-It-Works Shorts (2x Daily US Prime Time)
+name: Auto-Publish How-It-Works Shorts (3x Daily — 6h Spaced)
 
 on:
   schedule:
-    # ABD Doğu Yakası (ET) sabah 09:30-10:30 ve akşam 18:30-19:30 (UTC 14:30 & 23:30)
-    - cron: "30 14,23 * * *"
+    # 6 saat arayla günde 3 video (UTC 11:30, 17:30, 23:30 — 0-view jail & kota güvenli)
+    - cron: "30 11,17,23 * * *"
   workflow_dispatch:
     inputs:
       dry_run:

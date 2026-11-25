@@ -112,27 +112,30 @@ async function main() {
                   ctx.fillStyle = "#e0f2fe";
                   ctx.fillText(ctaText, W * 0.5, by + 35 * S);
                 }
-                // Son 3.4 sn: A) / B) sonraki video oylama kartı
+                // Son 3.4 sn: A) / B) sonraki video oylama + abone ol kartı
                 if (pollText && t >= durVal - 3.4) {
                   const alpha = Math.min(1, (t - (durVal - 3.4)) / 0.35);
                   ctx.globalAlpha = Math.max(0, alpha);
                   const boxW = W * 0.9;
-                  const boxH = 112 * S;
+                  const boxH = 138 * S;
                   const bx = (W - boxW) * 0.5;
-                  const by = H * 0.835;
-                  ctx.fillStyle = "rgba(5, 10, 24, 0.92)";
+                  const by = H * 0.818;
+                  ctx.fillStyle = "rgba(5, 10, 24, 0.93)";
                   ctx.beginPath();
                   ctx.roundRect(bx, by, boxW, boxH, 22 * S);
                   ctx.fill();
                   ctx.strokeStyle = "#facc15";
                   ctx.lineWidth = 3 * S;
                   ctx.stroke();
-                  ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+                  ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
                   ctx.fillStyle = "#fde047";
-                  ctx.fillText("VOTE NEXT VIDEO IN COMMENTS", W * 0.5, by + 40 * S);
-                  ctx.font = `800 ${Math.round(24 * S)}px -apple-system, sans-serif`;
+                  ctx.fillText("VOTE NEXT VIDEO IN COMMENTS", W * 0.5, by + 36 * S);
+                  ctx.font = `800 ${Math.round(23 * S)}px -apple-system, sans-serif`;
                   ctx.fillStyle = "#ffffff";
-                  ctx.fillText(pollText, W * 0.5, by + 82 * S);
+                  ctx.fillText(pollText, W * 0.5, by + 76 * S);
+                  ctx.font = `800 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+                  ctx.fillStyle = "#38bdf8";
+                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 114 * S);
                 }
                 ctx.restore();
               }

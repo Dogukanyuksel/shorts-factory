@@ -770,7 +770,7 @@ export function getEngagementKit(job: PublishJob): EngagementKit {
     const optA = PHYSICS_LABELS[keyA];
     const optB = PHYSICS_LABELS[keyB];
     const pollLine = `A) ${optA}  •  B) ${optB}`;
-    const commentPrompt = `VOTE NEXT SIMULATION 👇\nA) ${optA}\nB) ${optB}\nComment A or B — most votes wins! ⚡`;
+    const commentPrompt = `VOTE NEXT SIMULATION 👇\nA) ${optA}\nB) ${optB}\nComment A or B & Subscribe so you don't miss the winner! 🔔`;
     const enrichedDescription = `${job.description}\n\n${commentPrompt}`;
     const epNum = Math.max(1, job.seed - 100);
     return {
@@ -792,7 +792,7 @@ export function getEngagementKit(job: PublishJob): EngagementKit {
   const optA = formatEpisodeLabel(nextA.episode);
   const optB = formatEpisodeLabel(nextB.episode);
   const pollLine = `A) ${optA}  •  B) ${optB}`;
-  const commentPrompt = `VOTE NEXT EPISODE 👇\nA) ${optA}\nB) ${optB}\nComment A or B (or suggest any machine)! ⚙️`;
+  const commentPrompt = `VOTE NEXT EPISODE 👇\nA) ${optA}\nB) ${optB}\nComment A or B & Subscribe so you don't miss the winner! 🔔`;
   const enrichedDescription = `${job.description}\n\n${commentPrompt}`;
   return {
     episodeNumber: epIdx + 1,
