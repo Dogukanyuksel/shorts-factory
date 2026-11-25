@@ -7,6 +7,8 @@
     "render": "tsx src/render.ts",
     "explainer": "tsx src/render-explainer.ts",
     "longform": "tsx src/render-longform.ts",
+    "publish:longform:explainer": "tsx src/publish-longform.ts --channel explainer",
+    "publish:longform:physics": "tsx src/publish-longform.ts --channel physics",
     "batch": "tsx src/render-batch.ts",
     "youtube:auth": "tsx src/youtube-auth.ts",
     "publish:physics": "tsx src/auto-publish.ts --channel physics",

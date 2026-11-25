@@ -47,7 +47,7 @@ export type ExplainerJob = {
 
 export type PublishJob = PhysicsJob | ExplainerJob;
 
-const PHYSICS_ROTATION: PhysicsNiche[] = [
+export const PHYSICS_ROTATION: PhysicsNiche[] = [
   "physics-ring",
   "duel-balls",
   "gravity-compare",
@@ -980,7 +980,7 @@ export type EngagementKit = {
   enrichedDescription: string;
 };
 
-const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
+export const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "physics-ring": "7-Ring Escape",
   "duel-balls": "Chaos Arena Duel",
   "sorting-race": "Sorting Race",
