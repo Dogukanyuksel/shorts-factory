@@ -1,0 +1,82 @@
+[
+  {
+    "id": 1,
+    "slug": "pin-tumbler-lock",
+    "title": "How a Pin Tumbler Lock Actually Works",
+    "tr": "Silindir kilit mekanizması",
+    "hook": "Why does ONLY your key open your door?",
+    "status": "ready"
+  },
+  {
+    "id": 2,
+    "slug": "airplane-wing",
+    "title": "How an Airplane Wing Generates Lift",
+    "tr": "Uçak kanadı ve basınç farkı",
+    "hook": "How does 400 tons of metal float in thin air?",
+    "status": "planned"
+  },
+  {
+    "id": 3,
+    "slug": "noise-canceling",
+    "title": "How Noise-Canceling Headphones Erase Sound",
+    "tr": "Ters fazlı ses dalgaları",
+    "hook": "Noise-canceling headphones don't block sound — they erase it.",
+    "status": "planned"
+  },
+  {
+    "id": 4,
+    "slug": "car-differential",
+    "title": "How a Car Differential Lets Wheels Spin at Different Speeds",
+    "tr": "Diferansiyel dişlileri",
+    "hook": "Why don't your car's wheels skid every time you turn?",
+    "status": "planned"
+  },
+  {
+    "id": 5,
+    "slug": "touchscreen",
+    "title": "How Touchscreens Know Where Your Finger Is",
+    "tr": "Kapasitif elektrik alanı",
+    "hook": "Your phone screen senses electricity in your fingertip.",
+    "status": "planned"
+  },
+  {
+    "id": 6,
+    "slug": "submarine",
+    "title": "How a Submarine Sinks and Floats on Command",
+    "tr": "Balast tankları",
+    "hook": "How does a 10,000-ton submarine sink and rise on command?",
+    "status": "planned"
+  },
+  {
+    "id": 7,
+    "slug": "qr-code",
+    "title": "How a QR Code Works Even When Damaged",
+    "tr": "Reed-Solomon hata düzeltme",
+    "hook": "You can destroy 30% of a QR code and it still scans.",
+    "status": "planned"
+  },
+  {
+    "id": 8,
+    "slug": "mechanical-watch",
+    "title": "How a Mechanical Watch Keeps Time Without a Battery",
+    "tr": "Zemberek ve eşapman",
+    "hook": "No battery, no chip — yet it tracks every single second.",
+    "status": "planned"
+  },
+  {
+    "id": 9,
+    "slug": "wifi-walls",
+    "title": "How Wi-Fi Travels Through Walls",
+    "tr": "Radyo dalga boyları ve zayıflama",
+    "hook": "Why can Wi-Fi pass through walls when light can't?",
+    "status": "planned"
+  },
+  {
+    "id": 10,
+    "slug": "bulletproof-vest",
+    "title": "How a Bulletproof Vest Stops a Bullet",
+    "tr": "Kevlar liflerinin enerji dağıtımı",
+    "hook": "How does fabric thinner than a book stop a bullet?",
+    "status": "planned"
+  }
+]

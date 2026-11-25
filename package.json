@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "render": "tsx src/render.ts",
+    "explainer": "tsx src/render-explainer.ts",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

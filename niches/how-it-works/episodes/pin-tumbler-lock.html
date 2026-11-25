@@ -1,0 +1,346 @@
+<!doctype html>
+<!--
+  How It Actually Works — Bölüm #1: Pin Tumbler Lock (Silindir Kilit Mekanizması)
+  %100 kodla çizilen mühendislik kesit animasyonu (60fps, deterministik, ses efektleriyle tam senkron).
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Why does ONLY your key open your door?', caption: 'ONLY YOUR KEY?' },
+  { id: 'inside', text: 'Inside your lock are five spring-loaded pin stacks blocking the cylinder from turning.', caption: '5 SPRING PINS' },
+  { id: 'wrong', text: 'Slide in the wrong key, and the pins stop at the wrong heights. The shear line stays blocked.', caption: 'SHEAR LINE BLOCKED' },
+  { id: 'split', text: 'Look closely. Every pin is actually split into two pieces: a gold key pin and a blue driver pin.', caption: 'SPLIT IN TWO' },
+  { id: 'right', text: 'Now insert the right key. Each notch lifts its pin until every single split lines up with the shear line.', caption: 'PERFECT ALIGNMENT' },
+  { id: 'unlock', text: 'With nothing blocking the gap, the cylinder rotates freely and unlocks your door.', caption: 'UNLOCKED!' },
+];
+
+// 5 pinin doğru yükseklikleri (anahtar diş derinlikleri)
+const TARGET_LIFT = [0.68, 0.28, 0.82, 0.42, 0.74];
+const WRONG_LIFT  = [0.30, 0.85, 0.35, 0.90, 0.25];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  // Ses efektlerini tam animasyon anlarına yerleştir
+  EVENTS = [];
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const wL = byId('wrong');
+  for (let i = 0; i < 5; i++) {
+    EVENTS.push({ t: lerp(wL.start + 0.2, wL.start + 1.4, i / 4), type: 'bounce', pitchIndex: i, intensity: 0.45 });
+  }
+  EVENTS.push({ t: wL.end - 0.5, type: 'break', pitchIndex: 0, intensity: 0.55 }); // takılma sesi
+
+  const rL = byId('right');
+  for (let i = 0; i < 5; i++) {
+    EVENTS.push({ t: lerp(rL.start + 0.3, rL.end - 0.5, i / 4), type: 'bounce', pitchIndex: 4 + i * 2, intensity: 0.85 });
+  }
+  const uL = byId('unlock');
+  EVENTS.push({ t: uL.start + 0.15, type: 'win', pitchIndex: 10, intensity: 1.0 });
+};
+
+function drawSpring(x, yTop, yBot, coils, width, S) {
+  ctx.save();
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 3.2 * S;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, yTop);
+  const h = yBot - yTop;
+  for (let i = 1; i <= coils * 2; i++) {
+    const py = yTop + (h * i) / (coils * 2 + 1);
+    const px = x + (i % 2 === 0 ? width : -width);
+    ctx.lineTo(px, py);
+  }
+  ctx.lineTo(x, yBot);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawKey(xStart, yMid, width, lifts, color, darkColor, S) {
+  ctx.save();
+  // Anahtar başı (bow)
+  ctx.fillStyle = color;
+  ctx.strokeStyle = darkColor;
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.roundRect(xStart - 95 * S, yMid - 48 * S, 95 * S, 96 * S, 24 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#070d1a';
+  ctx.beginPath(); ctx.arc(xStart - 56 * S, yMid, 16 * S, 0, Math.PI * 2); ctx.fill();
+
+  // Anahtar gövdesi + üst diş profili
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(xStart, yMid + 26 * S);
+  ctx.lineTo(xStart + width, yMid + 26 * S);
+  ctx.lineTo(xStart + width + 18 * S, yMid + 8 * S);
+  ctx.lineTo(xStart + width, yMid - 12 * S);
+  // 5 diş çentiği (sağdan sola)
+  for (let i = 4; i >= 0; i--) {
+    const px = xStart + 46 * S + i * 64 * S;
+    const peakY = yMid - 8 * S - lifts[i] * 34 * S;
+    ctx.lineTo(px + 20 * S, yMid - 10 * S);
+    ctx.lineTo(px + 8 * S, peakY);
+    ctx.lineTo(px - 8 * S, peakY);
+    ctx.lineTo(px - 20 * S, yMid - 10 * S);
+  }
+  ctx.lineTo(xStart, yMid - 14 * S);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Metalik oluk çizgisi
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.moveTo(xStart + 10 * S, yMid + 8 * S);
+  ctx.lineTo(xStart + width - 10 * S, yMid + 8 * S);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const lHook = byId('hook');
+  const lInside = byId('inside');
+  const lWrong = byId('wrong');
+  const lSplit = byId('split');
+  const lRight = byId('right');
+  const lUnlock = byId('unlock');
+
+  // Arka plan: mühendislik blueprint ızgarası
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0f1d38');
+  bg.addColorStop(0.6, '#081022');
+  bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = 'rgba(56,189,248,0.07)';
+  ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // Animasyon durumları
+  const wrongIn = smooth(lWrong.start, lWrong.start + 1.3, t) * (1 - smooth(lWrong.end - 0.3, lSplit.start + 0.4, t));
+  const wrongShake = t >= lWrong.end - 0.65 && t <= lWrong.end - 0.1 ? Math.sin(t * 58) * 7 * S : 0;
+  const rightIn = smooth(lRight.start, lRight.end - 0.45, t);
+  const unlockProg = smooth(lUnlock.start, lUnlock.start + 1.4, t);
+  const splitHighlight = smooth(lSplit.start, lSplit.start + 0.5, t) * (1 - smooth(lRight.start, lRight.start + 0.5, t));
+
+  // Yavaş sinematik zoom-in (54 dk rehber kuralı)
+  const camZoom = 1.0 + smooth(0, DUR, t) * 0.08 + splitHighlight * 0.09;
+
+  ctx.save();
+  ctx.translate(W * 0.5 + wrongShake, H * 0.53);
+  ctx.scale(camZoom, camZoom);
+  ctx.translate(-W * 0.5, -H * 0.53);
+
+  // Kilit gövdesi koordinatları
+  const lockX = W * 0.22;
+  const lockW = 410 * S;
+  const bibleY = H * 0.34;
+  const bibleH = 195 * S;
+  const shearY = bibleY + bibleH; // KRİTİK KESME ÇİZGİSİ (SHEAR LINE)
+  const plugH = 148 * S;
+
+  // Dış Kilit Gövdesi (Bible)
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  ctx.roundRect(lockX, bibleY, lockW, bibleH, [24 * S, 24 * S, 0, 0]);
+  ctx.fill();
+  ctx.stroke();
+
+  // Dönen İç Silindir (Plug) — kilidi açınca hafif perspektif kayması + sürgü geri çekilmesi
+  const plugShift = unlockProg * 14 * S;
+  ctx.save();
+  ctx.fillStyle = unlockProg > 0.2 ? '#14332a' : '#26354d';
+  ctx.strokeStyle = unlockProg > 0.2 ? '#10b981' : '#64748b';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  ctx.roundRect(lockX, shearY + 4 * S, lockW, plugH, [0, 0, 22 * S, 22 * S]);
+  ctx.fill();
+  ctx.stroke();
+
+  // Sağdaki kilit sürgüsü (deadbolt) — açılınca içeri çekilir!
+  const boltW = lerp(74 * S, 16 * S, unlockProg);
+  ctx.fillStyle = '#94a3b8';
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.roundRect(lockX + lockW + 2 * S, shearY + 34 * S, boltW, 74 * S, [0, 12 * S, 12 * S, 0]);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  // 5 Pin Yuvası + Yaylar + Driver (Mavi) + Key Pin (Altın)
+  let allAligned = rightIn > 0.92;
+  for (let i = 0; i < 5; i++) {
+    const px = lockX + 58 * S + i * 64 * S;
+    const pinW = 30 * S;
+    const keyPinH = (42 + (1 - TARGET_LIFT[i]) * 52) * S; // Her altın pin farklı boyda!
+    const driverH = 56 * S;
+
+    // Anahtar bu pine ulaştı mı?
+    const pinReachWrong = clamp((wrongIn * 5.6) - i * 0.85, 0, 1);
+    const pinReachRight = clamp((rightIn * 5.6) - i * 0.85, 0, 1);
+
+    // Anahtar yokken pinler aşağıda (driver pin kesme çizgisini bloke eder)
+    const restBottomY = shearY + 96 * S;
+    const liftPx =
+      pinReachRight > 0
+        ? TARGET_LIFT[i] * 56 * S * pinReachRight
+        : pinReachWrong > 0
+          ? WRONG_LIFT[i] * 56 * S * pinReachWrong
+          : 0;
+
+    // Doğru anahtarda altın pinin üst ucu TAM shearY'ye gelir!
+    const alignedSplitY = shearY;
+    const splitY = pinReachRight > 0
+      ? lerp(restBottomY - keyPinH, alignedSplitY, pinReachRight)
+      : restBottomY - keyPinH - liftPx;
+
+    const keyPinBottom = splitY + keyPinH;
+    const driverTop = splitY - driverH;
+
+    // Silindirik yuva boşluğu
+    ctx.fillStyle = '#090f1d';
+    ctx.fillRect(px - pinW * 0.58, bibleY + 14 * S, pinW * 1.16, bibleH + plugH - 28 * S);
+
+    // Yay
+    drawSpring(px, bibleY + 18 * S, Math.max(bibleY + 36 * S, driverTop), 6, 10 * S, S);
+
+    // Mavi Driver Pin (üst)
+    const dGrad = ctx.createLinearGradient(px - pinW / 2, 0, px + pinW / 2, 0);
+    dGrad.addColorStop(0, '#2563eb');
+    dGrad.addColorStop(0.45, '#60a5fa');
+    dGrad.addColorStop(1, '#1d4ed8');
+    ctx.fillStyle = dGrad;
+    ctx.beginPath();
+    ctx.roundRect(px - pinW / 2, driverTop, pinW, driverH - 2 * S, 6 * S);
+    ctx.fill();
+
+    // Altın Key Pin (alt) — kilit dönünce hafifçe yana kayar
+    const kGrad = ctx.createLinearGradient(px - pinW / 2, 0, px + pinW / 2, 0);
+    kGrad.addColorStop(0, '#d97706');
+    kGrad.addColorStop(0.45, '#fde047');
+    kGrad.addColorStop(1, '#b45309');
+    ctx.fillStyle = kGrad;
+    ctx.beginPath();
+    ctx.roundRect(px - pinW / 2 + plugShift * 0.4, splitY + 2 * S, pinW, keyPinH, [4 * S, 4 * S, 12 * S, 12 * S]);
+    ctx.fill();
+
+    // Split vurgulama halkası
+    if (splitHighlight > 0.1 && i === 2) {
+      ctx.strokeStyle = `rgba(250,204,21,${splitHighlight.toFixed(2)})`;
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath(); ctx.arc(px, splitY, 26 * S, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // Anahtar çizimi (önce yanlış gümüş anahtar, sonra doğru pirinç anahtar)
+  const keyY = shearY + 106 * S;
+  if (wrongIn > 0.01) {
+    const kx = lerp(lockX - 360 * S, lockX + 12 * S, wrongIn);
+    drawKey(kx, keyY, 330 * S, WRONG_LIFT, '#94a3b8', '#475569', S);
+  }
+  if (rightIn > 0.01) {
+    const kx = lerp(lockX - 360 * S, lockX + 12 * S, rightIn);
+    drawKey(kx, keyY + plugShift * 0.3, 330 * S, TARGET_LIFT, '#facc15', '#a16207', S);
+  }
+
+  // KESME ÇİZGİSİ (SHEAR LINE) — bloke iken kırmızı, hizalanınca PARLAK YEŞİL!
+  const lineColor = allAligned ? '#10b981' : '#ef4444';
+  ctx.save();
+  ctx.strokeStyle = lineColor;
+  ctx.shadowColor = lineColor;
+  ctx.shadowBlur = (allAligned ? 22 : 12) * S;
+  ctx.lineWidth = (allAligned ? 5 : 3.5) * S;
+  ctx.setLineDash(allAligned ? [] : [12 * S, 8 * S]);
+  ctx.beginPath();
+  ctx.moveTo(lockX - 24 * S, shearY);
+  ctx.lineTo(lockX + lockW + 24 * S, shearY);
+  ctx.stroke();
+  ctx.restore();
+
+  // Mühendislik etiketleri (pinlerin üstüne binmeyen temiz konum)
+  ctx.save();
+  ctx.font = `800 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'left';
+  const badgeY = shearY + plugH + 34 * S;
+  ctx.fillStyle = allAligned ? 'rgba(16,185,129,0.16)' : 'rgba(239,68,68,0.16)';
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.roundRect(lockX, badgeY - 26 * S, 270 * S, 38 * S, 19 * S); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = lineColor;
+  ctx.fillText(allAligned ? '● SHEAR LINE: CLEAR' : '● SHEAR LINE: BLOCKED', lockX + 16 * S, badgeY);
+
+  if (splitHighlight > 0.1 || t > lInside.start) {
+    ctx.globalAlpha = clamp(smooth(lInside.start, lInside.start + 0.5, t), 0, 1);
+    ctx.fillStyle = '#60a5fa';
+    ctx.fillText('● DRIVER PINS', lockX, bibleY - 18 * S);
+    ctx.fillStyle = '#facc15';
+    ctx.fillText('● KEY PINS', lockX + 195 * S, bibleY - 18 * S);
+  }
+  ctx.restore();
+
+  ctx.restore(); // Kamera sonu
+
+  // Üst Başlık + 2-3 Kelimelik Viral Altyazı (replik arası boşlukta son konuşulan satır kalır)
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW A LOCK ACTUALLY WORKS', W * 0.5, H * 0.125);
+
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84);
+    ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(48 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S;
+    ctx.strokeStyle = '#020617';
+    ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'unlock' || activeLine.id === 'right' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>
