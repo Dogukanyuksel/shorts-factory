@@ -13,7 +13,7 @@
     "title": "How an Airplane Wing Generates Lift",
     "tr": "Uçak kanadı ve basınç farkı",
     "hook": "How does 400 tons of metal float in thin air?",
-    "status": "planned"
+    "status": "ready"
   },
   {
     "id": 3,
@@ -21,7 +21,7 @@
     "title": "How Noise-Canceling Headphones Erase Sound",
     "tr": "Ters fazlı ses dalgaları",
     "hook": "Noise-canceling headphones don't block sound — they erase it.",
-    "status": "planned"
+    "status": "ready"
   },
   {
     "id": 4,
@@ -29,7 +29,7 @@
     "title": "How a Car Differential Lets Wheels Spin at Different Speeds",
     "tr": "Diferansiyel dişlileri",
     "hook": "Why don't your car's wheels skid every time you turn?",
-    "status": "planned"
+    "status": "ready"
   },
   {
     "id": 5,
@@ -37,7 +37,7 @@
     "title": "How Touchscreens Know Where Your Finger Is",
     "tr": "Kapasitif elektrik alanı",
     "hook": "Your phone screen senses electricity in your fingertip.",
-    "status": "planned"
+    "status": "ready"
   },
   {
     "id": 6,
@@ -45,7 +45,7 @@
     "title": "How a Submarine Sinks and Floats on Command",
     "tr": "Balast tankları",
     "hook": "How does a 10,000-ton submarine sink and rise on command?",
-    "status": "planned"
+    "status": "ready"
   },
   {
     "id": 7,
@@ -53,7 +53,7 @@
     "title": "How a QR Code Works Even When Damaged",
     "tr": "Reed-Solomon hata düzeltme",
     "hook": "You can destroy 30% of a QR code and it still scans.",
-    "status": "planned"
+    "status": "ready"
   },
   {
     "id": 8,
@@ -61,7 +61,7 @@
     "title": "How a Mechanical Watch Keeps Time Without a Battery",
     "tr": "Zemberek ve eşapman",
     "hook": "No battery, no chip — yet it tracks every single second.",
-    "status": "planned"
+    "status": "ready"
   },
   {
     "id": 9,
@@ -69,7 +69,7 @@
     "title": "How Wi-Fi Travels Through Walls",
     "tr": "Radyo dalga boyları ve zayıflama",
     "hook": "Why can Wi-Fi pass through walls when light can't?",
-    "status": "planned"
+    "status": "ready"
   },
   {
     "id": 10,
@@ -77,6 +77,6 @@
     "title": "How a Bulletproof Vest Stops a Bullet",
     "tr": "Kevlar liflerinin enerji dağıtımı",
     "hook": "How does fabric thinner than a book stop a bullet?",
-    "status": "planned"
+    "status": "ready"
   }
 ]

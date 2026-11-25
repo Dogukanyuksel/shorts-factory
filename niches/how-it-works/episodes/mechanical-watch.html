@@ -1,0 +1,121 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #8: Mechanical Watch Escapement -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'No battery, no microchip — yet a mechanical watch tracks every single second.', caption: 'ZERO BATTERIES?' },
+  { id: 'spring', text: 'Power starts in a tightly coiled metal ribbon called the mainspring.', caption: 'COILED MAINSPRING' },
+  { id: 'escape', text: 'If left alone, it would unwind in one second. So an escapement gear locks and releases it one tiny tooth at a time.', caption: 'ESCAPEMENT GEAR' },
+  { id: 'balance', text: 'A hairspring balance wheel swings back and forth at a constant heartbeat — creating that famous tick-tock.', caption: 'TICK · TOCK HEARTBEAT' },
+  { id: 'outro', text: 'Pure mechanical physics turning spring tension into exact time.', caption: 'PURE PHYSICS!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  EVENTS = [];
+  // Gerçek saat tik-tak sesleri (saniyede 2 tik)
+  for (let s = 1.0; s < DUR - 1.5; s += 0.5) {
+    EVENTS.push({ t: s, type: 'bounce', pitchIndex: Math.round(s * 2) % 2 === 0 ? 11 : 9, intensity: 0.42 });
+  }
+  EVENTS.push({ t: DUR - 1.4, type: 'win', pitchIndex: 12, intensity: 0.7 });
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#1e1912'); bg.addColorStop(0.6, '#0d0b08'); bg.addColorStop(1, '#050403');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  const cx = W * 0.5, cy = H * 0.50;
+  // Saat kasası
+  ctx.fillStyle = '#18181b'; ctx.strokeStyle = '#d97706'; ctx.lineWidth = 10 * S;
+  ctx.beginPath(); ctx.arc(cx, cy, 250 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(250,204,21,0.22)'; ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(cx, cy, 224 * S, 0, Math.PI * 2); ctx.stroke();
+
+  // 1) Eşapman Dişlisi (her 0.5 saniyede bir adım atar — gerçek tik-tak!)
+  const tickStep = Math.floor(t * 2) + smooth(0, 0.14, (t * 2) % 1);
+  const escAngle = tickStep * ((Math.PI * 2) / 15);
+  ctx.save();
+  ctx.translate(cx - 72 * S, cy + 40 * S);
+  ctx.rotate(escAngle);
+  ctx.strokeStyle = '#facc15'; ctx.fillStyle = '#ca8a04'; ctx.lineWidth = 3 * S;
+  for (let i = 0; i < 15; i++) {
+    const a = (i / 15) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * 66 * S, Math.sin(a) * 66 * S);
+    ctx.lineTo(Math.cos(a + 0.16) * 94 * S, Math.sin(a + 0.16) * 94 * S);
+    ctx.lineTo(Math.cos(a + 0.24) * 66 * S, Math.sin(a + 0.24) * 66 * S);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.beginPath(); ctx.arc(0, 0, 68 * S, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#e11d48'; ctx.beginPath(); ctx.arc(0, 0, 12 * S, 0, Math.PI * 2); ctx.fill(); // Yakut yatak!
+  ctx.restore();
+
+  // 2) Balans Çarkı (sağa-sola salınım) + Zemberek Spiral
+  const swing = Math.sin(t * Math.PI * 2) * 1.1;
+  ctx.save();
+  ctx.translate(cx + 88 * S, cy - 58 * S);
+  ctx.rotate(swing);
+  ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 8 * S;
+  ctx.beginPath(); ctx.arc(0, 0, 86 * S, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 4 * S;
+  for (let i = 0; i < 3; i++) {
+    const a = (i * Math.PI * 2) / 3;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * 86 * S, Math.sin(a) * 86 * S); ctx.stroke();
+  }
+  // Spiral kıl yay (hairspring)
+  ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.4 * S;
+  ctx.beginPath();
+  for (let a = 0; a < Math.PI * 7; a += 0.2) {
+    const rr = (6 + a * 2.1) * S;
+    const x = Math.cos(a) * rr, y = Math.sin(a) * rr;
+    if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#e11d48'; ctx.beginPath(); ctx.arc(0, 0, 10 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Saniye kolu (tik-tak adımlı)
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate((tickStep / 60) * Math.PI * 2 - Math.PI / 2);
+  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 4 * S; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-28 * S, 0); ctx.lineTo(195 * S, 0); ctx.stroke();
+  ctx.restore();
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#fde68a';
+  ctx.fillText('HOW A MECHANICAL WATCH WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

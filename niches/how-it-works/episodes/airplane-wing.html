@@ -1,0 +1,173 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #2: Airplane Wing Lift -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a 400-ton metal airplane float in thin air?', caption: '400 TONS IN AIR?' },
+  { id: 'shape', text: 'The secret is the curved airfoil shape of the wing, tilted slightly into the wind.', caption: 'CURVED AIRFOIL' },
+  { id: 'fast', text: 'As air splits over the curved top, it accelerates faster and drops in pressure.', caption: 'LOW PRESSURE TOP' },
+  { id: 'slow', text: 'Underneath the wing, air moves slower and gets pushed downward, creating higher pressure.', caption: 'HIGH PRESSURE BELOW' },
+  { id: 'lift', text: 'That pressure difference pushes the wing upward with massive force — called lift.', caption: 'MASSIVE LIFT!' },
+  { id: 'outro', text: 'When lift beats gravity, 400 tons of metal climbs effortlessly into the sky.', caption: 'GRAVITY BEATEN!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('fast').start + 0.3, type: 'bounce', pitchIndex: 5, intensity: 0.6 },
+    { t: byId('slow').start + 0.3, type: 'bounce', pitchIndex: 2, intensity: 0.6 },
+    { t: byId('lift').start + 0.2, type: 'break', pitchIndex: 8, intensity: 0.8 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 10, intensity: 0.9 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const showFast = smooth(byId('fast').start, byId('fast').start + 0.6, t);
+  const showSlow = smooth(byId('slow').start, byId('slow').start + 0.6, t);
+  const showLift = smooth(byId('lift').start, byId('lift').start + 0.7, t);
+  const climb = smooth(byId('outro').start, byId('outro').end, t);
+
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.51 - climb * 75 * S;
+  const zoom = 1 + smooth(0, DUR, t) * 0.08;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+
+  // Üst hızlı düşük basınç hava akım çizgileri (cyan)
+  for (let row = 0; row < 5; row++) {
+    const baseY = cy - (56 + row * 34) * S;
+    ctx.strokeStyle = showFast > 0.1 ? `rgba(56,189,248,${(0.35 + showFast * 0.55).toFixed(2)})` : 'rgba(148,163,184,0.35)';
+    ctx.lineWidth = (3 + showFast * 1.5) * S;
+    ctx.beginPath();
+    for (let x = -40 * S; x <= W + 40 * S; x += 14 * S) {
+      const dx = (x - cx) / (190 * S);
+      const bump = Math.exp(-dx * dx * 1.4) * (58 - row * 7) * S;
+      const py = baseY - bump + dx * 12 * S;
+      if (x <= -40 * S) ctx.moveTo(x, py); else ctx.lineTo(x, py);
+    }
+    ctx.stroke();
+    // Hızlı akan parçacık
+    const px = ((t * (520 + row * 28) * S + row * 170 * S) % (W + 120 * S)) - 60 * S;
+    const dx = (px - cx) / (190 * S);
+    const py = baseY - Math.exp(-dx * dx * 1.4) * (58 - row * 7) * S + dx * 12 * S;
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath(); ctx.arc(px, py, 5 * S, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Alt yavaş yüksek basınç hava akım çizgileri (amber/turuncu)
+  for (let row = 0; row < 4; row++) {
+    const baseY = cy + (66 + row * 34) * S;
+    ctx.strokeStyle = showSlow > 0.1 ? `rgba(251,146,60,${(0.35 + showSlow * 0.55).toFixed(2)})` : 'rgba(148,163,184,0.3)';
+    ctx.lineWidth = (3 + showSlow * 1.2) * S;
+    ctx.beginPath();
+    for (let x = -40 * S; x <= W + 40 * S; x += 14 * S) {
+      const dx = (x - cx) / (210 * S);
+      const down = Math.exp(-dx * dx * 1.1) * 20 * S + (dx > 0 ? dx * 28 * S : 0);
+      const py = baseY + down;
+      if (x <= -40 * S) ctx.moveTo(x, py); else ctx.lineTo(x, py);
+    }
+    ctx.stroke();
+    const px = ((t * (280 + row * 15) * S + row * 210 * S) % (W + 120 * S)) - 60 * S;
+    const dx = (px - cx) / (210 * S);
+    const py = baseY + Math.exp(-dx * dx * 1.1) * 20 * S + (dx > 0 ? dx * 28 * S : 0);
+    ctx.fillStyle = '#fb923c';
+    ctx.beginPath(); ctx.arc(px, py, 5.5 * S, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Kanat kesiti (Airfoil — hafif hücum açısıyla)
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.11);
+  const wg = ctx.createLinearGradient(-200 * S, -50 * S, 200 * S, 40 * S);
+  wg.addColorStop(0, '#e2e8f0'); wg.addColorStop(0.5, '#94a3b8'); wg.addColorStop(1, '#475569');
+  ctx.fillStyle = wg;
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  ctx.moveTo(-210 * S, 8 * S);
+  ctx.bezierCurveTo(-200 * S, -76 * S, -20 * S, -72 * S, 225 * S, 16 * S);
+  ctx.bezierCurveTo(60 * S, 24 * S, -110 * S, 36 * S, -210 * S, 8 * S);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Basınç etiketleri & Dev Kaldırma (LIFT) okları
+  ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  if (showFast > 0.05) {
+    ctx.globalAlpha = showFast;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('FAST AIR · LOW PRESSURE', cx, cy - 135 * S);
+  }
+  if (showSlow > 0.05) {
+    ctx.globalAlpha = showSlow;
+    ctx.fillStyle = '#fb923c';
+    ctx.fillText('SLOW AIR · HIGH PRESSURE', cx, cy + 160 * S);
+  }
+  if (showLift > 0.05) {
+    ctx.globalAlpha = showLift;
+    const liftLen = (90 + 25 * Math.sin(t * 5)) * S * showLift;
+    for (const ox of [-90 * S, 0, 90 * S]) {
+      ctx.strokeStyle = '#4ade80'; ctx.fillStyle = '#4ade80';
+      ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 16 * S;
+      ctx.lineWidth = 7 * S; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx + ox, cy - 55 * S); ctx.lineTo(cx + ox, cy - 55 * S - liftLen); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx + ox, cy - 72 * S - liftLen);
+      ctx.lineTo(cx + ox - 14 * S, cy - 46 * S - liftLen);
+      ctx.lineTo(cx + ox + 14 * S, cy - 46 * S - liftLen);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.font = `900 ${Math.round(30 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('↑ LIFT FORCE', cx, cy - 185 * S);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // Üst başlık + Alt viral altyazı
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW AN AIRPLANE WING WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'lift' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

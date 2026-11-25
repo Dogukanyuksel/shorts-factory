@@ -1,0 +1,117 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #5: Capacitive Touchscreen -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Your phone screen does not feel pressure — it senses electricity inside your finger.', caption: 'ELECTRICITY IN FINGERS?' },
+  { id: 'grid', text: 'Beneath the glass sits an invisible diamond grid holding a tiny electrostatic field.', caption: 'INVISIBLE ELECTRIC GRID' },
+  { id: 'touch', text: 'Because the human body conducts electricity, your fingertip steals a microscopic amount of charge.', caption: 'CHARGE DISTORTION' },
+  { id: 'coord', text: 'Sensors measure the exact X and Y drop across the grid in less than a millisecond.', caption: 'EXACT X & Y FOUND' },
+  { id: 'glove', text: 'That is why normal cloth gloves fail — they block your body from disturbing the field.', caption: 'MYSTERY SOLVED!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 22; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('touch').start + 0.4, type: 'bounce', pitchIndex: 7, intensity: 0.85 },
+    { t: byId('coord').start + 0.3, type: 'break', pitchIndex: 10, intensity: 0.8 },
+    { t: byId('glove').start + 0.2, type: 'win', pitchIndex: 12, intensity: 0.85 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const touchProg = smooth(byId('touch').start, byId('touch').start + 0.9, t);
+  const coordProg = smooth(byId('coord').start, byId('coord').start + 0.6, t);
+
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0a2538'); bg.addColorStop(0.6, '#06121f'); bg.addColorStop(1, '#03070f');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // Telefon ekranı çerçevesi
+  const px = W * 0.16, py = H * 0.24, pw = W * 0.68, ph = H * 0.48;
+  ctx.fillStyle = '#0b1526'; ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 4 * S;
+  ctx.beginPath(); ctx.roundRect(px, py, pw, ph, 36 * S); ctx.fill(); ctx.stroke();
+
+  // Dokunma noktası (ekran üzerinde yumuşak hareket)
+  const fx = px + pw * (0.55 + 0.12 * Math.sin(t * 1.4));
+  const fy = py + ph * (0.48 + 0.08 * Math.cos(t * 1.1));
+
+  // Kapasitif elektrik ızgarası
+  const cols = 7, rows = 9;
+  for (let r = 0; r < rows; r++) {
+    const gy = py + 42 * S + (r * (ph - 84 * S)) / (rows - 1);
+    const nearY = touchProg * Math.exp(-Math.pow((gy - fy) / (55 * S), 2));
+    ctx.strokeStyle = nearY > 0.4 ? '#facc15' : 'rgba(56,189,248,0.28)';
+    ctx.lineWidth = (2 + nearY * 3) * S;
+    ctx.beginPath(); ctx.moveTo(px + 24 * S, gy); ctx.lineTo(px + pw - 24 * S, gy); ctx.stroke();
+  }
+  for (let c = 0; c < cols; c++) {
+    const gx = px + 36 * S + (c * (pw - 72 * S)) / (cols - 1);
+    const nearX = touchProg * Math.exp(-Math.pow((gx - fx) / (55 * S), 2));
+    ctx.strokeStyle = nearX > 0.4 ? '#facc15' : 'rgba(56,189,248,0.28)';
+    ctx.lineWidth = (2 + nearX * 3) * S;
+    ctx.beginPath(); ctx.moveTo(gx, py + 24 * S); ctx.lineTo(gx, py + ph - 24 * S); ctx.stroke();
+  }
+
+  // Elektrostatik alan halkaları + parmak dokunuşu
+  if (touchProg > 0.05) {
+    ctx.save();
+    for (let k = 1; k <= 3; k++) {
+      const rr = (26 + k * 28 + Math.sin(t * 6 + k) * 6) * S * touchProg;
+      ctx.strokeStyle = k === 1 ? '#facc15' : '#38bdf8';
+      ctx.globalAlpha = (0.75 - k * 0.2) * touchProg;
+      ctx.lineWidth = 3.5 * S;
+      ctx.beginPath(); ctx.arc(fx, fy, rr, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = touchProg;
+    ctx.fillStyle = '#facc15'; ctx.shadowColor = '#facc15'; ctx.shadowBlur = 22 * S;
+    ctx.beginPath(); ctx.arc(fx, fy, 18 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // X/Y Koordinat göstergesi
+  if (coordProg > 0.05) {
+    ctx.save(); ctx.globalAlpha = coordProg;
+    ctx.fillStyle = '#4ade80'; ctx.font = `800 ${Math.round(23 * S)}px monospace`; ctx.textAlign = 'center';
+    ctx.fillText(`X: ${Math.round(((fx - px) / pw) * 1080)}px  ·  Y: ${Math.round(((fy - py) / ph) * 1920)}px`, W * 0.5, py + ph + 46 * S);
+    ctx.restore();
+  }
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillText('HOW TOUCHSCREENS WORK', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'coord' || activeLine.id === 'glove' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

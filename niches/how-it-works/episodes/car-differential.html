@@ -1,0 +1,130 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #4: Car Differential Gears -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'When a car turns a corner, the outside wheel has to travel farther than the inside wheel.', caption: 'DIFFERENT SPEEDS?' },
+  { id: 'locked', text: 'If both wheels were locked on one solid axle, the tires would violently skid on every turn.', caption: 'SOLID AXLE SKIDS' },
+  { id: 'diff', text: 'Enter the differential: a clever set of spider gears sitting right between the two axles.', caption: 'SPIDER GEARS' },
+  { id: 'straight', text: 'Driving straight, the whole housing spins together and both wheels turn at the exact same speed.', caption: 'STRAIGHT = EQUAL' },
+  { id: 'turn', text: 'When you turn, the spider gears start spinning on their own axis, letting the outer wheel speed up smoothly.', caption: 'SMOOTH CORNERING!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 23; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('diff').start + 0.3, type: 'bounce', pitchIndex: 4, intensity: 0.7 },
+    { t: byId('turn').start + 0.3, type: 'break', pitchIndex: 8, intensity: 0.75 },
+    { t: byId('turn').end - 0.5, type: 'win', pitchIndex: 10, intensity: 0.85 },
+  ];
+};
+
+function drawGear(cx, cy, r, teeth, rot, color, S) {
+  ctx.save();
+  ctx.translate(cx, cy); ctx.rotate(rot);
+  ctx.fillStyle = color; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a1 = (i / teeth) * Math.PI * 2;
+    const a2 = ((i + 0.35) / teeth) * Math.PI * 2;
+    const a3 = ((i + 0.5) / teeth) * Math.PI * 2;
+    const a4 = ((i + 0.85) / teeth) * Math.PI * 2;
+    const rOut = r + 11 * S;
+    if (i === 0) ctx.moveTo(Math.cos(a1) * r, Math.sin(a1) * r);
+    ctx.lineTo(Math.cos(a2) * rOut, Math.sin(a2) * rOut);
+    ctx.lineTo(Math.cos(a3) * rOut, Math.sin(a3) * rOut);
+    ctx.lineTo(Math.cos(a4) * r, Math.sin(a4) * r);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#0f172a'; ctx.beginPath(); ctx.arc(0, 0, r * 0.34, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const turnMode = smooth(byId('turn').start, byId('turn').start + 0.8, t);
+
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#1c1917'); bg.addColorStop(0.6, '#0c0a09'); bg.addColorStop(1, '#050505');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(251,146,60,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.5, cy = H * 0.52;
+  const leftSpd = 2.6 - turnMode * 1.4;   // İç teker yavaşlar
+  const rightSpd = 2.6 + turnMode * 1.8;  // Dış teker hızlanır!
+  const spiderSpd = turnMode * 3.8;
+
+  // Sol & Sağ Akslar
+  ctx.fillStyle = '#475569';
+  ctx.fillRect(cx - 250 * S, cy - 12 * S, 195 * S, 24 * S);
+  ctx.fillRect(cx + 55 * S, cy - 12 * S, 195 * S, 24 * S);
+
+  // Sol & Sağ Tekerlekler (dönen lastik dişleriyle)
+  for (const [wx, spd, label, col] of [
+    [cx - 265 * S, leftSpd, turnMode > 0.3 ? 'INNER · 40 RPM' : 'LEFT · 60 RPM', '#38bdf8'],
+    [cx + 265 * S, rightSpd, turnMode > 0.3 ? 'OUTER · 80 RPM' : 'RIGHT · 60 RPM', '#4ade80'],
+  ]) {
+    ctx.save();
+    ctx.fillStyle = '#1e293b'; ctx.strokeStyle = col; ctx.lineWidth = 5 * S;
+    ctx.beginPath(); ctx.roundRect(wx - 34 * S, cy - 105 * S, 68 * S, 210 * S, 18 * S); ctx.fill(); ctx.stroke();
+    // Dönen lastik çizgileri
+    ctx.strokeStyle = col; ctx.lineWidth = 4 * S;
+    for (let k = -2; k <= 2; k++) {
+      const yy = cy + (((t * spd * 45 + k * 42) % 180 + 270) % 180 - 90) * S;
+      ctx.beginPath(); ctx.moveTo(wx - 24 * S, yy); ctx.lineTo(wx + 24 * S, yy); ctx.stroke();
+    }
+    ctx.fillStyle = col; ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
+    ctx.fillText(label, wx, cy - 125 * S);
+    ctx.restore();
+  }
+
+  // Diferansiyel Kafesi + Örümcek Dişliler (Spider Gears)
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 6 * S;
+  ctx.beginPath(); ctx.roundRect(cx - 110 * S, cy - 115 * S, 220 * S, 230 * S, 28 * S); ctx.stroke();
+  drawGear(cx - 64 * S, cy, 42 * S, 10, t * leftSpd, '#38bdf8', S);
+  drawGear(cx + 64 * S, cy, 42 * S, 10, -t * rightSpd, '#4ade80', S);
+  drawGear(cx, cy - 64 * S, 36 * S, 8, t * spiderSpd, '#facc15', S);
+  drawGear(cx, cy + 64 * S, 36 * S, 8, -t * spiderSpd, '#fb923c', S);
+
+  ctx.fillStyle = '#facc15'; ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText(turnMode > 0.3 ? 'SPIDER GEARS: COMPENSATING' : 'SPIDER GEARS: LOCKED TOGETHER', cx, cy + 165 * S);
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#fdba74';
+  ctx.fillText('HOW A CAR DIFFERENTIAL WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'turn' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

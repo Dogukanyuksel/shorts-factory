@@ -1,0 +1,121 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #7: QR Code Error Correction (Reed-Solomon) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'You can destroy thirty percent of a QR code, and your phone will STILL scan it.', caption: '30% DESTROYED?' },
+  { id: 'finders', text: 'The three corner squares instantly tell your camera the exact angle and size.', caption: '3 FINDER CORNERS' },
+  { id: 'damage', text: 'Now watch what happens when we scratch out a massive chunk of the data grid.', caption: 'MASSIVE DAMAGE' },
+  { id: 'rs', text: 'QR codes store mathematical backup blocks using Reed-Solomon error correction.', caption: 'REED-SOLOMON MATH' },
+  { id: 'recover', text: 'Your camera solves those equations in milliseconds and reconstructs every missing bit.', caption: '100% RECOVERED!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+const GRID = 13;
+const CELLS = Array.from({ length: GRID * GRID }, (_, i) => ((Math.sin(i * 91.7 + 13) * 10000) % 1 > 0.42 ? 1 : 0));
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 23; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('damage').start + 0.35, type: 'break', pitchIndex: 1, intensity: 0.75 },
+    { t: byId('rs').start + 0.3, type: 'bounce', pitchIndex: 6, intensity: 0.7 },
+    { t: byId('recover').start + 0.3, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function isFinder(r, c) {
+  return (r < 4 && c < 4) || (r < 4 && c >= GRID - 4) || (r >= GRID - 4 && c < 4);
+}
+function isDamaged(r, c) {
+  return r >= 5 && r <= 9 && c >= 5 && c <= 9;
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const finderGlow = smooth(byId('finders').start, byId('finders').start + 0.5, t) * (1 - smooth(byId('damage').start, byId('damage').start + 0.4, t));
+  const dmg = smooth(byId('damage').start, byId('damage').start + 0.6, t);
+  const rec = smooth(byId('recover').start, byId('recover').end - 0.5, t);
+
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0f1d38'); bg.addColorStop(0.6, '#070e1f'); bg.addColorStop(1, '#03060e');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  const boxSize = 440 * S;
+  const bx = (W - boxSize) / 2, by = H * 0.31;
+  const pad = 26 * S;
+  const cell = (boxSize - pad * 2) / GRID;
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath(); ctx.roundRect(bx, by, boxSize, boxSize, 26 * S); ctx.fill();
+
+  for (let r = 0; r < GRID; r++) {
+    for (let c = 0; c < GRID; c++) {
+      const x = bx + pad + c * cell, y = by + pad + r * cell;
+      const fin = isFinder(r, c);
+      const hit = isDamaged(r, c);
+      let on = CELLS[r * GRID + c] === 1;
+      if (fin) {
+        const lr = r < 4 ? r : r - (GRID - 4);
+        const lc = c < 4 ? c : c - (GRID - 4);
+        on = lr === 0 || lr === 3 || lc === 0 || lc === 3 || (lr >= 1 && lr <= 2 && lc >= 1 && lc <= 2);
+      }
+      if (hit && dmg > 0.1) {
+        ctx.fillStyle = rec > 0.45 ? '#10b981' : '#ef4444';
+        ctx.globalAlpha = rec > 0.45 ? (on ? 1 : 0.18) : dmg;
+        ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
+        ctx.globalAlpha = 1;
+      } else if (on) {
+        ctx.fillStyle = fin && finderGlow > 0.1 ? '#2563eb' : '#0f172a';
+        ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
+      }
+    }
+  }
+
+  // Tarama lazer çizgisi (kurtarma sırasında)
+  if (rec > 0.02 && rec < 0.98) {
+    const sy = by + rec * boxSize;
+    ctx.strokeStyle = '#4ade80'; ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 18 * S; ctx.lineWidth = 5 * S;
+    ctx.beginPath(); ctx.moveTo(bx - 16 * S, sy); ctx.lineTo(bx + boxSize + 16 * S, sy); ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.fillStyle = rec > 0.5 ? '#4ade80' : dmg > 0.3 ? '#f87171' : '#93c5fd';
+  ctx.font = `800 ${Math.round(23 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText(rec > 0.5 ? '✓ SCAN SUCCESS · 100% REBUILT' : dmg > 0.3 ? '✕ 30% DATA MISSING' : 'REED-SOLOMON MATRIX', W * 0.5, by + boxSize + 48 * S);
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW QR CODES SURVIVE DAMAGE', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'recover' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

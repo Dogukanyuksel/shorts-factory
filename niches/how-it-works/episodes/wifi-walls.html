@@ -1,0 +1,103 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #9: How Wi-Fi Travels Through Walls -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Why can Wi-Fi pass straight through solid walls when visible light gets completely blocked?', caption: 'THROUGH SOLID WALLS?' },
+  { id: 'wave', text: 'Both are electromagnetic waves — the only difference is wavelength.', caption: 'WAVELENGTH DIFFERENCE' },
+  { id: 'light', text: 'Visible light waves are microscopic, so wall atoms instantly absorb or bounce them back.', caption: 'LIGHT GETS BLOCKED' },
+  { id: 'wifi', text: 'Wi-Fi waves are twelve centimeters long, gliding right past drywall as if it were clear glass.', caption: '12 CM RADIO WAVES' },
+  { id: 'metal', text: 'Only dense concrete or metal weakens them — which is why your router hates thick walls.', caption: 'SIGNAL EXPLAINED!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 23; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('light').start + 0.35, type: 'bounce', pitchIndex: 3, intensity: 0.6 },
+    { t: byId('wifi').start + 0.3, type: 'break', pitchIndex: 8, intensity: 0.75 },
+    { t: byId('metal').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.85 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const showWifi = smooth(byId('wifi').start, byId('wifi').start + 0.6, t);
+
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#0f1f3a'); bg.addColorStop(0.6, '#070e1d'); bg.addColorStop(1, '#03060d');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // Ortadaki Duvar
+  const wallX = W * 0.48, wallW = 46 * S, wallY = H * 0.25, wallH = H * 0.48;
+  ctx.fillStyle = '#334155'; ctx.strokeStyle = '#64748b'; ctx.lineWidth = 4 * S;
+  ctx.beginPath(); ctx.roundRect(wallX, wallY, wallW, wallH, 8 * S); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#cbd5e1'; ctx.font = `800 ${Math.round(18 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText('WALL', wallX + wallW / 2, wallY - 14 * S);
+
+  // Üst Satır: Görünür Işık (duvara çarpıp durur!)
+  const yLight = H * 0.38;
+  ctx.strokeStyle = '#facc15'; ctx.shadowColor = '#facc15'; ctx.shadowBlur = 12 * S; ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  for (let x = 60 * S; x <= wallX; x += 4 * S) {
+    const y = yLight + Math.sin(x * 0.22 - t * 14) * 18 * S;
+    if (x === 60 * S) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#facc15'; ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'left';
+  ctx.fillText('VISIBLE LIGHT (BLOCKED ✕)', 62 * S, yLight - 36 * S);
+
+  // Alt Satır: 2.4 GHz Wi-Fi Dalgası (duvardan geçip sağdaki telefona ulaşır!)
+  const yWifi = H * 0.58;
+  ctx.save();
+  ctx.globalAlpha = 0.25 + showWifi * 0.75;
+  ctx.strokeStyle = '#38bdf8'; ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 16 * S; ctx.lineWidth = 5.5 * S;
+  ctx.beginPath();
+  for (let x = 60 * S; x <= W - 60 * S; x += 6 * S) {
+    const atten = x > wallX + wallW ? 0.68 : 1.0;
+    const y = yWifi + Math.sin(x * 0.042 - t * 7) * 44 * S * atten;
+    if (x === 60 * S) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#38bdf8'; ctx.font = `800 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+  ctx.fillText('WI-FI RADIO WAVE (PASSES ✓)', 62 * S, yWifi - 58 * S);
+  ctx.restore();
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillText('HOW WI-FI PASSES THROUGH WALLS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'wifi' || activeLine.id === 'metal' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

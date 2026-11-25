@@ -1,0 +1,116 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #3: Noise-Canceling Headphones (ANC) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Noise-canceling headphones do not just block sound — they literally erase it.', caption: 'ERASING SOUND?' },
+  { id: 'noise', text: 'Tiny microphones on the outside listen to incoming noise waves like airplane engines.', caption: 'OUTSIDE NOISE WAVE' },
+  { id: 'invert', text: 'In microseconds, an internal chip flips that wave completely upside down.', caption: 'INVERTED ANTI-NOISE' },
+  { id: 'collide', text: 'When the original peak meets the inverted valley, they cancel each other out.', caption: 'DESTRUCTIVE COLLISION' },
+  { id: 'flat', text: 'The waves flatten into pure silence before they ever reach your eardrum.', caption: 'PURE SILENCE!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 22; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('invert').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.7 },
+    { t: byId('collide').start + 0.4, type: 'break', pitchIndex: 9, intensity: 0.8 },
+    { t: byId('flat').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.85 },
+  ];
+};
+
+function drawWave(yCenter, amp, phase, color, label, alpha, S) {
+  if (alpha <= 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 14 * S;
+  ctx.lineWidth = 5.5 * S;
+  ctx.beginPath();
+  for (let x = 50 * S; x <= W - 50 * S; x += 6 * S) {
+    const k = (x - 50 * S) / (W - 100 * S);
+    const env = Math.sin(k * Math.PI);
+    const y = yCenter + Math.sin(k * Math.PI * 5 - phase) * amp * env;
+    if (x === 50 * S) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = color; ctx.font = `800 ${Math.round(21 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'left';
+  ctx.fillText(label, 56 * S, yCenter - amp - 18 * S);
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const inv = smooth(byId('invert').start, byId('invert').start + 0.7, t);
+  const merge = smooth(byId('collide').start, byId('collide').end - 0.3, t);
+  const flat = smooth(byId('flat').start, byId('flat').start + 0.7, t);
+
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#161133'); bg.addColorStop(0.6, '#09091c'); bg.addColorStop(1, '#04040c');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(168,85,247,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const phase = t * 5.2;
+  const y1 = H * (0.36 + merge * 0.14);
+  const y2 = H * (0.64 - merge * 0.14);
+  const amp = 62 * S * (1 - flat * 0.96);
+
+  // Dalga 1: Dış Gürültü (kırmızı-turuncu)
+  drawWave(y1, amp, phase, '#fb7185', '● OUTSIDE NOISE (+)', 1 - flat * 0.85, S);
+  // Dalga 2: Ters Fazlı Anti-Gürültü (cyan)
+  drawWave(y2, amp, phase + Math.PI, '#38bdf8', '● ANTI-NOISE (-)', inv * (1 - flat * 0.85), S);
+
+  // Sonuç: Düz Sessizlik Çizgisi (parlak yeşil)
+  if (merge > 0.35) {
+    const a = smooth(0.35, 1.0, merge);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = '#4ade80'; ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 20 * S;
+    ctx.lineWidth = 6 * S;
+    ctx.beginPath(); ctx.moveTo(50 * S, H * 0.50); ctx.lineTo(W - 50 * S, H * 0.50); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#4ade80'; ctx.font = `900 ${Math.round(26 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
+    ctx.fillText('RESULT: 0 dB · SILENCE', W * 0.5, H * 0.50 - 26 * S);
+    ctx.restore();
+  }
+
+  // Üst başlık + Alt viral altyazı
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#c4b5fd';
+  ctx.fillText('HOW NOISE CANCELING WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'flat' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

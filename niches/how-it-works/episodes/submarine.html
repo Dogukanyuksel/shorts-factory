@@ -1,0 +1,123 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #6: Submarine Ballast Tanks -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does a 10,000-ton steel submarine sink and rise on command?', caption: 'SINK ON COMMAND?' },
+  { id: 'tanks', text: 'Built between its inner and outer hull are giant chambers called ballast tanks.', caption: 'BALLAST TANKS' },
+  { id: 'dive', text: 'To dive, vents open so seawater floods the tanks, making the submarine heavier than water.', caption: 'FLOODING TO DIVE' },
+  { id: 'surface', text: 'To resurface, high-pressure compressed air blasts the seawater straight back out.', caption: 'AIR BLASTS WATER OUT' },
+  { id: 'float', text: 'Instantly lighter than the surrounding ocean, the giant rises smoothly back to the surface.', caption: 'BUOYANCY CONTROL!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 23; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('dive').start + 0.3, type: 'bounce', pitchIndex: 2, intensity: 0.7 },
+    { t: byId('surface').start + 0.25, type: 'break', pitchIndex: 7, intensity: 0.8 },
+    { t: byId('float').start + 0.2, type: 'win', pitchIndex: 10, intensity: 0.9 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const fill = smooth(byId('dive').start, byId('dive').end - 0.3, t) * (1 - smooth(byId('surface').start, byId('surface').end - 0.2, t));
+  const depth = smooth(byId('dive').start + 0.3, byId('dive').end, t) * (1 - smooth(byId('surface').start + 0.3, byId('float').end - 0.5, t));
+
+  // Okyanus gradyanı
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0a2342'); bg.addColorStop(0.28, '#0c355e'); bg.addColorStop(1, '#030b17');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // Dalgalı su yüzeyi
+  const surfY = H * 0.30;
+  ctx.strokeStyle = 'rgba(125,211,252,0.45)'; ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 12 * S) {
+    const y = surfY + Math.sin(x * 0.02 + t * 3.5) * 8 * S;
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Denizaltı kesiti (dalış ve yükseliş hareketiyle)
+  const sx = W * 0.5, sy = H * 0.42 + depth * 210 * S;
+  ctx.save();
+  // Kule (Conning Tower)
+  ctx.fillStyle = '#334155'; ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 4 * S;
+  ctx.beginPath(); ctx.roundRect(sx - 44 * S, sy - 118 * S, 88 * S, 64 * S, 16 * S); ctx.fill(); ctx.stroke();
+  // Dış Gövde
+  ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 5 * S;
+  ctx.beginPath(); ctx.roundRect(sx - 230 * S, sy - 68 * S, 460 * S, 136 * S, 68 * S); ctx.fill(); ctx.stroke();
+
+  // 2 Balast Tankı (su dolup boşalır!)
+  for (const bx of [sx - 155 * S, sx + 55 * S]) {
+    const bw = 100 * S, bh = 86 * S, by = sy - 43 * S;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 14 * S); ctx.clip();
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(bx, by, bw, bh);
+    // Su seviyesi
+    const wh = bh * fill;
+    ctx.fillStyle = '#0ea5e9';
+    ctx.fillRect(bx, by + bh - wh, bw, wh);
+    ctx.restore();
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 14 * S); ctx.stroke();
+  }
+  // Basınçlı Hava Tüpü (orta)
+  ctx.fillStyle = '#facc15';
+  ctx.beginPath(); ctx.roundRect(sx - 34 * S, sy - 32 * S, 68 * S, 64 * S, 16 * S); ctx.fill();
+  ctx.fillStyle = '#0f172a'; ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText('AIR', sx, sy + 7 * S);
+
+  // Hava kabarcıkları (su boşaltırken)
+  const venting = smooth(byId('surface').start, byId('surface').end, t) * (1 - smooth(byId('float').start + 0.5, byId('float').end, t));
+  if (venting > 0.05) {
+    ctx.fillStyle = 'rgba(186,230,253,0.75)';
+    for (let i = 0; i < 14; i++) {
+      const bx = sx + ((i % 2 === 0 ? -105 : 105) + Math.sin(t * 5 + i) * 26) * S;
+      const by = sy + 68 * S + ((t * 140 + i * 33) % 120) * S;
+      ctx.beginPath(); ctx.arc(bx, by, (4 + (i % 4) * 2) * S, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  ctx.fillStyle = '#7dd3fc'; ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+  ctx.fillText(`BALLAST WATER: ${Math.round(fill * 100)}%`, sx, sy + 110 * S);
+  ctx.restore();
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(33 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillText('HOW A SUBMARINE DIVES', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'float' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

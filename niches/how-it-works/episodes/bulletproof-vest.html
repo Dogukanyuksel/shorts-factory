@@ -1,0 +1,117 @@
+<!doctype html>
+<!-- How It Actually Works — Bölüm #10: Bulletproof Vest (Kevlar Fiber Net) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'How does woven fabric thinner than a notebook stop a speeding bullet?', caption: 'FABRIC STOPS BULLETS?' },
+  { id: 'kevlar', text: 'Bulletproof vests use dozens of tightly woven Kevlar layers — five times stronger than steel by weight.', caption: '5X STRONGER THAN STEEL' },
+  { id: 'impact', text: 'The instant a bullet strikes, it catches in the net like a soccer ball hitting a goal.', caption: 'CAUGHT IN THE NET' },
+  { id: 'spread', text: 'Instead of piercing one spot, the woven fibers spread the impact energy across the entire vest.', caption: 'ENERGY SPREAD OUT' },
+  { id: 'stop', text: 'The bullet flattens into a harmless disc and drops to a complete stop in microseconds.', caption: 'BULLET STOPPED!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 23; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('impact').start + 0.35, type: 'break', pitchIndex: 2, intensity: 1.0 },
+    { t: byId('spread').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.75 },
+    { t: byId('stop').start + 0.25, type: 'win', pitchIndex: 11, intensity: 0.9 },
+  ];
+};
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const imp = smooth(byId('impact').start, byId('impact').start + 0.55, t);
+  const spr = smooth(byId('spread').start, byId('stop').start + 0.5, t);
+  const stop = smooth(byId('stop').start, byId('stop').start + 0.6, t);
+
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
+  bg.addColorStop(0, '#1e1b10'); bg.addColorStop(0.6, '#0d0c08'); bg.addColorStop(1, '#050503');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  const netX = W * 0.56, cy = H * 0.50;
+  const indent = imp * 72 * S * (1 - stop * 0.25);
+
+  // Kevlar dokuma katmanları (çarpışmada ağ gibi esner + enerji dalgası yayılır!)
+  for (let layer = 0; layer < 5; layer++) {
+    const lx = netX + layer * 20 * S;
+    ctx.strokeStyle = spr > 0.1 ? (layer === 0 ? '#facc15' : '#fb923c') : '#eab308';
+    ctx.lineWidth = (5 - layer * 0.5) * S;
+    ctx.beginPath();
+    for (let y = H * 0.26; y <= H * 0.74; y += 8 * S) {
+      const dy = (y - cy) / (110 * S);
+      const bend = Math.exp(-dy * dy * 1.6) * indent * (1 - layer * 0.14);
+      const x = lx + bend;
+      if (y === H * 0.26) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Enerji dağılım şok dalgaları (lifler boyunca yukarı-aşağı yayılır)
+  if (imp > 0.4) {
+    const waveD = (imp * 160 + spr * 190) * S;
+    ctx.save();
+    ctx.strokeStyle = '#38bdf8'; ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 16 * S; ctx.lineWidth = 4 * S;
+    ctx.globalAlpha = clamp(1 - spr * 0.5, 0.2, 0.9);
+    ctx.beginPath(); ctx.arc(netX + indent, cy, waveD * 0.55, -Math.PI * 0.45, Math.PI * 0.45); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Mermi (çarptıkça yassılaşır ve durur!)
+  const bx = lerp(60 * S, netX + indent - 24 * S, imp);
+  const flatScaleX = 1 - stop * 0.52;
+  const flatScaleY = 1 + stop * 0.58;
+  ctx.save();
+  ctx.translate(bx, cy);
+  ctx.scale(flatScaleX, flatScaleY);
+  const bgBullet = ctx.createLinearGradient(-34 * S, -14 * S, 30 * S, 14 * S);
+  bgBullet.addColorStop(0, '#b45309'); bgBullet.addColorStop(0.5, '#fde047'); bgBullet.addColorStop(1, '#d97706');
+  ctx.fillStyle = bgBullet;
+  ctx.beginPath();
+  ctx.moveTo(-36 * S, -14 * S); ctx.lineTo(12 * S, -14 * S);
+  ctx.quadraticCurveTo(38 * S, 0, 12 * S, 14 * S);
+  ctx.lineTo(-36 * S, 14 * S); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = stop > 0.4 ? '#4ade80' : '#facc15';
+  ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText(stop > 0.4 ? '✓ KINETIC ENERGY ABSORBED' : 'KEVLAR WOVEN FIBERS', W * 0.5, H * 0.77);
+
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#fde047';
+  ctx.fillText('HOW A BULLETPROOF VEST WORKS', W * 0.5, H * 0.125);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'stop' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>
