@@ -39,6 +39,7 @@ jobs:
             TARGET_WFS="auto-publish-explainer.yml"
           fi
 
+          NL=$'\n'
           for WF in $TARGET_WFS; do
             ROW=$(gh run list -R "$REPO" --workflow="$WF" --limit 1 --json databaseId,conclusion,status,url,createdAt,event --jq '.[0] | "\(.databaseId)|\(.status)|\(.conclusion)|\(.createdAt)|\(.url)|\(.event)"')
             RUN_ID=$(echo "$ROW" | cut -d'|' -f1)
@@ -54,17 +55,17 @@ jobs:
 
             # 1) Hata durumu (tamamlandı ama success/skipped değil)
             if [ "$STATUS" = "completed" ] && [ "$CONC" != "success" ] && [ "$CONC" != "skipped" ]; then
-              ALERTS="${ALERTS}\n• ❌ <b>${WF}</b> başarısız oldu (${CONC}) — ${URL}"
+              ALERTS="${ALERTS}${NL}• ❌ <b>${WF}</b> başarısız oldu (${CONC}) — ${URL}"
               # Son 60 dk içindeyse ve zaten manuel retry değilse 1 kez otomatik yeniden dene
               if [ "$AGE_MIN" -le 60 ] && [ "$EVENT" != "workflow_dispatch" ]; then
                 gh workflow run "$WF" -R "$REPO" --ref main && \
-                  ALERTS="${ALERTS}\n  ↻ Bulut watchdog 1 kez otomatik yeniden başlattı." || true
+                  ALERTS="${ALERTS}${NL}  ↻ Bulut watchdog 1 kez otomatik yeniden başlattı." || true
               fi
             # 2) Cron tamamen atlandıysa (son 50 dk içinde hiç koşmadıysa)
             elif [ "$AGE_MIN" -gt 50 ] && [ "${{ github.event_name }}" = "schedule" ]; then
-              ALERTS="${ALERTS}\n• ⏰ <b>${WF}</b> son ${AGE_MIN} dk'dır tetiklenmedi (GitHub cron atladı)."
+              ALERTS="${ALERTS}${NL}• ⏰ <b>${WF}</b> son ${AGE_MIN} dk'dır tetiklenmedi (GitHub cron atladı)."
               gh workflow run "$WF" -R "$REPO" --ref main && \
-                ALERTS="${ALERTS}\n  ↻ Bulut watchdog şimdi otomatik tetikledi." || true
+                ALERTS="${ALERTS}${NL}  ↻ Bulut watchdog şimdi otomatik tetikledi." || true
             fi
           done
 
