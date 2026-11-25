@@ -6,11 +6,18 @@ import {
   CURATED_PHYSICS_JOBS,
   EXPLAINER_JOBS,
   getEngagementKit,
+  pickJobByKey,
   pickNextJob,
   type ChannelId,
   type PublishJob,
 } from "./catalog.js";
-import { buildInstagramCaption, postInstagramComment, uploadReelToInstagram } from "./instagram.js";
+import {
+  buildInstagramCaption,
+  fetchInstagramComments,
+  postInstagramComment,
+  tallyABVotes,
+  uploadReelToInstagram,
+} from "./instagram.js";
 import { uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
 
 export type PublishedRecord = {
@@ -20,6 +27,12 @@ export type PublishedRecord = {
   videoId: string;
   url: string;
   instagramMediaId?: string;
+  poll?: {
+    optionAKey: string;
+    optionBKey: string;
+    optionA: string;
+    optionB: string;
+  };
   publishedAt: string;
 };
 
@@ -139,7 +152,45 @@ async function main() {
   }
 
   const publishedIds = new Set(state.published.map((r) => r.id));
-  const job = pickNextJob(channel, publishedIds);
+
+  // Önceki videonun Instagram yorumlarındaki A/B oylamasını otomatik oku ve kazananı öne al
+  let votedJob: PublishJob | null = null;
+  const igUserIdPre =
+    process.env.IG_USER_ID?.trim() ||
+    (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
+    "";
+  const metaTokenPre = process.env.META_ACCESS_TOKEN?.trim() || "";
+  const lastWithPoll = [...state.published]
+    .reverse()
+    .find((r) => r.channel === channel && r.instagramMediaId && r.poll);
+
+  if (lastWithPoll?.instagramMediaId && lastWithPoll.poll && igUserIdPre && metaTokenPre) {
+    try {
+      const comments = await fetchInstagramComments(lastWithPoll.instagramMediaId, {
+        igUserId: igUserIdPre,
+        accessToken: metaTokenPre,
+      });
+      const tally = tallyABVotes(comments, lastWithPoll.poll.optionA, lastWithPoll.poll.optionB);
+      if (tally.winner) {
+        const winningKey =
+          tally.winner === "A" ? lastWithPoll.poll.optionAKey : lastWithPoll.poll.optionBKey;
+        const winningLabel =
+          tally.winner === "A" ? lastWithPoll.poll.optionA : lastWithPoll.poll.optionB;
+        votedJob = pickJobByKey(channel, winningKey, publishedIds);
+        if (votedJob) {
+          console.log(
+            `🗳️ [auto-publish] Yorum anketi kazananı: ${tally.winner} (${winningLabel}) [A=${tally.votesA}, B=${tally.votesB}] → öne alındı!`,
+          );
+        }
+      } else {
+        console.log("[auto-publish] Yorum anketinde henüz oy yok, normal sıradan devam ediliyor.");
+      }
+    } catch (pollErr) {
+      console.warn("[auto-publish] Anket yorumları okunamadı, normal sıradan devam ediliyor:", pollErr);
+    }
+  }
+
+  const job = votedJob ?? pickNextJob(channel, publishedIds);
 
   if (!job) {
     console.log(`[auto-publish] "${channel}" kanalı için bekleyen yeni video kalmadı.`);
@@ -227,6 +278,12 @@ async function main() {
     videoId: result.videoId,
     url: result.url,
     ...(instagramMediaId ? { instagramMediaId } : {}),
+    poll: {
+      optionAKey: kit.optionAKey,
+      optionBKey: kit.optionBKey,
+      optionA: kit.optionA,
+      optionB: kit.optionB,
+    },
     publishedAt: new Date().toISOString(),
   });
   await saveState(state);

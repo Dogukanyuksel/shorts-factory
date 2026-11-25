@@ -709,6 +709,8 @@ export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): Publ
 export type EngagementKit = {
   episodeNumber: number;
   introCta: string;
+  optionAKey: string;
+  optionBKey: string;
   optionA: string;
   optionB: string;
   pollLine: string;
@@ -763,8 +765,10 @@ function formatEpisodeLabel(slug: string): string {
 export function getEngagementKit(job: PublishJob): EngagementKit {
   if (job.channel === "physics") {
     const idx = PHYSICS_ROTATION.indexOf(job.niche);
-    const optA = PHYSICS_LABELS[PHYSICS_ROTATION[(idx + 1) % PHYSICS_ROTATION.length]];
-    const optB = PHYSICS_LABELS[PHYSICS_ROTATION[(idx + 3) % PHYSICS_ROTATION.length]];
+    const keyA = PHYSICS_ROTATION[(idx + 1) % PHYSICS_ROTATION.length];
+    const keyB = PHYSICS_ROTATION[(idx + 3) % PHYSICS_ROTATION.length];
+    const optA = PHYSICS_LABELS[keyA];
+    const optB = PHYSICS_LABELS[keyB];
     const pollLine = `A) ${optA}  •  B) ${optB}`;
     const commentPrompt = `VOTE NEXT SIMULATION 👇\nA) ${optA}\nB) ${optB}\nComment A or B — most votes wins! ⚡`;
     const enrichedDescription = `${job.description}\n\n${commentPrompt}`;
@@ -772,6 +776,8 @@ export function getEngagementKit(job: PublishJob): EngagementKit {
     return {
       episodeNumber: epNum,
       introCta: PHYSICS_CTAS[job.niche],
+      optionAKey: keyA,
+      optionBKey: keyB,
       optionA: optA,
       optionB: optB,
       pollLine,
@@ -791,10 +797,55 @@ export function getEngagementKit(job: PublishJob): EngagementKit {
   return {
     episodeNumber: epIdx + 1,
     introCta: `EP. ${String(epIdx + 1).padStart(2, "0")}`,
+    optionAKey: nextA.episode,
+    optionBKey: nextB.episode,
     optionA: optA,
     optionB: optB,
     pollLine,
     commentPrompt,
     enrichedDescription,
   };
+}
+
+/**
+ * Yorum oylamasından kazanan A veya B anahtarına göre bir sonraki yayını öne alır.
+ * - `explainer`: o bölüm henüz yayınlanmadıysa onu döndürür.
+ * - `physics`: o nişin küratörlü bölümü yayınlanmadıysa onu, yayınlandıysa yeni seed ile taze bir bölüm üretir.
+ */
+export function pickJobByKey(
+  channel: ChannelId,
+  key: string,
+  publishedIds: Set<string>,
+): PublishJob | null {
+  if (channel === "explainer") {
+    return EXPLAINER_JOBS.find((j) => j.episode === key && !publishedIds.has(j.id)) ?? null;
+  }
+
+  if (!PHYSICS_ROTATION.includes(key as PhysicsNiche)) return null;
+  const niche = key as PhysicsNiche;
+  const curated = CURATED_PHYSICS_JOBS.find((j) => j.niche === niche && !publishedIds.has(j.id));
+  if (curated) return curated;
+
+  for (let seed = 300; seed < 9000; seed++) {
+    const id = `${niche}-seed${seed}`;
+    if (!publishedIds.has(id)) {
+      const meta = INFINITE_ANGLES[niche];
+      const hook = meta.hooks[seed % meta.hooks.length];
+      const narration = meta.narrations[seed % meta.narrations.length];
+      return {
+        id,
+        channel: "physics",
+        niche,
+        seed,
+        seconds: 32,
+        hook,
+        narration,
+        title: `YOU VOTED FOR THIS: ${meta.titlePrefix} #shorts`.slice(0, 100),
+        description: `Requested by your comments! Deterministic 60fps visualization exploring ${meta.topic}.\n\n#shorts #physics #simulation #science`,
+        tags: ["physics simulation", "science", "math", niche.replace("-", " "), "shorts"],
+        categoryId: "28",
+      };
+    }
+  }
+  return null;
 }

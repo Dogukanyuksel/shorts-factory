@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, getEngagementKit, pickNextJob } from "../src/catalog.js";
-import { buildInstagramCaption } from "../src/instagram.js";
+import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, getEngagementKit, pickJobByKey, pickNextJob } from "../src/catalog.js";
+import { buildInstagramCaption, tallyABVotes } from "../src/instagram.js";
 import { buildYouTubeVideoPayload } from "../src/youtube.js";
 
 test("pickNextJob (physics): ardışık iki video asla aynı simülasyon mekaniğini tekrarlamaz ve tüm sahneler mevcuttur", () => {
@@ -72,4 +72,27 @@ test("getEngagementKit: her video için A/B oylaması, ilk yorum ve seri rozeti 
   assert.equal(expKit.introCta, "EP. 03");
   assert.notEqual(expKit.optionA, expKit.optionB);
   assert.ok(expKit.commentPrompt.includes("VOTE NEXT EPISODE"));
+});
+
+test("tallyABVotes & pickJobByKey: yorumlardaki A/B oylarını doğru sayar ve kazananı seçer", () => {
+  const tally = tallyABVotes(
+    [
+      "VOTE NEXT SIMULATION 👇\nA) Marble Drop\nB) Double Pendulum",
+      "B",
+      "b!",
+      "Double Pendulum please",
+      "A",
+    ],
+    "Marble Drop",
+    "Double Pendulum",
+  );
+  assert.equal(tally.votesA, 1);
+  assert.equal(tally.votesB, 3);
+  assert.equal(tally.winner, "B");
+
+  const picked = pickJobByKey("physics", "double-pendulum", new Set());
+  assert.ok(picked && picked.channel === "physics" && picked.niche === "double-pendulum");
+
+  const pickedExp = pickJobByKey("explainer", "jet-engine", new Set());
+  assert.ok(pickedExp && pickedExp.channel === "explainer" && pickedExp.episode === "jet-engine");
 });

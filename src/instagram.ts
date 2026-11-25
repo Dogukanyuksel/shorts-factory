@@ -149,3 +149,57 @@ export async function postInstagramComment(
   const json = JSON.parse(text) as { id?: string };
   return json.id || "";
 }
+
+/**
+ * Instagram Reels videosundaki son yorumları çeker (A/B anket oylarını saymak için).
+ */
+export async function fetchInstagramComments(
+  mediaId: string,
+  creds: InstagramCredentials,
+  limit = 100,
+): Promise<string[]> {
+  const url = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?fields=text&limit=${limit}&access_token=${encodeURIComponent(creds.accessToken)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Instagram yorum okuma hatası (${res.status}): ${text.slice(0, 400)}`);
+  }
+  const json = JSON.parse(text) as { data?: Array<{ text?: string }> };
+  return (json.data || []).map((c) => (c.text || "").trim()).filter(Boolean);
+}
+
+/**
+ * Yorumlardaki A ve B oylarını sayar (kendi "VOTE NEXT..." bot yorumumuzu otomatik eler).
+ */
+export function tallyABVotes(
+  comments: string[],
+  labelA: string,
+  labelB: string,
+): { votesA: number; votesB: number; winner: "A" | "B" | null } {
+  let votesA = 0;
+  let votesB = 0;
+  const normA = labelA.toLowerCase();
+  const normB = labelB.toLowerCase();
+
+  for (const raw of comments) {
+    const t = raw.trim();
+    const low = t.toLowerCase();
+    // Kendi anket yorumumuzu sayma
+    if (low.includes("vote next") || (low.includes("a)") && low.includes("b)"))) continue;
+
+    const pickA =
+      /^a\b[\s)!.:,-]*$/i.test(t) ||
+      /\boption\s*a\b|\bvote\s*a\b|^a\)/i.test(low) ||
+      (normA.length >= 4 && low.includes(normA));
+    const pickB =
+      /^b\b[\s)!.:,-]*$/i.test(t) ||
+      /\boption\s*b\b|\bvote\s*b\b|^b\)/i.test(low) ||
+      (normB.length >= 4 && low.includes(normB));
+
+    if (pickA && !pickB) votesA++;
+    else if (pickB && !pickA) votesB++;
+  }
+
+  if (votesA === 0 && votesB === 0) return { votesA, votesB, winner: null };
+  return { votesA, votesB, winner: votesB > votesA ? "B" : "A" };
+}
