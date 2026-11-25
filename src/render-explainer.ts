@@ -164,8 +164,10 @@ async function main() {
       "-y", "-i", rawMp4,
       "-f", "s16le", "-ar", String(SAMPLE_RATE), "-ac", "2", "-i", mixPath,
       "-vf", "scale=1080:1920:flags=lanczos,setsar=1,format=yuv420p",
-      "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-r", String(fps),
-      "-c:a", "aac", "-b:a", "192k", "-t", totalSec.toFixed(2), "-movflags", "+faststart",
+      "-c:v", "libx264", "-profile:v", "main", "-level", "4.1", "-preset", "medium", "-crf", "20",
+      "-maxrate", "6M", "-bufsize", "12M", "-g", String(fps * 2), "-keyint_min", String(fps),
+      "-sc_threshold", "0", "-bf", "2", "-r", String(fps),
+      "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-t", totalSec.toFixed(2), "-movflags", "+faststart",
       finalMp4,
     ]);
     console.log(`[explainer] TAMAM: ${finalMp4} (${totalSec.toFixed(1)}s)`);

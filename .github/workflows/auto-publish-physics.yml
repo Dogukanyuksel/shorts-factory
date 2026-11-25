@@ -10,6 +10,10 @@ on:
         description: "Sadece render al, YouTube'a yükleme (test)"
         type: boolean
         default: false
+      sync_instagram_only:
+        description: "Sadece YouTube'da olup Instagram'da eksik olan Reels'leri eşitle"
+        type: boolean
+        default: false
       privacy:
         description: "Video gizlilik durumu"
         type: choice
@@ -77,6 +81,7 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+          SYNC_INSTAGRAM_ONLY: ${{ inputs.sync_instagram_only == true && 'true' || 'false' }}
         run: npm run publish:physics
 
       - name: Yayın durumunu (state/published.json) kaydet

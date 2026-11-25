@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { pickNextJob, type ChannelId, type PublishJob } from "./catalog.js";
+import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, pickNextJob, type ChannelId, type PublishJob } from "./catalog.js";
 import { buildInstagramCaption, uploadReelToInstagram } from "./instagram.js";
 import { uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
 
@@ -90,11 +90,42 @@ async function main() {
   }
   const channel: ChannelId = rawChannel;
   const dryRun = hasFlag("dry-run") || process.env.DRY_RUN === "true";
+  const syncIgOnly = hasFlag("sync-instagram") || process.env.SYNC_INSTAGRAM_ONLY === "true";
   const privacyRaw = parseArg("privacy", process.env.YOUTUBE_PRIVACY || "public");
   const privacyStatus: PrivacyStatus =
     privacyRaw === "private" || privacyRaw === "unlisted" ? privacyRaw : "public";
 
   const state = await loadState();
+
+  if (syncIgOnly) {
+    const igUserId =
+      process.env.IG_USER_ID?.trim() ||
+      (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
+      "";
+    const metaToken = process.env.META_ACCESS_TOKEN?.trim() || "";
+    if (!igUserId || !metaToken) {
+      throw new Error("Instagram senkronizasyonu için IG_USER_ID ve META_ACCESS_TOKEN gerekli.");
+    }
+    const missing = state.published.filter((r) => r.channel === channel && !r.instagramMediaId);
+    if (missing.length === 0) {
+      console.log(`[auto-publish] "${channel}" kanalında Instagram'da eksik video yok.`);
+      return;
+    }
+    const allJobs: PublishJob[] = [...CURATED_PHYSICS_JOBS, ...EXPLAINER_JOBS];
+    for (const rec of missing) {
+      const job = allJobs.find((j) => j.id === rec.id);
+      if (!job) continue;
+      console.log(`\n[sync-instagram] Eksik Reels render & yükleme: ${job.id}`);
+      const mp4Path = await renderJob(job);
+      const igCaption = buildInstagramCaption(job.title, job.description);
+      const igRes = await uploadReelToInstagram(mp4Path, igCaption, { igUserId, accessToken: metaToken });
+      rec.instagramMediaId = igRes.mediaId;
+      await saveState(state);
+      console.log(`✅ [sync-instagram] YÜKLENDİ: ${job.id} → mediaId=${igRes.mediaId}`);
+    }
+    return;
+  }
+
   const publishedIds = new Set(state.published.map((r) => r.id));
   const job = pickNextJob(channel, publishedIds);
 

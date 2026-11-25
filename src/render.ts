@@ -153,9 +153,10 @@ async function main() {
       "-i", rawMp4,
       "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", pcmPath,
       "-vf", "scale=1080:1920:flags=lanczos,setsar=1,format=yuv420p",
-      "-c:v", "libx264", "-profile:v", "main", "-level", "4.1", "-preset", "medium", "-crf", "18",
-      "-maxrate", "10M", "-bufsize", "20M", "-r", String(fps),
-      "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
+      "-c:v", "libx264", "-profile:v", "main", "-level", "4.1", "-preset", "medium", "-crf", "20",
+      "-maxrate", "6M", "-bufsize", "12M", "-g", String(fps * 2), "-keyint_min", String(fps),
+      "-sc_threshold", "0", "-bf", "2", "-r", String(fps),
+      "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart",
       finalMp4,
     ]);
     console.log(`[shorts-factory] TAMAM: ${finalMp4}`);
