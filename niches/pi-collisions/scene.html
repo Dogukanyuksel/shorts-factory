@@ -1,0 +1,543 @@
+<!doctype html>
+<!-- Pi Collisions: Elastic block collisions computing the digits of Pi (31 -> 314 -> 3141) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'BLOCKS THAT COMPUTE PI!';
+let rng = 1, events = [], sparks = [];
+let rounds = [], roundWindows = [];
+let lastClackSoundT = -1, roundDoneTriggered = [false, false, false], finaleTriggered = false;
+let prevRoundIdx = -1, prevClackCount = 0;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+// Exact elastic collision timeline for small block (m=1) and big block (M=100^d)
+// Uses exact phase-space angle theta = atan(1 / sqrt(M)) so collision count is 100% exact:
+// M=100 -> 31, M=10,000 -> 314, M=1,000,000 -> 3141.
+function buildRound(M, label, digits) {
+  const sqrtM = Math.sqrt(M);
+  const theta = Math.atan2(1, sqrtM);
+  const totalClacks = Math.floor(Math.PI / theta);
+  const v0 = 1.0;
+  const R = sqrtM * v0; // phase-space circle radius sqrt(M)*v0
+
+  // Start positions in normalized track coords [0, 1] (wall at x = 0)
+  let x1 = 0.24;
+  let x2 = 0.68;
+  let v1 = 0;
+  let v2 = -v0;
+  let t = 0;
+
+  // Store keyframes: { t, x1, x2, v1, v2, kind, count, angle }
+  const states = [{ t: 0, x1, x2, v1, v2, kind: 'start', count: 0, angle: 0 }];
+
+  for (let k = 1; k <= totalClacks; k++) {
+    let dt = 0;
+    let kind = 'block';
+    if (k % 2 === 1) {
+      // Block-block collision: x1 + v1*dt = x2 + v2*dt
+      dt = (x2 - x1) / (v1 - v2);
+      if (dt < 0) dt = 0;
+      t += dt;
+      x1 += v1 * dt;
+      x2 = x1;
+      kind = 'block';
+    } else {
+      // Small block hits left wall at x1 = 0
+      dt = -x1 / v1;
+      if (dt < 0) dt = 0;
+      t += dt;
+      x1 = 0;
+      x2 += v2 * dt;
+      kind = 'wall';
+    }
+
+    // Exact phase-space velocities after k collisions (zero floating-point drift!)
+    // u1 = v1 = (-1)^k * R * sin(k * theta) ... wait: let's check sign:
+    // k=0: v1=0, v2=-v0 => (u1, u2) = (0, -R)
+    // k=1 (block): v1 = -2*M/(M+1)*v0 = -sqrtM * sin(2*theta) * v0? Wait:
+    // Exact: sin(k*theta):
+    // k=1: v1 = -R * sin(theta)? No: at k=1, v1 = -2M/(M+1) v0 = -sqrt(M) * (2*sqrt(M)/(M+1)) * v0 = -R * sin(2*theta)!
+    // Wait: let's check k=1: 2*sqrt(M)/(M+1) = sin(2*atan(1/sqrt(M))) = sin(2*theta) -> YES!
+    // Wait: at k=1, v2 = -(M-1)/(M+1) v0 = -v0 * cos(2*theta), so u2 = -R * cos(2*theta).
+    // At k=2 (wall): v1 -> -v1 = +R * sin(2*theta), v2 unchanged = -v0 * cos(2*theta).
+    // At k=3 (block): phase rotates by +2*theta again -> u1 = -R * sin(4*theta), u2 = -R * cos(4*theta)?
+    // Let's check exact angle step: each pair (block + wall) rotates by 2*theta!
+    // Specifically:
+    //   after odd k = 2m+1 (block collision): u1 = -R * sin((k+1)*theta), u2 = -R * cos((k+1)*theta)
+    //   after even k = 2m  (wall collision):  u1 = +R * sin(k*theta),     u2 = -R * cos(k*theta)
+    // Let's verify for M=1 (theta = pi/4):
+    //   k=0: v1=0, v2=-1
+    //   k=1 (block): u1 = -sin(pi/2) = -1, u2 = -cos(pi/2) = 0 -> v1=-1, v2=0. Exact!
+    //   k=2 (wall):  u1 = +sin(pi/2) = +1, u2 = -cos(pi/2) = 0 -> v1=+1, v2=0. Exact!
+    //   k=3 (block): u1 = -sin(pi) = 0,    u2 = -cos(pi) = +1  -> v1=0, v2=+1. Exact! (3 collisions for M=1!)
+    if (k % 2 === 1) {
+      const ang = (k + 1) * theta;
+      v1 = -R * Math.sin(ang);
+      v2 = -(R / sqrtM) * Math.cos(ang);
+    } else {
+      const ang = k * theta;
+      v1 = R * Math.sin(ang);
+      v2 = -(R / sqrtM) * Math.cos(ang);
+    }
+
+    states.push({ t, x1, x2, v1, v2, kind, count: k, angle: k * theta });
+  }
+
+  // Add a smooth post-collision coasting tail so the big block glides away cleanly
+  const last = states[states.length - 1];
+  const coastDur = Math.max(0.45, last.t * 0.35);
+  const tEnd = last.t + coastDur;
+
+  return {
+    M,
+    label,
+    digits,
+    totalClacks,
+    theta,
+    R,
+    sqrtM,
+    states,
+    tLastClack: last.t,
+    tEnd
+  };
+}
+
+function sampleRound(round, simT) {
+  const st = round.states;
+  // Binary search for largest index i with st[i].t <= simT
+  let lo = 0, hi = st.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (st[mid].t <= simT) lo = mid;
+    else hi = mid - 1;
+  }
+  const s = st[lo];
+  const dt = Math.max(0, simT - s.t);
+  return {
+    x1: Math.max(0, s.x1 + s.v1 * dt),
+    x2: Math.max(0, s.x2 + s.v2 * dt),
+    v1: s.v1,
+    v2: s.v2,
+    count: s.count,
+    kind: s.kind,
+    angle: s.angle,
+    lastClackT: s.t
+  };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'BLOCKS THAT COMPUTE PI!';
+  cv.width = W; cv.height = H;
+  rng = ((cfg.seed || 1) * 1664525 + 1013904223) >>> 0;
+
+  rounds = [
+    buildRound(100, '100 : 1', '3.1'),
+    buildRound(10000, '10,000 : 1', '3.14'),
+    buildRound(1000000, '1,000,000 : 1', '3.141')
+  ];
+
+  // Pace 3 escalating rounds across 0% -> 89% of DUR, finale banner from 89% -> 100%
+  const finaleStart = DUR * 0.89;
+  roundWindows = [
+    { start: 0, end: finaleStart * 0.28 },
+    { start: finaleStart * 0.28, end: finaleStart * 0.60 },
+    { start: finaleStart * 0.60, end: finaleStart }
+  ];
+
+  events = []; sparks = [];
+  lastClackSoundT = -1;
+  roundDoneTriggered = [false, false, false];
+  finaleTriggered = false;
+  prevRoundIdx = -1;
+  prevClackCount = 0;
+};
+
+function spawnSparks(x, y, col, n, S) {
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI * 0.92 + rand() * Math.PI * 0.84;
+    const spd = (120 + rand() * 340) * S;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd - 60 * S,
+      life: 1.0,
+      size: (2.5 + rand() * 4) * S,
+      col
+    });
+  }
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const finaleStart = DUR * 0.89;
+  const isFinale = t >= finaleStart;
+
+  // Determine active round
+  let rIdx = 2;
+  if (t < roundWindows[0].end) rIdx = 0;
+  else if (t < roundWindows[1].end) rIdx = 1;
+  const rw = roundWindows[rIdx];
+  const rd = rounds[rIdx];
+
+  if (rIdx !== prevRoundIdx) {
+    prevRoundIdx = rIdx;
+    prevClackCount = 0;
+  }
+
+  const localProg = Math.max(0, Math.min(1, (t - rw.start) / (rw.end - rw.start)));
+  // Slight ease so the intense clack burst near the wall gets juicy visual time
+  const simT = isFinale ? rd.tEnd : localProg * rd.tEnd;
+  const state = sampleRound(rd, simT);
+
+  // Track geometry
+  const wallX = 78 * S;
+  const trackY = H * 0.72;
+  const trackW = W - 120 * S;
+  const smallSize = 54 * S;
+  const bigSizes = [108 * S, 134 * S, 162 * S];
+  const bigSize = bigSizes[rIdx];
+
+  // Visual positions (keeping blocks cleanly non-overlapping)
+  const scaleX = trackW - smallSize - bigSize - 24 * S;
+  const bx1 = wallX + state.x1 * scaleX;
+  const bx2 = wallX + smallSize + state.x2 * scaleX;
+
+  // Detect new clacks this frame
+  const newClacks = state.count - prevClackCount;
+  if (newClacks > 0 && !isFinale) {
+    const impactX = state.kind === 'wall' ? wallX : bx1 + smallSize;
+    const impactY = trackY - smallSize * 0.5;
+    const col = state.kind === 'wall' ? '#22d3ee' : '#facc15';
+    spawnSparks(impactX, impactY, col, Math.min(16, 4 + newClacks * 2), S);
+
+    // Throttled pitch-rising bounce events so audio stays crisp during 3141-clack burst
+    if (t - lastClackSoundT >= 0.032) {
+      lastClackSoundT = t;
+      const frac = state.count / rd.totalClacks;
+      const pitchIndex = Math.min(14, Math.floor(frac * 12) + rIdx);
+      const intensity = Math.min(0.85, 0.35 + frac * 0.45);
+      events.push({ t, type: 'bounce', pitchIndex, intensity });
+    }
+    prevClackCount = state.count;
+  }
+
+  // Trigger round completion chime
+  if (state.count >= rd.totalClacks && !roundDoneTriggered[rIdx]) {
+    roundDoneTriggered[rIdx] = true;
+    events.push({ t, type: 'break', pitchIndex: 8 + rIdx * 2, intensity: 0.9 });
+    spawnSparks(wallX + smallSize * 1.4, trackY - bigSize * 0.5, '#facc15', 24, S);
+  }
+
+  // Trigger finale win event
+  if (isFinale && !finaleTriggered) {
+    finaleTriggered = true;
+    events.push({ t, type: 'win', pitchIndex: 12, intensity: 1.0 });
+    spawnSparks(W * 0.5, H * 0.44, '#facc15', 32, S);
+    spawnSparks(W * 0.5, H * 0.44, '#22d3ee', 24, S);
+  }
+
+  // Update sparks
+  const dtFrame = 1 / FPS;
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i];
+    p.x += p.vx * dtFrame;
+    p.y += p.vy * dtFrame;
+    p.vy += 620 * S * dtFrame;
+    p.life -= dtFrame * 2.2;
+    if (p.life <= 0) sparks.splice(i, 1);
+  }
+
+  // --- RENDER ---
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle radial ambient glow behind counter
+  const bgGrad = ctx.createRadialGradient(W * 0.5, H * 0.31, 20 * S, W * 0.5, H * 0.31, 340 * S);
+  bgGrad.addColorStop(0, isFinale ? 'rgba(250,204,21,0.16)' : 'rgba(34,211,238,0.12)');
+  bgGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid lines
+  ctx.strokeStyle = 'rgba(148,163,184,0.06)';
+  ctx.lineWidth = 1 * S;
+  const gridStep = 48 * S;
+  for (let gx = 0; gx < W; gx += gridStep) {
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+  }
+  for (let gy = 0; gy < H; gy += gridStep) {
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+  }
+
+  // Top HOOK text
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(34,211,238,0.45)';
+  ctx.shadowBlur = 14 * S;
+  ctx.fillText(HOOK, W * 0.5, H * 0.095);
+  ctx.restore();
+
+  // Round escalation pills (31 -> 314 -> 3141)
+  const pillY = H * 0.145;
+  const pillW = 196 * S, pillH = 54 * S, pillGap = 18 * S;
+  const startX = W * 0.5 - (pillW * 3 + pillGap * 2) * 0.5;
+  const pillLabels = ['M = 100', 'M = 10,000', 'M = 1,000,000'];
+  const pillResults = ['31', '314', '3141'];
+
+  for (let i = 0; i < 3; i++) {
+    const px = startX + i * (pillW + pillGap);
+    const active = i === rIdx && !isFinale;
+    const done = i < rIdx || roundDoneTriggered[i];
+    ctx.save();
+    ctx.fillStyle = active ? 'rgba(34,211,238,0.16)' : done ? 'rgba(250,204,21,0.14)' : 'rgba(15,23,42,0.75)';
+    ctx.strokeStyle = active ? '#22d3ee' : done ? '#facc15' : 'rgba(148,163,184,0.28)';
+    ctx.lineWidth = (active ? 3 : 2) * S;
+    ctx.beginPath();
+    ctx.roundRect(px, pillY, pillW, pillH, 14 * S);
+    ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `800 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = active ? '#67e8f9' : done ? '#fde047' : '#94a3b8';
+    ctx.fillText(pillLabels[i], px + pillW * 0.5, pillY + 23 * S);
+    ctx.font = `900 ${Math.round(19 * S)}px monospace`;
+    ctx.fillStyle = done ? '#facc15' : active ? '#ffffff' : '#64748b';
+    ctx.fillText(done ? `✓ ${pillResults[i]}` : active ? 'ACTIVE' : 'LOCKED', px + pillW * 0.5, pillY + 45 * S);
+    ctx.restore();
+  }
+
+  // Huge glowing neon collision counter
+  const counterY = H * 0.305;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('COLLISIONS', W * 0.5, counterY - 76 * S);
+
+  const counterStr = String(state.count);
+  const pulse = newClacks > 0 ? 1.045 : 1.0;
+  ctx.translate(W * 0.5, counterY);
+  ctx.scale(pulse, pulse);
+  ctx.font = `900 ${Math.round(134 * S)}px monospace`;
+  ctx.fillStyle = roundDoneTriggered[rIdx] || isFinale ? '#fde047' : '#ffffff';
+  ctx.shadowColor = roundDoneTriggered[rIdx] || isFinale ? '#facc15' : '#22d3ee';
+  ctx.shadowBlur = 32 * S;
+  ctx.fillText(counterStr, 0, 18 * S);
+  ctx.restore();
+
+  // Digit comparison strip: 31 -> 314 -> 3141
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(24 * S)}px monospace`;
+  ctx.fillStyle = '#38bdf8';
+  const piRef = 'π = 3 . 1 4 1 5 9 2 6 . . .';
+  ctx.fillText(piRef, W * 0.5, counterY + 62 * S);
+  ctx.restore();
+
+  // Phase-space circle diagram (shows why theta = atan(1/sqrt(M)) produces Pi!)
+  const psCx = W * 0.5, psCy = H * 0.495, psR = 112 * S;
+  ctx.save();
+  // Circle backdrop
+  ctx.fillStyle = 'rgba(15,23,42,0.65)';
+  ctx.beginPath(); ctx.arc(psCx, psCy, psR, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(148,163,184,0.3)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  // Axes
+  ctx.strokeStyle = 'rgba(148,163,184,0.18)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(psCx - psR - 14 * S, psCy); ctx.lineTo(psCx + psR + 14 * S, psCy);
+  ctx.moveTo(psCx, psCy - psR - 14 * S); ctx.lineTo(psCx, psCy + psR + 14 * S);
+  ctx.stroke();
+
+  // Swept arc of phase angle (0 -> pi)
+  const sweepAngle = Math.min(Math.PI, state.angle);
+  ctx.strokeStyle = '#22d3ee';
+  ctx.lineWidth = 5 * S;
+  ctx.shadowColor = '#22d3ee';
+  ctx.shadowBlur = 12 * S;
+  ctx.beginPath();
+  ctx.arc(psCx, psCy, psR, Math.PI * 0.5, Math.PI * 0.5 - sweepAngle, true);
+  ctx.stroke();
+
+  // Current phase-space state vector (sqrt(M)*v2 on Y, v1 on X)
+  const u1 = state.v1 / rd.R;
+  const u2 = (rd.sqrtM * state.v2) / rd.R;
+  const dotX = psCx + u1 * psR;
+  const dotY = psCy - u2 * psR;
+
+  ctx.strokeStyle = '#facc15';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.moveTo(psCx, psCy); ctx.lineTo(dotX, dotY); ctx.stroke();
+
+  ctx.fillStyle = '#fde047';
+  ctx.shadowColor = '#facc15';
+  ctx.shadowBlur = 16 * S;
+  ctx.beginPath(); ctx.arc(dotX, dotY, 8 * S, 0, Math.PI * 2); ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.textAlign = 'center';
+  ctx.font = `700 ${Math.round(17 * S)}px monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText(`PHASE SPACE  •  θ = atan(1/√M)  •  ${Math.round((sweepAngle / Math.PI) * 100)}% of π`, psCx, psCy + psR + 34 * S);
+  ctx.restore();
+
+  // --- FRICTIONLESS TRACK & WALL ---
+  ctx.save();
+  // Left neon wall
+  const wallFlash = newClacks > 0 && state.kind === 'wall';
+  ctx.fillStyle = wallFlash ? '#67e8f9' : '#1e293b';
+  ctx.fillRect(wallX - 24 * S, trackY - 230 * S, 24 * S, 234 * S);
+  ctx.strokeStyle = wallFlash ? '#ffffff' : '#22d3ee';
+  ctx.lineWidth = (wallFlash ? 6 : 4) * S;
+  ctx.shadowColor = '#22d3ee';
+  ctx.shadowBlur = (wallFlash ? 28 : 14) * S;
+  ctx.beginPath();
+  ctx.moveTo(wallX, trackY - 230 * S);
+  ctx.lineTo(wallX, trackY);
+  ctx.stroke();
+
+  // Floor track
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  ctx.moveTo(wallX - 24 * S, trackY);
+  ctx.lineTo(W - 32 * S, trackY);
+  ctx.stroke();
+
+  // Floor glow reflection
+  const floorGrad = ctx.createLinearGradient(0, trackY, 0, trackY + 60 * S);
+  floorGrad.addColorStop(0, 'rgba(34,211,238,0.22)');
+  floorGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = floorGrad;
+  ctx.fillRect(wallX, trackY, W - wallX - 32 * S, 60 * S);
+  ctx.restore();
+
+  // --- SMALL BLOCK (m = 1 kg) ---
+  ctx.save();
+  const sGrad = ctx.createLinearGradient(bx1, trackY - smallSize, bx1 + smallSize, trackY);
+  sGrad.addColorStop(0, '#38bdf8');
+  sGrad.addColorStop(1, '#0284c7');
+  ctx.fillStyle = sGrad;
+  ctx.shadowColor = '#22d3ee';
+  ctx.shadowBlur = 22 * S;
+  ctx.beginPath();
+  ctx.roundRect(bx1, trackY - smallSize, smallSize, smallSize, 8 * S);
+  ctx.fill();
+  ctx.strokeStyle = '#e0f2fe';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+  ctx.fillText('1kg', bx1 + smallSize * 0.5, trackY - smallSize * 0.42);
+  ctx.restore();
+
+  // --- BIG BLOCK (M = 100 / 10,000 / 1,000,000 kg) ---
+  const drawBx2 = Math.min(W + 40 * S, bx2);
+  ctx.save();
+  const bGrad = ctx.createLinearGradient(drawBx2, trackY - bigSize, drawBx2 + bigSize, trackY);
+  bGrad.addColorStop(0, '#f43f5e');
+  bGrad.addColorStop(1, '#be123c');
+  ctx.fillStyle = bGrad;
+  ctx.shadowColor = '#fb7185';
+  ctx.shadowBlur = 26 * S;
+  ctx.beginPath();
+  ctx.roundRect(drawBx2, trackY - bigSize, bigSize, bigSize, 14 * S);
+  ctx.fill();
+  ctx.strokeStyle = '#ffe4e6';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  const massTxt = rd.M === 100 ? '100' : rd.M === 10000 ? '10K' : '1M';
+  ctx.font = `900 ${Math.round(36 * S)}px -apple-system, sans-serif`;
+  ctx.fillText(massTxt, drawBx2 + bigSize * 0.5, trackY - bigSize * 0.46);
+  ctx.font = `800 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#fecdd3';
+  ctx.fillText('kg', drawBx2 + bigSize * 0.5, trackY - bigSize * 0.24);
+  ctx.restore();
+
+  // Sparks
+  for (const p of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.col;
+    ctx.shadowColor = p.col;
+    ctx.shadowBlur = 10 * S;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Bottom progress bar across all 3 rounds
+  const barX = 64 * S, barY = H * 0.84, barW = W - 128 * S, barH = 14 * S;
+  ctx.save();
+  ctx.fillStyle = 'rgba(30,41,59,0.8)';
+  ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 7 * S); ctx.fill();
+  const overallP = Math.min(1, t / finaleStart);
+  const fillGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  fillGrad.addColorStop(0, '#22d3ee');
+  fillGrad.addColorStop(0.6, '#f43f5e');
+  fillGrad.addColorStop(1, '#facc15');
+  ctx.fillStyle = fillGrad;
+  ctx.beginPath(); ctx.roundRect(barX, barY, barW * overallP, barH, 7 * S); ctx.fill();
+
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(21 * S)}px monospace`;
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText(`MASS RATIO ${rd.label}  •  TARGET: ${rd.totalClacks} CLACKS`, W * 0.5, barY + 44 * S);
+  ctx.restore();
+
+  // Finale banner at ~89% of DUR
+  if (isFinale) {
+    const finAge = Math.min(1, (t - finaleStart) / 0.35);
+    const scale = 0.88 + 0.12 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(W * 0.5, H * 0.495);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.92)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.43, -72 * S, W * 0.86, 144 * S, 28 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 24 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(52 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('PI = 3.141...! 🥧', 0, 4 * S);
+    ctx.font = `800 ${Math.round(23 * S)}px monospace`;
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText('31  →  314  →  3,141 CLACKS', 0, 46 * S);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

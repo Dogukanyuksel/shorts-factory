@@ -1,0 +1,365 @@
+<!doctype html>
+<!-- How It Actually Works — How Your Toaster Knows When to Pop -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: "Push the lever down, and you're stretching a spring.", caption: "SPRING LOADED" },
+  { id: 'magnet', text: "An electromagnet grabs a metal plate and holds the bread down.", caption: "MAGNET HOLDS IT" },
+  { id: 'glow', text: "The same circuit powers the glowing nichrome wires.", caption: "WIRES GLOW RED" },
+  { id: 'dial', text: "Your browning dial sets a timer in that circuit.", caption: "DIAL SETS TIME" },
+  { id: 'off', text: "When time's up, the magnet switches off.", caption: "MAGNET OFF" },
+  { id: 'outro', text: "The spring launches the toast, and the heat cuts out instantly.", caption: "POP!" },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('hook').start + 0.45, type: 'bounce', pitchIndex: 3, intensity: 0.6 },
+    { t: byId('magnet').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.65 },
+    { t: byId('glow').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.6 },
+    { t: byId('off').start + 0.25, type: 'break', pitchIndex: 4, intensity: 0.75 },
+    { t: byId('outro').start + 0.12, type: 'win', pitchIndex: 11, intensity: 0.95 },
+  ];
+};
+
+function rrect(x, y, w, h, r) {
+  const rr = Math.min(r, w * 0.5, h * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function drawCoilSpring(x, yTop, yBot, coils, width, color, lw) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, yTop);
+  const step = (yBot - yTop) / coils;
+  for (let i = 0; i < coils; i++) {
+    const ym1 = yTop + (i + 0.25) * step;
+    const ym2 = yTop + (i + 0.75) * step;
+    ctx.lineTo(x - width, ym1);
+    ctx.lineTo(x + width, ym2);
+  }
+  ctx.lineTo(x, yBot);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBread(cx, bottomY, w, h, toastAmt, S) {
+  ctx.save();
+  // Bread crumb color transitions from pale cream to golden-brown toast!
+  const r = Math.round(lerp(245, 198, toastAmt));
+  const g = Math.round(lerp(222, 128, toastAmt));
+  const b = Math.round(lerp(179, 58, toastAmt));
+  const cr = Math.round(lerp(180, 120, toastAmt));
+  const cg = Math.round(lerp(120, 62, toastAmt));
+  const cb = Math.round(lerp(60, 22, toastAmt));
+
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.strokeStyle = `rgb(${cr},${cg},${cb})`;
+  ctx.lineWidth = 7 * S;
+
+  const topY = bottomY - h;
+  const hw = w * 0.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - hw + 10 * S, bottomY);
+  ctx.lineTo(cx + hw - 10 * S, bottomY);
+  ctx.quadraticCurveTo(cx + hw, bottomY, cx + hw, bottomY - 12 * S);
+  ctx.lineTo(cx + hw, topY + 46 * S);
+  ctx.bezierCurveTo(cx + hw + 16 * S, topY + 8 * S, cx + hw * 0.45, topY - 12 * S, cx, topY - 4 * S);
+  ctx.bezierCurveTo(cx - hw * 0.45, topY - 12 * S, cx - hw - 16 * S, topY + 8 * S, cx - hw, topY + 46 * S);
+  ctx.lineTo(cx - hw, bottomY - 12 * S);
+  ctx.quadraticCurveTo(cx - hw, bottomY, cx - hw + 10 * S, bottomY);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Subtle toasted pores
+  ctx.fillStyle = `rgba(120,53,15,${(0.14 + toastAmt * 0.18).toFixed(2)})`;
+  const pores = [[-36, -42], [28, -68], [-12, -108], [44, -124], [-42, -142], [10, -48], [34, -162]];
+  for (const [px, py] of pores) {
+    ctx.beginPath(); ctx.arc(cx + px * S, bottomY + py * S, 4 * S, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const LHook = byId('hook');
+  const LMagnet = byId('magnet');
+  const LGlow = byId('glow');
+  const LDial = byId('dial');
+  const LOff = byId('off');
+  const LOutro = byId('outro');
+
+  // Key animation states
+  const pushDown = smooth(LHook.start + 0.15, LHook.start + 0.9, t);
+  const popStart = LOutro.start + 0.08;
+  const dtPop = Math.max(0, t - popStart);
+  // Elastic spring launch on POP!
+  let popProgress = 0;
+  if (t >= popStart) {
+    popProgress = clamp(1 - Math.exp(-dtPop * 11) * Math.cos(dtPop * 22), 0, 1.18);
+  }
+  const carriageDown = clamp(pushDown * (1 - popProgress), -0.18, 1);
+
+  const powerOn = smooth(LMagnet.start, LMagnet.start + 0.25, t) * (1 - smooth(LOff.start + 0.18, LOff.start + 0.35, t));
+  const heatGlow = smooth(LGlow.start, LGlow.start + 0.65, t) * (1 - smooth(LOff.start + 0.25, LOutro.start + 0.25, t));
+  const toastAmt = smooth(LGlow.start + 0.3, LOff.start + 0.2, t);
+  const pDial = smooth(LDial.start, LDial.start + 0.4, t) * (1 - smooth(LOutro.start, LOutro.start + 0.3, t));
+  const timerFrac = 1 - smooth(LDial.start + 0.2, LOff.start + 0.2, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.68);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const cx = W * 0.46;
+  const bodyTop = H * 0.355;
+  const bodyW = 410 * S;
+  const bodyH = 380 * S;
+  const bodyX = cx - bodyW * 0.5;
+  const zoom = 1 + smooth(0, DUR, t) * 0.04;
+
+  ctx.save();
+  ctx.translate(W * 0.5, H * 0.48); ctx.scale(zoom, zoom); ctx.translate(-W * 0.5, -H * 0.48);
+
+  // 1) Bread Slice (drawn behind toaster front cutaway rim so it pops out of the top slot!)
+  const trayTopY = bodyTop + 148 * S;
+  const trayBotY = bodyTop + 262 * S;
+  const trayY = lerp(trayTopY, trayBotY, carriageDown);
+  const breadBounce = t >= popStart ? Math.max(0, Math.sin(dtPop * 18) * Math.exp(-dtPop * 6) * 28 * S) : 0;
+  drawBread(cx, trayY - 8 * S - breadBounce, 178 * S, 206 * S, toastAmt, S);
+
+  // 2) Toaster Cutaway Outer Stainless Shell
+  const shellG = ctx.createLinearGradient(bodyX, bodyTop, bodyX + bodyW, bodyTop + bodyH);
+  shellG.addColorStop(0, '#475569'); shellG.addColorStop(0.5, '#1e293b'); shellG.addColorStop(1, '#0f172a');
+  ctx.fillStyle = shellG;
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 4 * S;
+  rrect(bodyX, bodyTop, bodyW, bodyH, 34 * S); ctx.fill(); ctx.stroke();
+
+  // Inner Cutaway Chamber Window
+  const winX = bodyX + 24 * S, winY = bodyTop + 18 * S;
+  const winW = bodyW - 48 * S, winH = bodyH - 44 * S;
+  ctx.fillStyle = '#071124';
+  ctx.strokeStyle = '#334155'; ctx.lineWidth = 3 * S;
+  rrect(winX, winY, winW, winH, 20 * S); ctx.fill(); ctx.stroke();
+
+  // Warm infrared ambient glow inside chamber when nichrome wires are hot
+  if (heatGlow > 0.02) {
+    const hg = ctx.createRadialGradient(cx, bodyTop + 165 * S, 20 * S, cx, bodyTop + 165 * S, 195 * S);
+    hg.addColorStop(0, `rgba(239,68,68,${(heatGlow * 0.42).toFixed(2)})`);
+    hg.addColorStop(0.6, `rgba(249,115,22,${(heatGlow * 0.22).toFixed(2)})`);
+    hg.addColorStop(1, 'rgba(239,68,68,0)');
+    ctx.fillStyle = hg;
+    rrect(winX, winY, winW, winH, 20 * S); ctx.fill();
+  }
+
+  // Re-draw lower part of bread clipped inside the cutaway chamber so you see it toasting!
+  ctx.save();
+  rrect(winX, winY, winW, winH, 20 * S); ctx.clip();
+  drawBread(cx, trayY - 8 * S - breadBounce, 178 * S, 206 * S, toastAmt, S);
+  ctx.restore();
+
+  // 3) Nichrome Heating Wire Coils (Left & Right walls of chamber)
+  for (const side of [-1, 1]) {
+    const wx = cx + side * 124 * S;
+    ctx.save();
+    ctx.strokeStyle = heatGlow > 0.05
+      ? `rgb(${Math.round(lerp(100, 255, heatGlow))},${Math.round(lerp(116, 68, heatGlow))},${Math.round(lerp(139, 34, heatGlow))})`
+      : '#64748b';
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = heatGlow * 22 * S;
+    ctx.lineWidth = (4.5 + heatGlow * 2) * S;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const y0 = bodyTop + 42 * S, y1 = bodyTop + 236 * S;
+    const zigs = 10;
+    for (let i = 0; i <= zigs; i++) {
+      const zy = lerp(y0, y1, i / zigs);
+      const zx = wx + (i % 2 === 0 ? -9 : 9) * S;
+      if (i === 0) ctx.moveTo(zx, zy); else ctx.lineTo(zx, zy);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // Heat shimmer rays radiating inward toward bread
+    if (heatGlow > 0.12) {
+      for (let r = 0; r < 4; r++) {
+        const ry = bodyTop + (74 + r * 44) * S;
+        const shift = Math.sin(t * 9 + r) * 5 * S;
+        ctx.strokeStyle = `rgba(251,146,60,${(heatGlow * 0.75).toFixed(2)})`;
+        ctx.lineWidth = 2.5 * S;
+        ctx.beginPath();
+        ctx.moveTo(wx - side * 16 * S, ry);
+        ctx.quadraticCurveTo(wx - side * 28 * S, ry + shift, wx - side * 40 * S, ry);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // 4) Coiled Steel Spring (underneath right side of carriage, compresses/stretches!)
+  const springX = cx + 68 * S;
+  const springBotY = bodyTop + bodyH - 36 * S;
+  const springColor = carriageDown > 0.5 ? '#facc15' : '#94a3b8';
+  drawCoilSpring(springX, trayY + 6 * S, springBotY, 8, 16 * S, springColor, 4.5 * S);
+
+  // 5) Metal Bread Carriage Tray & Steel Latch Plate
+  ctx.fillStyle = '#cbd5e1'; ctx.strokeStyle = '#f8fafc'; ctx.lineWidth = 2.5 * S;
+  rrect(cx - 104 * S, trayY - 6 * S, 208 * S, 12 * S, 5 * S); ctx.fill(); ctx.stroke();
+
+  // Steel latch plate hanging down on left side of carriage to meet electromagnet
+  const latchX = cx - 64 * S;
+  const latchY = trayY + 6 * S;
+  ctx.fillStyle = '#94a3b8'; ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 2.5 * S;
+  ctx.fillRect(latchX - 6 * S, latchY, 12 * S, 28 * S);
+  rrect(latchX - 28 * S, latchY + 24 * S, 56 * S, 12 * S, 4 * S); ctx.fill(); ctx.stroke();
+
+  // 6) Copper-Wound Electromagnet Coil at bottom-left
+  const magX = latchX;
+  const magY = bodyTop + bodyH - 58 * S;
+  ctx.save();
+  // Iron core
+  ctx.fillStyle = '#475569'; ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2.5 * S;
+  rrect(magX - 32 * S, magY - 14 * S, 64 * S, 36 * S, 6 * S); ctx.fill(); ctx.stroke();
+  // Copper windings
+  ctx.strokeStyle = powerOn > 0.2 ? '#fb923c' : '#b45309';
+  ctx.lineWidth = 4 * S;
+  for (let wx = -22 * S; wx <= 22 * S; wx += 8.5 * S) {
+    ctx.beginPath(); ctx.moveTo(magX + wx, magY - 14 * S); ctx.lineTo(magX + wx, magY + 22 * S); ctx.stroke();
+  }
+  // Glowing blue magnetic field loops when energized!
+  if (powerOn > 0.08) {
+    ctx.strokeStyle = `rgba(56,189,248,${(powerOn * (0.65 + 0.25 * Math.sin(t * 10))).toFixed(2)})`;
+    ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 14 * S;
+    ctx.lineWidth = 3 * S;
+    for (let m = 1; m <= 3; m++) {
+      ctx.beginPath();
+      ctx.ellipse(magX, magY - 14 * S, (24 + m * 14) * S, (12 + m * 9) * S, 0, Math.PI, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+
+  // 7) External Push Lever on the right side of toaster
+  const leverX = bodyX + bodyW;
+  const leverY = trayY;
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(leverX - 4 * S, bodyTop + 128 * S, 10 * S, 154 * S);
+  ctx.fillStyle = '#e2e8f0'; ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2.5 * S;
+  ctx.fillRect(leverX, leverY - 5 * S, 36 * S, 10 * S);
+  ctx.fillStyle = '#38bdf8'; ctx.strokeStyle = '#e0f2fe'; ctx.lineWidth = 3 * S;
+  rrect(leverX + 26 * S, leverY - 14 * S, 44 * S, 28 * S, 10 * S); ctx.fill(); ctx.stroke();
+
+  // 8) Rotary Browning Dial & Timer Gauge (bottom-right outside shell)
+  const dialX = bodyX + bodyW + 46 * S;
+  const dialY = bodyTop + bodyH - 64 * S;
+  const dialR = 44 * S;
+  ctx.save();
+  ctx.fillStyle = '#0f172a';
+  ctx.strokeStyle = pDial > 0.2 ? '#facc15' : '#64748b';
+  ctx.lineWidth = (3.5 + pDial * 2) * S;
+  ctx.beginPath(); ctx.arc(dialX, dialY, dialR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // Countdown arc
+  ctx.strokeStyle = powerOn > 0.1 ? '#38bdf8' : '#475569';
+  ctx.lineWidth = 6 * S;
+  ctx.beginPath();
+  ctx.arc(dialX, dialY, dialR - 10 * S, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * timerFrac);
+  ctx.stroke();
+  // Dial pointer
+  const dAng = -Math.PI * 0.5 + Math.PI * 2 * timerFrac;
+  ctx.strokeStyle = '#facc15'; ctx.lineWidth = 4 * S; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(dialX, dialY); ctx.lineTo(dialX + Math.cos(dAng) * 24 * S, dialY + Math.sin(dAng) * 24 * S); ctx.stroke();
+  ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(14 * S)}px -apple-system, sans-serif`;
+  ctx.fillText('TIMER', dialX, dialY + dialR + 22 * S);
+  ctx.restore();
+
+  // 9) POP! Sparkle Burst when toast launches!
+  if (t >= popStart && dtPop < 0.85) {
+    const u = dtPop / 0.85;
+    ctx.save();
+    for (let k = 0; k < 10; k++) {
+      const ang = lerp(Math.PI * 1.15, Math.PI * 1.85, k / 9);
+      const dist = (40 + u * 130) * S;
+      const sx = cx + Math.cos(ang) * dist;
+      const sy = bodyTop - 16 * S + Math.sin(ang) * dist;
+      ctx.fillStyle = k % 2 === 0 ? `rgba(74,222,128,${(1 - u).toFixed(2)})` : `rgba(250,204,21,${(1 - u).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, (6 * (1 - u) + 1.5) * S, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Status Telemetry Pill below toaster
+  ctx.save();
+  const pillY = bodyTop + bodyH + 34 * S;
+  const statusText = t >= popStart
+    ? 'POP! · HEAT CUT OFF INSTANTLY'
+    : t >= LOff.start
+      ? 'TIME UP → ELECTROMAGNET OFF'
+      : heatGlow > 0.2
+        ? 'CIRCUIT ON · NICHROME WIRES ~600°C'
+        : powerOn > 0.2
+          ? 'ELECTROMAGNET LOCKED'
+          : 'LEVER DOWN · SPRING STRETCHED';
+  const statusCol = t >= popStart ? '#4ade80' : t >= LOff.start ? '#f87171' : heatGlow > 0.2 ? '#fb923c' : '#38bdf8';
+  ctx.fillStyle = 'rgba(15,23,42,0.9)'; ctx.strokeStyle = statusCol; ctx.lineWidth = 3 * S;
+  rrect(W * 0.5 - 240 * S, pillY, 480 * S, 52 * S, 14 * S); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = statusCol; ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(19 * S)}px -apple-system, sans-serif`;
+  ctx.fillText(statusText, W * 0.5, pillY + 33 * S);
+  ctx.restore();
+
+  ctx.restore(); // end zoom
+
+  // Top Title & Bottom Viral Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(30 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW YOUR TOASTER KNOWS WHEN TO POP', W * 0.5, H * 0.125, W * 0.92);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'outro' ? '#4ade80' : activeLine.id === 'glow' ? '#fb923c' : activeLine.id === 'off' ? '#f87171' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

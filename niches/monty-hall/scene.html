@@ -1,0 +1,529 @@
+<!doctype html>
+<!-- Monty Hall Paradox: 3 Neon Doors + Live 1,000-Game Simulator Racing STAY (~33.3%) vs SWITCH (~66.7%) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'NEVER TRUST YOUR FIRST CHOICE!';
+const TOTAL_GAMES = 1000;
+const SHOWCASE_GAMES = 3;
+let rng = 1, events = [], sparks = [];
+let games = []; // pre-simulated 1,000 deterministic games
+let lastRenderedGame = 0, lastPhaseKey = '', lastFastTickT = -1;
+let milestone500Triggered = false, finaleTriggered = false;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'NEVER TRUST YOUR FIRST CHOICE!';
+  cv.width = W; cv.height = H;
+  rng = ((cfg.seed || 1) * 1664525 + 1013904223) >>> 0;
+
+  // Pre-simulate 1,000 deterministic Monty Hall games
+  games = [];
+  let stayWins = 0, switchWins = 0;
+  for (let i = 0; i < TOTAL_GAMES; i++) {
+    const car = Math.floor(rand() * 3);
+    const pick = Math.floor(rand() * 3);
+    // Host opens a door that is neither the player's pick nor the car
+    const hostOptions = [];
+    for (let d = 0; d < 3; d++) {
+      if (d !== car && d !== pick) hostOptions.push(d);
+    }
+    const host = hostOptions.length === 1 ? hostOptions[0] : hostOptions[Math.floor(rand() * hostOptions.length)];
+    const switchDoor = 3 - pick - host;
+    const stayWin = pick === car;
+    const switchWin = switchDoor === car;
+    if (stayWin) stayWins++;
+    if (switchWin) switchWins++;
+    games.push({
+      index: i + 1,
+      car,
+      pick,
+      host,
+      switchDoor,
+      stayWin,
+      switchWin,
+      stayWins,
+      switchWins,
+      stayPct: (stayWins / (i + 1)) * 100,
+      switchPct: (switchWins / (i + 1)) * 100
+    });
+  }
+
+  events = []; sparks = [];
+  lastRenderedGame = 0;
+  lastPhaseKey = '';
+  lastFastTickT = -1;
+  milestone500Triggered = false;
+  finaleTriggered = false;
+};
+
+function spawnSparks(x, y, col, n, S) {
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const spd = (80 + rand() * 240) * S;
+    sparks.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 1.0, size: (2.8 + rand() * 4) * S, col });
+  }
+}
+
+function drawDoor(x, y, w, h, doorNum, state, S) {
+  // state: { isPicked, isHostOpen, isSwitchTarget, isRevealed, hasCar, openAmt }
+  ctx.save();
+  // Door frame glow
+  const borderCol = state.isRevealed && state.hasCar
+    ? '#facc15'
+    : state.isSwitchTarget
+      ? '#22d3ee'
+      : state.isPicked
+        ? '#ec4899'
+        : state.isHostOpen
+          ? '#64748b'
+          : 'rgba(148,163,184,0.45)';
+
+  // Interior backdrop (visible when open)
+  ctx.fillStyle = state.isRevealed && state.hasCar ? 'rgba(250,204,21,0.16)' : 'rgba(15,23,42,0.92)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 18 * S);
+  ctx.fill();
+
+  // Interior prize / goat icon
+  if (state.openAmt > 0.08) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, state.openAmt * 1.4);
+    ctx.textAlign = 'center';
+    if (state.hasCar) {
+      ctx.font = `900 ${Math.round(56 * S)}px -apple-system, sans-serif`;
+      ctx.fillText('🏆', x + w * 0.5, y + h * 0.52);
+      ctx.font = `900 ${Math.round(20 * S)}px monospace`;
+      ctx.fillStyle = '#fde047';
+      ctx.fillText('PRIZE!', x + w * 0.5, y + h * 0.78);
+    } else {
+      ctx.font = `900 ${Math.round(52 * S)}px -apple-system, sans-serif`;
+      ctx.fillText('🐐', x + w * 0.5, y + h * 0.52);
+      ctx.font = `800 ${Math.round(18 * S)}px monospace`;
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText('GOAT', x + w * 0.5, y + h * 0.78);
+    }
+    ctx.restore();
+  }
+
+  // Swinging neon door panel (foreshortens horizontally as openAmt goes 0 -> 1)
+  const panelW = w * Math.max(0.06, 1 - state.openAmt * 0.88);
+  if (state.openAmt < 0.98) {
+    const grad = ctx.createLinearGradient(x, y, x + panelW, y + h);
+    grad.addColorStop(0, '#1e293b');
+    grad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(x, y, panelW, h, 16 * S);
+    ctx.fill();
+
+    // Door number & handle
+    if (state.openAmt < 0.45) {
+      ctx.globalAlpha = 1 - state.openAmt * 2;
+      ctx.textAlign = 'center';
+      ctx.font = `900 ${Math.round(46 * S)}px monospace`;
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillText(`${doorNum}`, x + panelW * 0.5, y + h * 0.55);
+      // Neon doorknob
+      ctx.fillStyle = borderCol;
+      ctx.beginPath();
+      ctx.arc(x + panelW - 22 * S, y + h * 0.54, 6 * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Outer frame stroke
+  ctx.strokeStyle = borderCol;
+  ctx.lineWidth = (state.isPicked || state.isSwitchTarget || (state.isRevealed && state.hasCar) ? 4 : 2.5) * S;
+  ctx.shadowColor = borderCol;
+  ctx.shadowBlur = (state.isPicked || state.isSwitchTarget || (state.isRevealed && state.hasCar) ? 18 : 6) * S;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 18 * S);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Tag badge below door
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(17 * S)}px monospace`;
+  if (state.isPicked) {
+    ctx.fillStyle = '#f472b6';
+    ctx.fillText('STAY PICK', x + w * 0.5, y + h + 28 * S);
+  } else if (state.isHostOpen) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('HOST OPEN', x + w * 0.5, y + h + 28 * S);
+  } else if (state.isSwitchTarget) {
+    ctx.fillStyle = '#22d3ee';
+    ctx.fillText('SWITCH?', x + w * 0.5, y + h + 28 * S);
+  }
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const showcaseEnd = DUR * 0.30; // ~7.2s for 3 animated individual door reveals
+  const simEnd = DUR * 0.88;      // ~21.1s for 1,000 games completion & finale banner
+  const isFinale = t >= simEnd;
+
+  let activeGameIdx = 0;
+  let doorStates = [
+    { isPicked: false, isHostOpen: false, isSwitchTarget: false, isRevealed: false, hasCar: false, openAmt: 0 },
+    { isPicked: false, isHostOpen: false, isSwitchTarget: false, isRevealed: false, hasCar: false, openAmt: 0 },
+    { isPicked: false, isHostOpen: false, isSwitchTarget: false, isRevealed: false, hasCar: false, openAmt: 0 }
+  ];
+  let statusLine = '';
+  let completedCount = 0;
+
+  if (t < showcaseEnd) {
+    // 3 clearly animated individual games: Pick -> Host Reveals Goat -> Open All & Score!
+    const perGame = showcaseEnd / SHOWCASE_GAMES;
+    const gIdx = Math.min(SHOWCASE_GAMES - 1, Math.floor(t / perGame));
+    const localP = (t - gIdx * perGame) / perGame;
+    const g = games[gIdx];
+    activeGameIdx = gIdx;
+
+    const picked = localP >= 0.12;
+    const hostOpen = localP >= 0.38;
+    const revealAll = localP >= 0.68;
+
+    const hostOpenAmt = hostOpen ? Math.min(1, (localP - 0.38) / 0.16) : 0;
+    const revealOpenAmt = revealAll ? Math.min(1, (localP - 0.68) / 0.16) : 0;
+
+    for (let d = 0; d < 3; d++) {
+      doorStates[d] = {
+        isPicked: picked && d === g.pick,
+        isHostOpen: hostOpen && d === g.host,
+        isSwitchTarget: hostOpen && d === g.switchDoor,
+        isRevealed: revealAll,
+        hasCar: d === g.car,
+        openAmt: d === g.host ? hostOpenAmt : revealOpenAmt
+      };
+    }
+
+    completedCount = revealAll ? gIdx + 1 : gIdx;
+    if (!picked) statusLine = `GAME #${gIdx + 1}: 3 DOORS, 1 PRIZE...`;
+    else if (!hostOpen) statusLine = `GAME #${gIdx + 1}: YOU PICKED DOOR ${g.pick + 1}`;
+    else if (!revealAll) statusLine = `HOST REVEALS GOAT AT DOOR ${g.host + 1} — SWITCH?`;
+    else statusLine = g.switchWin ? `GAME #${gIdx + 1}: SWITCH WON! (+1 CYAN)` : `GAME #${gIdx + 1}: STAY WON! (+1 MAGENTA)`;
+
+    // Showcase audio triggers
+    const phaseKey = `${gIdx}-${picked ? 1 : 0}-${hostOpen ? 1 : 0}-${revealAll ? 1 : 0}`;
+    if (phaseKey !== lastPhaseKey) {
+      lastPhaseKey = phaseKey;
+      if (revealAll) {
+        events.push({ t, type: 'break', pitchIndex: g.switchWin ? 9 : 5, intensity: 0.78 });
+        const winDoorX = W * 0.5 + (g.car - 1) * 204 * S;
+        spawnSparks(winDoorX, H * 0.28, g.switchWin ? '#22d3ee' : '#ec4899', 18, S);
+      } else if (hostOpen) {
+        events.push({ t, type: 'bounce', pitchIndex: 4, intensity: 0.52 });
+      } else if (picked) {
+        events.push({ t, type: 'bounce', pitchIndex: 7, intensity: 0.45 });
+      }
+    }
+  } else {
+    // Fast accelerating 1,000-game simulator from showcaseEnd -> simEnd
+    const u = Math.max(0, Math.min(1, (t - showcaseEnd) / (simEnd - showcaseEnd)));
+    // Smooth acceleration: u^2.15 ramps from gentle -> blazing fast -> 1,000 games!
+    completedCount = Math.min(TOTAL_GAMES, SHOWCASE_GAMES + Math.floor((TOTAL_GAMES - SHOWCASE_GAMES) * Math.pow(u, 2.15)));
+    if (isFinale) completedCount = TOTAL_GAMES;
+    activeGameIdx = Math.max(0, completedCount - 1);
+    const g = games[activeGameIdx];
+
+    for (let d = 0; d < 3; d++) {
+      doorStates[d] = {
+        isPicked: d === g.pick,
+        isHostOpen: d === g.host,
+        isSwitchTarget: d === g.switchDoor,
+        isRevealed: true,
+        hasCar: d === g.car,
+        openAmt: 1.0
+      };
+    }
+
+    statusLine = isFinale
+      ? '1,000 GAMES COMPLETE  •  MATHEMATICAL PROOF!'
+      : `SIMULATING AT HIGH SPEED... GAME ${completedCount.toLocaleString('en-US')} / 1,000`;
+
+    if (completedCount > lastRenderedGame && !isFinale) {
+      lastRenderedGame = completedCount;
+      // Subtle rapid ticking audio & occasional sparks flying to winning bar
+      if (t - lastFastTickT >= 0.055) {
+        lastFastTickT = t;
+        const pitch = g.switchWin ? 9 + (completedCount % 4) : 3 + (completedCount % 3);
+        events.push({ t, type: 'bounce', pitchIndex: pitch, intensity: 0.34 + u * 0.22 });
+        spawnSparks(g.switchWin ? W * 0.72 : W * 0.28, H * 0.52, g.switchWin ? '#22d3ee' : '#ec4899', 4, S);
+      }
+    }
+
+    if (completedCount >= 500 && !milestone500Triggered) {
+      milestone500Triggered = true;
+      events.push({ t, type: 'break', pitchIndex: 10, intensity: 0.85 });
+    }
+  }
+
+  if (isFinale && !finaleTriggered) {
+    finaleTriggered = true;
+    events.push({ t, type: 'win', pitchIndex: 12, intensity: 1.0 });
+    spawnSparks(W * 0.5, H * 0.46, '#22d3ee', 30, S);
+    spawnSparks(W * 0.5, H * 0.46, '#facc15', 24, S);
+  }
+
+  // Update sparks
+  const dtFrame = 1 / FPS;
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    sp.x += sp.vx * dtFrame;
+    sp.y += sp.vy * dtFrame;
+    sp.life -= dtFrame * 2.1;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+
+  // Current stats
+  const curStat = completedCount > 0
+    ? games[completedCount - 1]
+    : { stayWins: 0, switchWins: 0, stayPct: 0, switchPct: 0 };
+
+  // --- RENDER ---
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle background grid
+  ctx.strokeStyle = 'rgba(148,163,184,0.05)';
+  ctx.lineWidth = 1 * S;
+  const gs = 48 * S;
+  for (let gx = 0; gx < W; gx += gs) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+  for (let gy = 0; gy < H; gy += gs) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+
+  // Top HOOK text
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(37 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(34,211,238,0.45)';
+  ctx.shadowBlur = 14 * S;
+  ctx.fillText(HOOK, W * 0.5, H * 0.088);
+  ctx.shadowBlur = 0;
+  ctx.font = `800 ${Math.round(20 * S)}px monospace`;
+  ctx.fillStyle = '#67e8f9';
+  ctx.fillText(statusLine, W * 0.5, H * 0.132);
+  ctx.restore();
+
+  // --- 3 SLEEK NEON DOORS AT TOP ---
+  const doorW = 174 * S, doorH = 224 * S, doorGap = 30 * S;
+  const doorsStartX = W * 0.5 - (doorW * 3 + doorGap * 2) * 0.5;
+  const doorsY = H * 0.165;
+  for (let d = 0; d < 3; d++) {
+    drawDoor(doorsStartX + d * (doorW + doorGap), doorsY, doorW, doorH, d + 1, doorStates[d], S);
+  }
+
+  // --- LIVE 1,000-GAME RACE BARS: STAY (magenta) vs SWITCH (cyan) ---
+  const raceY = H * 0.415;
+  const panelX = 48 * S, panelW = W - 96 * S;
+
+  // Game counter pill
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(34 * S)}px monospace`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(`GAMES: ${completedCount.toLocaleString('en-US')} / 1,000`, W * 0.5, raceY);
+  ctx.restore();
+
+  // Two large animated percentage bars
+  const barsTop = raceY + 28 * S;
+  const barCardH = 104 * S;
+
+  const strategies = [
+    {
+      label: 'STAY STRATEGY',
+      sub: `${curStat.stayWins} WINS`,
+      pct: curStat.stayPct,
+      col: '#ec4899',
+      glow: '#ec4899',
+      target: 33.3
+    },
+    {
+      label: 'SWITCH STRATEGY',
+      sub: `${curStat.switchWins} WINS`,
+      pct: curStat.switchPct,
+      col: '#22d3ee',
+      glow: '#22d3ee',
+      target: 66.7
+    }
+  ];
+
+  for (let i = 0; i < 2; i++) {
+    const st = strategies[i];
+    const cy = barsTop + i * (barCardH + 18 * S);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.82)';
+    ctx.strokeStyle = i === 1 ? 'rgba(34,211,238,0.55)' : 'rgba(236,72,153,0.45)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.beginPath();
+    ctx.roundRect(panelX, cy, panelW, barCardH, 18 * S);
+    ctx.fill(); ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.font = `900 ${Math.round(23 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = st.col;
+    ctx.fillText(st.label, panelX + 22 * S, cy + 36 * S);
+
+    ctx.font = `700 ${Math.round(18 * S)}px monospace`;
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(st.sub, panelX + 250 * S, cy + 36 * S);
+
+    ctx.textAlign = 'right';
+    ctx.font = `900 ${Math.round(34 * S)}px monospace`;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = st.glow;
+    ctx.shadowBlur = 12 * S;
+    ctx.fillText(`${st.pct.toFixed(1)}%`, panelX + panelW - 22 * S, cy + 40 * S);
+    ctx.shadowBlur = 0;
+
+    // Bar track
+    const bx = panelX + 22 * S, by = cy + 60 * S, bw = panelW - 44 * S, bh = 22 * S;
+    ctx.fillStyle = 'rgba(30,41,59,0.92)';
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 11 * S); ctx.fill();
+
+    // Theoretical reference tick (33.3% / 66.7%)
+    const refX = bx + bw * (st.target / 100);
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.beginPath(); ctx.moveTo(refX, by - 5 * S); ctx.lineTo(refX, by + bh + 5 * S); ctx.stroke();
+
+    // Animated fill bar
+    const fillW = Math.max(0, bw * (st.pct / 100));
+    if (fillW > 2) {
+      ctx.fillStyle = st.col;
+      ctx.shadowColor = st.glow;
+      ctx.shadowBlur = 12 * S;
+      ctx.beginPath(); ctx.roundRect(bx, by, fillW, bh, 11 * S); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // --- LIVE CONVERGENCE CHART (0% -> 100% across games) ---
+  const chartX = panelX, chartY = H * 0.655, chartW = panelW, chartH = H * 0.24;
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.75)';
+  ctx.strokeStyle = 'rgba(148,163,184,0.25)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.roundRect(chartX, chartY, chartW, chartH, 18 * S); ctx.fill(); ctx.stroke();
+
+  const innerX = chartX + 58 * S, innerY = chartY + 26 * S;
+  const innerW = chartW - 82 * S, innerH = chartH - 56 * S;
+
+  // Dashed guide lines at 66.7% and 33.3%
+  const y66 = innerY + innerH * (1 - 2 / 3);
+  const y33 = innerY + innerH * (1 - 1 / 3);
+  ctx.setLineDash([7 * S, 7 * S]);
+  ctx.lineWidth = 1.8 * S;
+  ctx.strokeStyle = 'rgba(34,211,238,0.4)';
+  ctx.beginPath(); ctx.moveTo(innerX, y66); ctx.lineTo(innerX + innerW, y66); ctx.stroke();
+  ctx.strokeStyle = 'rgba(236,72,153,0.4)';
+  ctx.beginPath(); ctx.moveTo(innerX, y33); ctx.lineTo(innerX + innerW, y33); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.textAlign = 'right';
+  ctx.font = `800 ${Math.round(16 * S)}px monospace`;
+  ctx.fillStyle = '#22d3ee'; ctx.fillText('66.7%', innerX - 8 * S, y66 + 5 * S);
+  ctx.fillStyle = '#ec4899'; ctx.fillText('33.3%', innerX - 8 * S, y33 + 5 * S);
+
+  // Plot convergence curves up to completedCount
+  if (completedCount >= 2) {
+    const plotCount = Math.min(completedCount, 180);
+    const maxN = Math.max(10, completedCount);
+
+    // SWITCH curve (cyan)
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 3.5 * S;
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = 10 * S;
+    ctx.beginPath();
+    for (let k = 0; k < plotCount; k++) {
+      const idx = Math.floor((k / (plotCount - 1)) * (completedCount - 1));
+      const g = games[idx];
+      const px = innerX + ((idx + 1) / maxN) * innerW;
+      const py = innerY + innerH * (1 - g.switchPct / 100);
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // STAY curve (magenta)
+    ctx.strokeStyle = '#ec4899';
+    ctx.shadowColor = '#ec4899';
+    ctx.beginPath();
+    for (let k = 0; k < plotCount; k++) {
+      const idx = Math.floor((k / (plotCount - 1)) * (completedCount - 1));
+      const g = games[idx];
+      const px = innerX + ((idx + 1) / maxN) * innerW;
+      const py = innerY + innerH * (1 - g.stayPct / 100);
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.textAlign = 'center';
+  ctx.font = `700 ${Math.round(17 * S)}px monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('WIN RATE CONVERGENCE  (LAW OF LARGE NUMBERS)', chartX + chartW * 0.5, chartY + chartH - 10 * S);
+  ctx.restore();
+
+  // Sparks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sp.life);
+    ctx.fillStyle = sp.col;
+    ctx.shadowColor = sp.col;
+    ctx.shadowBlur = 10 * S;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size * sp.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Finale banner at ~88% of DUR
+  if (isFinale) {
+    const finAge = Math.min(1, (t - simEnd) / 0.35);
+    const scale = 0.88 + 0.12 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(W * 0.5, H * 0.49);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.93)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.43, -72 * S, W * 0.86, 144 * S, 28 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = 24 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(48 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText('SWITCH WINS 2X! 🏆', 0, 4 * S);
+    ctx.font = `800 ${Math.round(22 * S)}px monospace`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`SWITCH: ${curStat.switchPct.toFixed(1)}%   VS   STAY: ${curStat.stayPct.toFixed(1)}%`, 0, 44 * S);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

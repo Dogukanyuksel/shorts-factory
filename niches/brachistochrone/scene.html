@@ -1,0 +1,469 @@
+<!doctype html>
+<!-- Brachistochrone Race: 4 curves with real v = sqrt(2*g*dy) physics — Cycloid overtakes and wins! -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'WHICH PATH IS FASTEST?';
+let rng = 1, events = [], sparks = [];
+let curves = [], simTime = 0, raceStart = 0.9, finishTarget = 21.1;
+let overtakeTriggered = [false, false, false], finishTriggered = [false, false, false, false], finaleTriggered = false;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+// Solve cycloid parameter theta1 such that (theta1 - sin(theta1)) / (1 - cos(theta1)) = L / H_drop
+function solveCycloidTheta(ratio) {
+  let lo = 0.1, hi = 2 * Math.PI - 0.05;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) * 0.5;
+    const val = (mid - Math.sin(mid)) / (1 - Math.cos(mid));
+    if (val < ratio) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) * 0.5;
+}
+
+// Build arc-length table and exact energy-conservation travel table for a curve
+function buildCurve(name, col, glow, sampleFn, N) {
+  const pts = [];
+  let totalS = 0;
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    const p = sampleFn(u);
+    if (i > 0) {
+      totalS += Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y);
+    }
+    pts.push({ x: p.x, y: p.y, s: totalS });
+  }
+
+  // Integrate dt = ds / sqrt(v0^2 + 2*g*y) with normalized g = 1 first, then calibrate g to target duration
+  const v0 = 0.045;
+  const gNorm = 1.0;
+  let tNorm = 0;
+  pts[0].tNorm = 0;
+  pts[0].vNorm = v0;
+  for (let i = 1; i <= N; i++) {
+    const ds = pts[i].s - pts[i - 1].s;
+    const yMid = Math.max(0, (pts[i].y + pts[i - 1].y) * 0.5);
+    const vMid = Math.sqrt(v0 * v0 + 2 * gNorm * yMid);
+    tNorm += ds / vMid;
+    pts[i].tNorm = tNorm;
+    pts[i].vNorm = Math.sqrt(v0 * v0 + 2 * gNorm * Math.max(0, pts[i].y));
+  }
+
+  return {
+    name,
+    col,
+    glow,
+    pts,
+    totalS,
+    tNormTotal: tNorm,
+    finishTime: 0,
+    trail: []
+  };
+}
+
+function sampleCurveAtTime(curve, tRace, timeScale) {
+  const tN = tRace / timeScale;
+  const pts = curve.pts;
+  if (tN <= 0) return { x: pts[0].x, y: pts[0].y, v: pts[0].vNorm, done: false, prog: 0 };
+  if (tN >= curve.tNormTotal) {
+    const last = pts[pts.length - 1];
+    return { x: last.x, y: last.y, v: last.vNorm, done: true, prog: 1 };
+  }
+  let lo = 0, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (pts[mid].tNorm <= tN) lo = mid;
+    else hi = mid - 1;
+  }
+  const a = pts[lo], b = pts[Math.min(pts.length - 1, lo + 1)];
+  const span = Math.max(1e-9, b.tNorm - a.tNorm);
+  const f = Math.max(0, Math.min(1, (tN - a.tNorm) / span));
+  return {
+    x: a.x + (b.x - a.x) * f,
+    y: a.y + (b.y - a.y) * f,
+    v: a.vNorm + (b.vNorm - a.vNorm) * f,
+    done: false,
+    prog: (a.s + (b.s - a.s) * f) / curve.totalS
+  };
+}
+
+let timeScale = 1;
+let maxVNorm = 1;
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'WHICH PATH IS FASTEST?';
+  cv.width = W; cv.height = H;
+  rng = ((cfg.seed || 1) * 1664525 + 1013904223) >>> 0;
+
+  // Normalized geometry: start A = (0, 0), end B = (L=1.0, Hd=0.46)
+  // Ratio L/Hd = 2.174 => cycloid dips cleanly below end point before rising to B!
+  const L = 1.0, Hd = 0.46;
+  const theta1 = solveCycloidTheta(L / Hd);
+  const rCyc = Hd / (1 - Math.cos(theta1));
+
+  // Circular arc through (0,0) and (L, Hd) with horizontal tangent at (L, Hd)
+  const Rcirc = (L * L + Hd * Hd) / (2 * Hd);
+  const ycCirc = Hd - Rcirc;
+
+  const N = 600;
+  curves = [
+    buildCurve('STRAIGHT LINE', '#ff5e3a', '#ff5e3a', (u) => ({
+      x: L * u,
+      y: Hd * u
+    }), N),
+    buildCurve('PARABOLIC ARC', '#c084fc', '#a855f7', (u) => ({
+      x: L * u,
+      y: Hd * (1 - (1 - u) * (1 - u))
+    }), N),
+    buildCurve('CIRCULAR ARC', '#facc15', '#eab308', (u) => {
+      const x = L * u;
+      const dx = L - x;
+      return { x, y: ycCirc + Math.sqrt(Math.max(0, Rcirc * Rcirc - dx * dx)) };
+    }, N),
+    buildCurve('CYCLOID', '#22d3ee', '#06b6d4', (u) => {
+      const th = theta1 * u;
+      return { x: rCyc * (th - Math.sin(th)), y: rCyc * (1 - Math.cos(th)) };
+    }, N)
+  ];
+
+  // Calibrate slow-motion timeScale so the Cycloid (fastest) crosses the finish at ~84% of DUR
+  // and the others finish right after, with finale banner locked in by ~88% of DUR!
+  raceStart = 0.8;
+  finishTarget = DUR * 0.84;
+  const cycTimeNorm = curves[3].tNormTotal;
+  timeScale = (finishTarget - raceStart) / cycTimeNorm;
+
+  maxVNorm = 0;
+  for (const c of curves) {
+    c.finishTime = raceStart + c.tNormTotal * timeScale;
+    c.trail = [];
+    for (const p of c.pts) if (p.vNorm > maxVNorm) maxVNorm = p.vNorm;
+  }
+
+  events = []; sparks = [];
+  simTime = 0;
+  lastBeatT = -1;
+  overtakeTriggered = [false, false, false];
+  finishTriggered = [false, false, false, false];
+  finaleTriggered = false;
+};
+
+function spawnSparks(x, y, col, n, S) {
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const spd = (80 + rand() * 240) * S;
+    sparks.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 1.0, size: (3 + rand() * 4) * S, col });
+  }
+}
+
+let lastBeatT = -1;
+
+function drawFrame(t) {
+  const S = W / 720;
+  const tRace = Math.max(0, t - raceStart);
+  const finaleStart = DUR * 0.88;
+  const isFinale = t >= finaleStart;
+
+  // Map normalized (x in [0,1], y in [0,0.58]) to canvas
+  const leftX = 76 * S;
+  const topY = H * 0.21;
+  const spanX = W - 152 * S;
+  const spanY = spanX; // 1:1 isotropic aspect ratio so physics geometry is undistorted!
+
+  const toScreen = (p) => ({ x: leftX + p.x * spanX, y: topY + p.y * spanY });
+
+  // Sample all 4 balls
+  const states = curves.map((c) => sampleCurveAtTime(c, tRace, timeScale));
+
+  // Overtake detection: Cycloid (index 3) overtaking Straight (0), Parabola (1), Circle (2) in x
+  for (let i = 0; i < 3; i++) {
+    if (!overtakeTriggered[i] && tRace > 0.5 && states[3].x > states[i].x + 0.015) {
+      overtakeTriggered[i] = true;
+      const pos = toScreen(states[3]);
+      spawnSparks(pos.x, pos.y, '#22d3ee', 14, S);
+      events.push({ t, type: 'bounce', pitchIndex: 5 + i * 2, intensity: 0.72 });
+    }
+  }
+
+  // Finish detection
+  for (let i = 0; i < 4; i++) {
+    if (!finishTriggered[i] && states[i].done) {
+      finishTriggered[i] = true;
+      const pos = toScreen(states[i]);
+      spawnSparks(pos.x, pos.y, curves[i].col, i === 3 ? 30 : 12, S);
+      if (i === 3) {
+        events.push({ t, type: 'break', pitchIndex: 11, intensity: 0.95 });
+      } else {
+        events.push({ t, type: 'bounce', pitchIndex: 3 + i, intensity: 0.45 });
+      }
+    }
+  }
+
+  // Subtle rhythmic speed-pulse ticks while racing
+  if (t > raceStart && !finishTriggered[3] && t - lastBeatT >= 0.48) {
+    lastBeatT = t;
+    const pitch = Math.min(11, Math.floor((states[3].v / maxVNorm) * 10));
+    events.push({ t, type: 'bounce', pitchIndex: pitch, intensity: 0.28 });
+  }
+
+  if (isFinale && !finaleTriggered) {
+    finaleTriggered = true;
+    events.push({ t, type: 'win', pitchIndex: 12, intensity: 1.0 });
+    const endPos = toScreen({ x: 1.0, y: 0.46 });
+    spawnSparks(endPos.x, endPos.y, '#22d3ee', 28, S);
+    spawnSparks(endPos.x, endPos.y, '#facc15', 22, S);
+  }
+
+  // Update trails & sparks
+  for (let i = 0; i < 4; i++) {
+    if (t >= raceStart && !states[i].done) {
+      const pos = toScreen(states[i]);
+      curves[i].trail.push(pos);
+      if (curves[i].trail.length > 42) curves[i].trail.shift();
+    }
+  }
+  const dtFrame = 1 / FPS;
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i];
+    p.x += p.vx * dtFrame;
+    p.y += p.vy * dtFrame;
+    p.life -= dtFrame * 2.0;
+    if (p.life <= 0) sparks.splice(i, 1);
+  }
+
+  // --- RENDER ---
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle coordinate grid
+  ctx.strokeStyle = 'rgba(148,163,184,0.06)';
+  ctx.lineWidth = 1 * S;
+  const gs = 48 * S;
+  for (let gx = 0; gx < W; gx += gs) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+  for (let gy = 0; gy < H; gy += gs) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+
+  // Top HOOK text
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(34,211,238,0.45)';
+  ctx.shadowBlur = 14 * S;
+  ctx.fillText(HOOK, W * 0.5, H * 0.095);
+  ctx.shadowBlur = 0;
+  ctx.font = `700 ${Math.round(21 * S)}px monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('REAL GRAVITY: v = √(2 · g · Δy)', W * 0.5, H * 0.135);
+  ctx.restore();
+
+  // Finish horizontal reference line (showing Cycloid dips BELOW finish!)
+  const startPt = toScreen({ x: 0, y: 0 });
+  const endPt = toScreen({ x: 1.0, y: 0.46 });
+  ctx.save();
+  ctx.setLineDash([8 * S, 8 * S]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(startPt.x, endPt.y);
+  ctx.lineTo(endPt.x + 20 * S, endPt.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Vertical finish gate
+  ctx.strokeStyle = finishTriggered[3] ? '#22d3ee' : 'rgba(250,204,21,0.55)';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  ctx.moveTo(endPt.x, startPt.y - 16 * S);
+  ctx.lineTo(endPt.x, endPt.y + 72 * S);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(17 * S)}px monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('START', startPt.x, startPt.y - 24 * S);
+  ctx.fillStyle = '#fde047';
+  ctx.fillText('FINISH', endPt.x, startPt.y - 24 * S);
+  ctx.restore();
+
+  // Draw all 4 tracks
+  for (let i = 0; i < 4; i++) {
+    const c = curves[i];
+    ctx.save();
+    ctx.strokeStyle = c.col;
+    ctx.globalAlpha = i === 3 ? 0.92 : 0.62;
+    ctx.lineWidth = (i === 3 ? 5.5 : 4) * S;
+    ctx.shadowColor = c.glow;
+    ctx.shadowBlur = (i === 3 ? 16 : 8) * S;
+    ctx.beginPath();
+    for (let j = 0; j < c.pts.length; j += 3) {
+      const sp = toScreen(c.pts[j]);
+      if (j === 0) ctx.moveTo(sp.x, sp.y);
+      else ctx.lineTo(sp.x, sp.y);
+    }
+    const lp = toScreen(c.pts[c.pts.length - 1]);
+    ctx.lineTo(lp.x, lp.y);
+    ctx.stroke();
+    ctx.restore();
+
+    // Glowing motion trail behind each ball
+    if (c.trail.length > 1) {
+      ctx.save();
+      for (let k = 1; k < c.trail.length; k++) {
+        const a = k / c.trail.length;
+        ctx.strokeStyle = c.col;
+        ctx.globalAlpha = a * 0.55;
+        ctx.lineWidth = (4 + a * 9) * S;
+        ctx.beginPath();
+        ctx.moveTo(c.trail[k - 1].x, c.trail[k - 1].y);
+        ctx.lineTo(c.trail[k].x, c.trail[k].y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // Draw all 4 glowing balls
+  for (let i = 0; i < 4; i++) {
+    const c = curves[i];
+    const pos = toScreen(states[i]);
+    ctx.save();
+    ctx.fillStyle = c.col;
+    ctx.shadowColor = c.glow;
+    ctx.shadowBlur = 24 * S;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, (i === 3 ? 16 : 14) * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(pos.x - 4 * S, pos.y - 4 * S, 4.5 * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Sparks
+  for (const p of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.col;
+    ctx.shadowColor = p.col;
+    ctx.shadowBlur = 10 * S;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- LIVE LEADERBOARD & SPEED / POSITION BARS ---
+  // Sort display by current horizontal progress (or finish order)
+  const panelX = 48 * S, panelY = H * 0.59, panelW = W - 96 * S, rowH = 88 * S;
+
+  // Determine current leader
+  let leaderIdx = 0;
+  for (let i = 1; i < 4; i++) {
+    if (states[i].x > states[leaderIdx].x) leaderIdx = i;
+  }
+
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.font = `800 ${Math.round(20 * S)}px monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('LIVE PROGRESS & VELOCITY', panelX + 6 * S, panelY - 16 * S);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = curves[leaderIdx].col;
+  ctx.fillText(`LEADER: ${curves[leaderIdx].name}`, panelX + panelW - 6 * S, panelY - 16 * S);
+  ctx.restore();
+
+  for (let i = 0; i < 4; i++) {
+    const c = curves[i];
+    const st = states[i];
+    const ry = panelY + i * rowH;
+    const isLeader = i === leaderIdx && tRace > 0.2;
+
+    ctx.save();
+    ctx.fillStyle = isLeader ? 'rgba(15,23,42,0.92)' : 'rgba(15,23,42,0.68)';
+    ctx.strokeStyle = isLeader ? c.col : 'rgba(148,163,184,0.2)';
+    ctx.lineWidth = (isLeader ? 3 : 1.5) * S;
+    ctx.beginPath();
+    ctx.roundRect(panelX, ry, panelW, rowH - 12 * S, 16 * S);
+    ctx.fill(); ctx.stroke();
+
+    // Color dot + name
+    ctx.fillStyle = c.col;
+    ctx.shadowColor = c.glow;
+    ctx.shadowBlur = 10 * S;
+    ctx.beginPath();
+    ctx.arc(panelX + 26 * S, ry + 26 * S, 8 * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'left';
+    ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(c.name, panelX + 46 * S, ry + 33 * S);
+
+    // Speed & Position readout
+    const spdKmh = Math.round((st.v / maxVNorm) * 100);
+    const pct = Math.round(st.x * 100);
+    ctx.textAlign = 'right';
+    ctx.font = `800 ${Math.round(19 * S)}px monospace`;
+    ctx.fillStyle = st.done ? '#fde047' : c.col;
+    const rightTxt = st.done
+      ? (i === 3 ? '🏆 1ST PLACE' : `DONE ${(c.finishTime - raceStart).toFixed(1)}s`)
+      : `${pct}%  •  v=${spdKmh}`;
+    ctx.fillText(rightTxt, panelX + panelW - 18 * S, ry + 33 * S);
+
+    // Horizontal progress bar
+    const bx = panelX + 20 * S, by = ry + 48 * S, bw = panelW - 40 * S, bh = 14 * S;
+    ctx.fillStyle = 'rgba(30,41,59,0.9)';
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 7 * S); ctx.fill();
+    ctx.fillStyle = c.col;
+    ctx.shadowColor = c.glow;
+    ctx.shadowBlur = 8 * S;
+    ctx.beginPath(); ctx.roundRect(bx, by, Math.max(8 * S, bw * st.x), bh, 7 * S); ctx.fill();
+    ctx.restore();
+  }
+
+  // Finale winner banner at ~88% of DUR
+  if (isFinale) {
+    const finAge = Math.min(1, (t - finaleStart) / 0.35);
+    const scale = 0.88 + 0.12 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(W * 0.5, H * 0.42);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.92)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.43, -72 * S, W * 0.86, 144 * S, 28 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = 24 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(48 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText('CYCLOID WINS! 🏆', 0, 4 * S);
+    ctx.font = `800 ${Math.round(21 * S)}px monospace`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('LONGER PATH  •  FASTER DROP  •  BRACHISTOCHRONE', 0, 44 * S);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

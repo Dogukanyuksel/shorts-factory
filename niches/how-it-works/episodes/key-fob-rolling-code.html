@@ -1,0 +1,368 @@
+<!doctype html>
+<!-- How It Actually Works — How Car Key Rolling Codes Work -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: "Every time you press unlock, your key sends a different code.", caption: "NEW CODE EVERY TIME" },
+  { id: 'secret', text: "Your key and your car share a secret counter and algorithm.", caption: "SHARED SECRET" },
+  { id: 'count', text: "Each press moves the counter forward and creates a new encrypted code.", caption: "COUNTER ADVANCES" },
+  { id: 'next', text: "The car only accepts codes that come next in that sequence.", caption: "ONLY THE NEXT ONE" },
+  { id: 'thief', text: "So a thief replaying an old recorded code gets rejected.", caption: "REPLAY REJECTED" },
+  { id: 'outro', text: "Press it out of range a few times, and the car still keeps up.", caption: "STAYS IN SYNC" },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('secret').start + 0.25, type: 'bounce', pitchIndex: 4, intensity: 0.55 },
+    { t: byId('count').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.65 },
+    { t: byId('next').start + 0.25, type: 'bounce', pitchIndex: 8, intensity: 0.7 },
+    { t: byId('thief').start + 0.35, type: 'break', pitchIndex: 2, intensity: 0.9 },
+    { t: byId('outro').start + 0.25, type: 'win', pitchIndex: 10, intensity: 0.9 },
+  ];
+};
+
+function rrect(x, y, w, h, r) {
+  const rr = Math.min(r, w * 0.5, h * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function drawKeyFob(x, y, S, pressed) {
+  ctx.save();
+  ctx.translate(x, y);
+  // Key ring
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 5 * S;
+  ctx.beginPath(); ctx.arc(0, -82 * S, 18 * S, 0, Math.PI * 2); ctx.stroke();
+  // Fob body
+  const fg = ctx.createLinearGradient(-46 * S, -64 * S, 46 * S, 76 * S);
+  fg.addColorStop(0, '#334155'); fg.addColorStop(0.5, '#1e293b'); fg.addColorStop(1, '#0f172a');
+  ctx.fillStyle = fg; ctx.strokeStyle = '#64748b'; ctx.lineWidth = 3.5 * S;
+  rrect(-46 * S, -64 * S, 92 * S, 142 * S, 24 * S); ctx.fill(); ctx.stroke();
+  // Transmit LED
+  ctx.fillStyle = pressed > 0.2 ? '#38bdf8' : '#334155';
+  ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = pressed * 16 * S;
+  ctx.beginPath(); ctx.arc(0, -46 * S, 5 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+  // Unlock Button
+  ctx.fillStyle = pressed > 0.2 ? '#38bdf8' : '#475569';
+  ctx.strokeStyle = pressed > 0.2 ? '#e0f2fe' : '#94a3b8';
+  ctx.lineWidth = 2.5 * S;
+  rrect(-26 * S, -24 * S, 52 * S, 44 * S, 12 * S); ctx.fill(); ctx.stroke();
+  // Tiny unlock icon
+  ctx.strokeStyle = pressed > 0.2 ? '#020617' : '#e2e8f0'; ctx.lineWidth = 3 * S;
+  ctx.strokeRect(-8 * S, -4 * S, 16 * S, 14 * S);
+  ctx.beginPath(); ctx.arc(0, -6 * S, 6 * S, Math.PI, Math.PI * 1.8); ctx.stroke();
+  // Lock Button below
+  ctx.fillStyle = '#334155'; ctx.strokeStyle = '#64748b'; ctx.lineWidth = 2 * S;
+  rrect(-26 * S, 30 * S, 52 * S, 30 * S, 10 * S); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+function drawCar(x, y, S, unlockedGlow, rejectedGlow) {
+  ctx.save();
+  ctx.translate(x, y);
+  // Car body silhouette
+  const cg = ctx.createLinearGradient(-115 * S, -48 * S, 115 * S, 42 * S);
+  cg.addColorStop(0, '#334155'); cg.addColorStop(1, '#0f172a');
+  ctx.fillStyle = cg;
+  ctx.strokeStyle = rejectedGlow > 0.2 ? '#ef4444' : unlockedGlow > 0.2 ? '#4ade80' : '#94a3b8';
+  ctx.lineWidth = 3.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(-108 * S, 24 * S);
+  ctx.lineTo(-104 * S, -4 * S);
+  ctx.lineTo(-58 * S, -14 * S);
+  ctx.lineTo(-22 * S, -48 * S);
+  ctx.lineTo(48 * S, -48 * S);
+  ctx.lineTo(84 * S, -12 * S);
+  ctx.lineTo(112 * S, -2 * S);
+  ctx.lineTo(112 * S, 24 * S);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Windows
+  ctx.fillStyle = 'rgba(56,189,248,0.18)';
+  ctx.beginPath();
+  ctx.moveTo(-48 * S, -14 * S);
+  ctx.lineTo(-18 * S, -40 * S);
+  ctx.lineTo(44 * S, -40 * S);
+  ctx.lineTo(72 * S, -14 * S);
+  ctx.closePath();
+  ctx.fill();
+
+  // Wheels
+  for (const wx of [-66 * S, 66 * S]) {
+    ctx.fillStyle = '#020617'; ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 4 * S;
+    ctx.beginPath(); ctx.arc(wx, 24 * S, 22 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#64748b';
+    ctx.beginPath(); ctx.arc(wx, 24 * S, 8 * S, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Headlight blink when unlocked
+  if (unlockedGlow > 0.1) {
+    ctx.fillStyle = `rgba(74,222,128,${(unlockedGlow * 0.9).toFixed(2)})`;
+    ctx.shadowColor = '#4ade80'; ctx.shadowBlur = 18 * S;
+    ctx.beginPath(); ctx.arc(-102 * S, 6 * S, 8 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Padlock indicator above car roof
+  const py = -84 * S;
+  ctx.strokeStyle = rejectedGlow > 0.2 ? '#ef4444' : unlockedGlow > 0.2 ? '#4ade80' : '#facc15';
+  ctx.fillStyle = rejectedGlow > 0.2 ? '#ef4444' : unlockedGlow > 0.2 ? '#4ade80' : '#facc15';
+  ctx.lineWidth = 4 * S;
+  rrect(-14 * S, py, 28 * S, 22 * S, 5 * S); ctx.fill();
+  ctx.beginPath();
+  if (unlockedGlow > 0.3) ctx.arc(4 * S, py - 2 * S, 10 * S, Math.PI * 1.1, Math.PI * 1.95);
+  else ctx.arc(0, py, 10 * S, Math.PI, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const LHook = byId('hook');
+  const LSecret = byId('secret');
+  const LCount = byId('count');
+  const LNext = byId('next');
+  const LThief = byId('thief');
+  const LOutro = byId('outro');
+
+  const pSecret = smooth(LSecret.start, LSecret.start + 0.45, t) * (1 - smooth(LThief.start, LThief.start + 0.35, t));
+  const pCount = smooth(LCount.start, LCount.start + 0.4, t);
+  const pNext = smooth(LNext.start, LNext.start + 0.4, t);
+  const pThief = smooth(LThief.start, LThief.start + 0.4, t) * (1 - smooth(LOutro.start, LOutro.start + 0.35, t));
+  const pOutro = smooth(LOutro.start, LOutro.start + 0.45, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.46, 40 * S, W * 0.5, H * 0.46, H * 0.68);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const fobX = 148 * S, fobY = H * 0.36;
+  const carX = 532 * S, carY = H * 0.37;
+
+  // Determine live counter values for Key & Car
+  let keyCounter = 1042;
+  let carCounter = 1042;
+  if (t >= LCount.start + 0.25) keyCounter = 1043;
+  if (t >= LNext.start + 0.35) carCounter = 1043;
+  if (t >= LOutro.start + 0.3) keyCounter = 1046;
+  if (t >= LOutro.start + 0.9) carCounter = 1046;
+
+  // Button press pulse
+  const press1 = Math.exp(-Math.pow((t - (LHook.start + 0.8)) * 5, 2));
+  const press2 = Math.exp(-Math.pow((t - (LCount.start + 0.25)) * 5, 2));
+  const press3 = Math.exp(-Math.pow((t - (LOutro.start + 0.35)) * 5, 2));
+  const fobPressed = clamp(press1 + press2 + press3, 0, 1);
+
+  const unlockedGlow = clamp(
+    smooth(LNext.start + 0.3, LNext.start + 0.55, t) * (1 - smooth(LThief.start, LThief.start + 0.3, t)) +
+    smooth(LOutro.start + 0.85, LOutro.start + 1.15, t),
+    0, 1
+  );
+  const rejectHit = smooth(LThief.start + 0.55, LThief.start + 0.72, t) * (1 - smooth(LOutro.start, LOutro.start + 0.3, t));
+
+  // 1) Draw Key Fob & Car
+  drawKeyFob(fobX, fobY, S, fobPressed);
+  drawCar(carX, carY, S, unlockedGlow, rejectHit);
+
+  // 2) Counter & Secret Algorithm Badges beneath Key & Car
+  const badgeY = H * 0.49;
+  const drawChipBadge = (bx, title, countVal, accent) => {
+    const bw = 224 * S, bh = 88 * S;
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.9)';
+    ctx.strokeStyle = accent; ctx.lineWidth = 3 * S;
+    rrect(bx - bw * 0.5, badgeY, bw, bh, 14 * S); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `800 ${Math.round(15 * S)}px -apple-system, sans-serif`;
+    ctx.fillText(title, bx, badgeY + 26 * S);
+    ctx.fillStyle = accent;
+    ctx.font = `900 ${Math.round(30 * S)}px monospace`;
+    ctx.fillText(`#${countVal}`, bx, badgeY + 66 * S);
+    ctx.restore();
+  };
+  drawChipBadge(fobX + 18 * S, 'KEY COUNTER', keyCounter, '#38bdf8');
+  drawChipBadge(carX - 18 * S, 'CAR COUNTER', carCounter, unlockedGlow > 0.2 ? '#4ade80' : '#facc15');
+
+  // 3) Shared Secret Link during 'secret' phase
+  if (pSecret > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pSecret;
+    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 3 * S; ctx.setLineDash([8 * S, 8 * S]);
+    ctx.beginPath(); ctx.moveTo(fobX + 132 * S, badgeY + 44 * S); ctx.lineTo(carX - 132 * S, badgeY + 44 * S); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#facc15';
+    ctx.font = `900 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('SHARED SECRET KEY', W * 0.5, badgeY + 34 * S);
+    ctx.fillStyle = '#fde047';
+    ctx.font = `800 ${Math.round(14 * S)}px monospace`;
+    ctx.fillText('ALGO(KEY, #N)', W * 0.5, badgeY + 62 * S);
+    ctx.restore();
+  }
+
+  // 4) Glowing Encrypted RF Wave Packets traveling Fob -> Car
+  const sendPacket = (startT, durT, codeStr, color) => {
+    const u = (t - startT) / durT;
+    if (u < 0 || u > 1) return;
+    const px = lerp(fobX + 54 * S, carX - 115 * S, smooth(0, 1, u));
+    const py = fobY - 12 * S - Math.sin(u * Math.PI) * 26 * S;
+    ctx.save();
+    // RF arcs
+    for (let r = 0; r < 3; r++) {
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = (1 - r * 0.28) * Math.sin(u * Math.PI);
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath();
+      ctx.arc(px - 10 * S, py, (20 + r * 12) * S, -0.7, 0.7);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#0f172a'; ctx.strokeStyle = color; ctx.lineWidth = 3 * S;
+    rrect(px - 56 * S, py - 20 * S, 112 * S, 40 * S, 10 * S); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = `900 ${Math.round(18 * S)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(codeStr, px, py + 6 * S);
+    ctx.restore();
+  };
+
+  sendPacket(LHook.start + 0.4, 1.3, '0x7F2A', '#38bdf8');
+  sendPacket(LHook.start + 1.8, 1.3, '0xE49C', '#a855f7');
+  sendPacket(LCount.start + 0.35, 1.5, '#1043:9C2E', '#38bdf8');
+  sendPacket(LOutro.start + 0.35, 0.75, '#1046:4B81', '#4ade80');
+
+  // 5) Thief Replay Attack & Bold Red REJECTED ✕
+  if (pThief > 0.03) {
+    ctx.save();
+    ctx.globalAlpha = pThief;
+    const tx = 210 * S, ty = H * 0.67;
+    // Thief interceptor device box
+    ctx.fillStyle = '#1e1b2e'; ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 3.5 * S;
+    rrect(tx - 115 * S, ty - 48 * S, 230 * S, 96 * S, 16 * S); ctx.fill(); ctx.stroke();
+    // Antenna
+    ctx.strokeStyle = '#f87171'; ctx.lineWidth = 4 * S;
+    ctx.beginPath(); ctx.moveTo(tx + 75 * S, ty - 48 * S); ctx.lineTo(tx + 95 * S, ty - 84 * S); ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.arc(tx + 95 * S, ty - 86 * S, 6 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#f87171';
+    ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('THIEF REPLAY', tx, ty - 14 * S);
+    ctx.fillStyle = '#fca5a5';
+    ctx.font = `800 ${Math.round(16 * S)}px monospace`;
+    ctx.fillText('OLD #1042:7F2A', tx, ty + 18 * S);
+
+    // Replayed packet flying from thief toward car and hitting red shield
+    const ru = clamp((t - (LThief.start + 0.15)) / 0.55, 0, 1);
+    const rx = lerp(tx + 115 * S, carX - 108 * S, ru);
+    const ry = lerp(ty - 36 * S, carY + 34 * S, ru);
+    if (ru > 0 && ru < 1) {
+      ctx.fillStyle = '#450a0a'; ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 3 * S;
+      rrect(rx - 52 * S, ry - 18 * S, 104 * S, 36 * S, 9 * S); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#f87171'; ctx.font = `900 ${Math.round(16 * S)}px monospace`;
+      ctx.fillText('#1042', rx, ry + 6 * S);
+    }
+
+    // Bold REJECTED ✕ Stamp on impact
+    if (rejectHit > 0.05) {
+      const pop = 1 + 0.15 * Math.exp(-Math.max(0, t - (LThief.start + 0.58)) * 12);
+      ctx.save();
+      ctx.translate(carX - 24 * S, ty - 6 * S);
+      ctx.scale(pop, pop);
+      ctx.fillStyle = 'rgba(127,29,29,0.92)';
+      ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 4 * S;
+      rrect(-128 * S, -36 * S, 256 * S, 72 * S, 14 * S); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fecaca';
+      ctx.font = `900 ${Math.round(28 * S)}px -apple-system, sans-serif`;
+      ctx.fillText('REJECTED ✕', 0, 10 * S);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // 6) Sliding Acceptance Window during 'outro'
+  if (pOutro > 0.03) {
+    ctx.save();
+    ctx.globalAlpha = pOutro;
+    const wy = H * 0.655;
+    const boxW = 580 * S, boxH = 112 * S;
+    ctx.fillStyle = 'rgba(15,23,42,0.9)';
+    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 3 * S;
+    rrect(W * 0.5 - boxW * 0.5, wy, boxW, boxH, 16 * S); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('VALID ACCEPTANCE WINDOW (+256 CODES)', W * 0.5, wy + 30 * S);
+
+    const nums = ['1042', '1043', '1044', '1045', '1046', '1047'];
+    for (let i = 0; i < nums.length; i++) {
+      const nx = W * 0.5 - 220 * S + i * 88 * S;
+      const isOld = i <= 1;
+      const isHit = i === 4;
+      ctx.fillStyle = isHit ? '#166534' : isOld ? '#450a0a' : 'rgba(34,197,94,0.16)';
+      ctx.strokeStyle = isHit ? '#4ade80' : isOld ? '#ef4444' : '#22c55e';
+      ctx.lineWidth = (isHit ? 3.5 : 2) * S;
+      rrect(nx - 36 * S, wy + 48 * S, 72 * S, 44 * S, 8 * S); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = isOld ? '#fca5a5' : isHit ? '#ffffff' : '#86efac';
+      ctx.font = `900 ${Math.round(18 * S)}px monospace`;
+      ctx.fillText(nums[i], nx, wy + 76 * S);
+    }
+    ctx.restore();
+  }
+
+  // Top Title & Bottom Viral Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('HOW CAR KEY ROLLING CODES WORK', W * 0.5, H * 0.125, W * 0.92);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'thief' ? '#f87171' : (activeLine.id === 'outro' || activeLine.id === 'next') ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

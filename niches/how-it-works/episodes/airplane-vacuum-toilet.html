@@ -1,0 +1,379 @@
+<!doctype html>
+<!-- How It Actually Works — Why Airplane Toilets Are So Loud -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: "An airplane toilet doesn't flush with water. It flushes with air.", caption: "FLUSHED BY AIR" },
+  { id: 'tank', text: "Below the floor sits a waste tank held at very low pressure.", caption: "LOW PRESSURE TANK" },
+  { id: 'valve', text: "Press flush, and a valve between the bowl and the tank snaps open.", caption: "VALVE SNAPS OPEN" },
+  { id: 'rush', text: "Cabin air rushes in to fill the vacuum, dragging everything with it.", caption: "AIR RUSHES IN" },
+  { id: 'bowl', text: "A slick nonstick bowl and a tiny splash of liquid do the rest.", caption: "NONSTICK BOWL" },
+  { id: 'outro', text: "That roar is just air pressure doing the work water would.", caption: "PRESSURE DOES IT" },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('tank').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.55 },
+    { t: byId('valve').start + 0.2, type: 'break', pitchIndex: 7, intensity: 0.85 },
+    { t: byId('rush').start + 0.15, type: 'break', pitchIndex: 9, intensity: 0.95 },
+    { t: byId('bowl').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.6 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 10, intensity: 0.9 },
+  ];
+};
+
+function rrect(x, y, w, h, r) {
+  const rr = Math.min(r, w * 0.5, h * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+// Pipe center path from bowl bottom through valve into waste tank
+function pipePoint(u, cx, bowlBotY, tankY, S) {
+  // u in [0, 1]
+  if (u < 0.35) {
+    const k = u / 0.35;
+    return { x: cx - 35 * S, y: lerp(bowlBotY, bowlBotY + 108 * S, k) };
+  } else if (u < 0.72) {
+    const k = (u - 0.35) / 0.37;
+    const x = lerp(cx - 35 * S, cx + 60 * S, smooth(0, 1, k));
+    const y = lerp(bowlBotY + 108 * S, tankY - 45 * S, k);
+    return { x, y };
+  } else {
+    const k = (u - 0.72) / 0.28;
+    return { x: cx + 60 * S, y: lerp(tankY - 45 * S, tankY + 25 * S, k) };
+  }
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const LTank = byId('tank');
+  const LValve = byId('valve');
+  const LRush = byId('rush');
+  const LBowl = byId('bowl');
+  const LOutro = byId('outro');
+
+  const pTank = smooth(LTank.start, LTank.start + 0.5, t);
+  const pValveOpen = smooth(LValve.start + 0.15, LValve.start + 0.32, t) * (1 - smooth(LOutro.start + 0.8, LOutro.start + 1.15, t));
+  const pRush = smooth(LRush.start, LRush.start + 0.35, t) * (1 - smooth(LOutro.start + 0.6, LOutro.start + 1.0, t));
+  const pBowl = smooth(LBowl.start, LBowl.start + 0.45, t) * (1 - smooth(LOutro.start + 0.4, LOutro.start + 0.9, t));
+  const pOutro = smooth(LOutro.start, LOutro.start + 0.5, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.68);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // Subtle roar vibration during air rush
+  const shakeX = pRush * Math.sin(t * 72) * 3.5 * S;
+  const shakeY = pRush * Math.cos(t * 64) * 2.5 * S;
+  const cx = W * 0.5 + shakeX;
+  const cy = H * 0.47 + shakeY;
+  const zoom = 1 + smooth(0, DUR, t) * 0.05;
+
+  ctx.save();
+  ctx.translate(W * 0.5, H * 0.48); ctx.scale(zoom, zoom); ctx.translate(-W * 0.5, -H * 0.48);
+
+  // 1) Aircraft Fuselage Cutaway Ring
+  const fuseR = 296 * S;
+  const fuseY = cy + 6 * S;
+  ctx.save();
+  ctx.strokeStyle = '#64748b'; ctx.lineWidth = 16 * S;
+  ctx.beginPath(); ctx.arc(cx, fuseY, fuseR, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.arc(cx, fuseY, fuseR + 8 * S, 0, Math.PI * 2); ctx.stroke();
+  // Clip interior to fuselage circle
+  ctx.beginPath(); ctx.arc(cx, fuseY, fuseR - 8 * S, 0, Math.PI * 2); ctx.clip();
+
+  // Upper Cabin Area (Warm high-pressure tint)
+  const floorY = fuseY + 20 * S;
+  const cabG = ctx.createLinearGradient(0, fuseY - fuseR, 0, floorY);
+  cabG.addColorStop(0, 'rgba(56,189,248,0.12)');
+  cabG.addColorStop(1, 'rgba(15,23,42,0.75)');
+  ctx.fillStyle = cabG;
+  ctx.fillRect(cx - fuseR, fuseY - fuseR, fuseR * 2, floorY - (fuseY - fuseR));
+
+  // Lower Cargo/Waste Bay (Deep vacuum indigo tint)
+  const bayG = ctx.createLinearGradient(0, floorY, 0, fuseY + fuseR);
+  bayG.addColorStop(0, 'rgba(15,23,42,0.92)');
+  bayG.addColorStop(1, 'rgba(30,27,75,0.85)');
+  ctx.fillStyle = bayG;
+  ctx.fillRect(cx - fuseR, floorY, fuseR * 2, fuseR);
+
+  // Cabin Floor Deck Beam
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(cx - fuseR, floorY - 8 * S, fuseR * 2, 16 * S);
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.moveTo(cx - fuseR, floorY - 8 * S); ctx.lineTo(cx + fuseR, floorY - 8 * S); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - fuseR, floorY + 8 * S); ctx.lineTo(cx + fuseR, floorY + 8 * S); ctx.stroke();
+
+  ctx.restore(); // end fuselage clip
+
+  // Cabin & Cargo Pressure Labels
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText('PRESSURIZED CABIN · HIGH PRESSURE', cx, fuseY - fuseR + 48 * S);
+
+  // 2) Evacuation Pipe connecting Bowl to Vacuum Tank
+  const bowlTopY = floorY - 128 * S;
+  const bowlBotY = floorY - 16 * S;
+  const tankX = cx + 48 * S;
+  const tankY = floorY + 158 * S;
+
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i <= 32; i++) {
+    const pt = pipePoint(i / 32, cx, bowlBotY, tankY, S);
+    if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+  }
+  ctx.strokeStyle = '#475569'; ctx.lineWidth = 34 * S; ctx.stroke();
+  ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 24 * S; ctx.stroke();
+  ctx.restore();
+
+  // 3) Stainless / Teflon Nonstick Toilet Bowl
+  const bowlCx = cx - 35 * S;
+  ctx.save();
+  const bowlG = ctx.createLinearGradient(bowlCx - 75 * S, bowlTopY, bowlCx + 75 * S, bowlBotY);
+  bowlG.addColorStop(0, '#f8fafc');
+  bowlG.addColorStop(0.5, '#cbd5e1');
+  bowlG.addColorStop(1, '#64748b');
+  ctx.fillStyle = bowlG;
+  ctx.strokeStyle = pBowl > 0.2 ? '#38bdf8' : '#e2e8f0';
+  ctx.lineWidth = (3.5 + pBowl * 2) * S;
+  ctx.beginPath();
+  ctx.moveTo(bowlCx - 78 * S, bowlTopY);
+  ctx.lineTo(bowlCx + 78 * S, bowlTopY);
+  ctx.bezierCurveTo(bowlCx + 76 * S, bowlTopY + 75 * S, bowlCx + 36 * S, bowlBotY, bowlCx + 15 * S, bowlBotY);
+  ctx.lineTo(bowlCx - 15 * S, bowlBotY);
+  ctx.bezierCurveTo(bowlCx - 36 * S, bowlBotY, bowlCx - 76 * S, bowlTopY + 75 * S, bowlCx - 78 * S, bowlTopY);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Inner bowl dark cavity with slick nonstick sheen
+  ctx.fillStyle = '#1e293b';
+  ctx.beginPath();
+  ctx.moveTo(bowlCx - 64 * S, bowlTopY + 10 * S);
+  ctx.lineTo(bowlCx + 64 * S, bowlTopY + 10 * S);
+  ctx.bezierCurveTo(bowlCx + 60 * S, bowlTopY + 66 * S, bowlCx + 24 * S, bowlBotY - 6 * S, bowlCx + 12 * S, bowlBotY - 2 * S);
+  ctx.lineTo(bowlCx - 12 * S, bowlBotY - 2 * S);
+  ctx.bezierCurveTo(bowlCx - 24 * S, bowlBotY - 6 * S, bowlCx - 60 * S, bowlTopY + 66 * S, bowlCx - 64 * S, bowlTopY + 10 * S);
+  ctx.closePath();
+  ctx.fill();
+
+  // Slick Teflon highlight sweep during 'bowl' phase
+  if (pBowl > 0.05) {
+    const sheenX = bowlCx - 48 * S + ((t * 140 * S) % (96 * S));
+    ctx.strokeStyle = `rgba(125,211,252,${(pBowl * 0.85).toFixed(2)})`;
+    ctx.lineWidth = 4 * S;
+    ctx.beginPath();
+    ctx.moveTo(sheenX, bowlTopY + 16 * S);
+    ctx.lineTo(sheenX - 10 * S, bowlBotY - 22 * S);
+    ctx.stroke();
+    // Tiny blue splash spray jets from rim
+    for (let j = 0; j < 6; j++) {
+      const ang = lerp(0.55, 2.55, j / 5);
+      const dist = ((t * 110 + j * 18) % 44) * S;
+      const sx = bowlCx + Math.cos(ang) * (54 * S - dist * 0.7);
+      const sy = bowlTopY + 16 * S + Math.sin(ang) * dist;
+      ctx.fillStyle = `rgba(56,189,248,${(pBowl * 0.9).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, 3.8 * S, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Rim highlight
+  ctx.fillStyle = '#f8fafc';
+  rrect(bowlCx - 84 * S, bowlTopY - 10 * S, 168 * S, 16 * S, 8 * S);
+  ctx.fill();
+  ctx.restore();
+
+  // Flush Button on right cabin wall
+  const btnX = cx + 146 * S, btnY = bowlTopY + 12 * S;
+  const btnPressed = smooth(LValve.start, LValve.start + 0.14, t) * (1 - smooth(LValve.start + 0.45, LValve.start + 0.65, t));
+  ctx.save();
+  ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#64748b'; ctx.lineWidth = 3 * S;
+  rrect(btnX - 42 * S, btnY - 34 * S, 84 * S, 68 * S, 12 * S); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = btnPressed > 0.2 || pRush > 0.1 ? '#38bdf8' : '#0284c7';
+  ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = (btnPressed * 22 + 6) * S;
+  ctx.beginPath(); ctx.arc(btnX, btnY, (18 - btnPressed * 2.5) * S, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = `900 ${Math.round(13 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('FLUSH', btnX, btnY + 5 * S);
+  ctx.restore();
+
+  // 4) Mechanical Flush Valve (snaps open between bowl & pipe)
+  const valveX = bowlCx;
+  const valveY = floorY + 26 * S;
+  ctx.save();
+  // Valve housing collar
+  ctx.fillStyle = '#334155'; ctx.strokeStyle = pValveOpen > 0.3 ? '#4ade80' : '#f59e0b'; ctx.lineWidth = 3 * S;
+  rrect(valveX - 36 * S, valveY - 16 * S, 72 * S, 32 * S, 8 * S); ctx.fill(); ctx.stroke();
+  // Sliding knife-gate valve blade (slides right when open)
+  const bladeSlide = pValveOpen * 32 * S;
+  ctx.fillStyle = pValveOpen > 0.3 ? '#4ade80' : '#ef4444';
+  ctx.fillRect(valveX - 18 * S + bladeSlide, valveY - 5 * S, 36 * S, 10 * S);
+  // Label next to valve
+  ctx.textAlign = 'right';
+  ctx.font = `900 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = pValveOpen > 0.3 ? '#4ade80' : '#fbbf24';
+  ctx.fillText(pValveOpen > 0.3 ? 'VALVE OPEN' : 'VALVE CLOSED', valveX - 48 * S, valveY + 6 * S);
+  ctx.restore();
+
+  // Valve snap shockwave
+  const dtV = t - (LValve.start + 0.18);
+  if (dtV >= 0 && dtV < 0.7) {
+    const u = dtV / 0.7;
+    ctx.strokeStyle = `rgba(74,222,128,${(1 - u).toFixed(2)})`;
+    ctx.lineWidth = (5 * (1 - u) + 1) * S;
+    ctx.beginPath(); ctx.arc(valveX, valveY, (16 + u * 66) * S, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // 5) Low-Pressure Vacuum Waste Tank below floor
+  ctx.save();
+  const tw = 248 * S, th = 122 * S;
+  const tg = ctx.createLinearGradient(tankX - tw * 0.5, tankY - th * 0.5, tankX - tw * 0.5, tankY + th * 0.5);
+  tg.addColorStop(0, '#312e81'); tg.addColorStop(0.5, '#1e1b4b'); tg.addColorStop(1, '#0f172a');
+  ctx.fillStyle = tg;
+  ctx.strokeStyle = pTank > 0.1 ? '#a855f7' : '#64748b';
+  ctx.lineWidth = (3.5 + pTank * 1.5) * S;
+  rrect(tankX - tw * 0.5, tankY - th * 0.5, tw, th, 48 * S);
+  ctx.fill(); ctx.stroke();
+
+  // Swirling vacuum mist inside tank
+  ctx.fillStyle = '#c084fc';
+  ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('VACUUM TANK', tankX, tankY - 8 * S);
+  ctx.fillStyle = '#e9d5ff';
+  ctx.font = `800 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+  ctx.fillText('VERY LOW PRESSURE', tankX, tankY + 18 * S);
+
+  // Vacuum Pressure Dial Gauge on left of tank
+  const gx = tankX - tw * 0.5 - 52 * S, gy = tankY;
+  ctx.fillStyle = '#0f172a'; ctx.strokeStyle = '#a855f7'; ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.arc(gx, gy, 32 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // Gauge arc
+  ctx.strokeStyle = '#c084fc'; ctx.lineWidth = 4 * S;
+  ctx.beginPath(); ctx.arc(gx, gy, 22 * S, Math.PI * 0.8, Math.PI * 1.45); ctx.stroke();
+  // Needle pointing to LOW VACUUM (fluctuates slightly during rush)
+  const needleAng = Math.PI * 1.05 + pRush * 0.25 * Math.sin(t * 22);
+  ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + Math.cos(needleAng) * 21 * S, gy + Math.sin(needleAng) * 21 * S); ctx.stroke();
+  ctx.fillStyle = '#e2e8f0'; ctx.font = `800 ${Math.round(12 * S)}px -apple-system, sans-serif`;
+  ctx.fillText('VAC', gx, gy + 18 * S);
+  ctx.restore();
+
+  // 6) Rushing Cyan Air Particles & Sonic Roar Waves!
+  if (pValveOpen > 0.1 || pRush > 0.05) {
+    const flowAmt = Math.max(pValveOpen * 0.5, pRush);
+    ctx.save();
+    // Cabin air swooping into bowl
+    for (let i = 0; i < 14; i++) {
+      const u = ((t * 2.1 + i * 0.19) % 1);
+      const startX = bowlCx + Math.cos(i * 1.7) * 155 * S;
+      const startY = bowlTopY - 110 * S + Math.sin(i * 2.1) * 28 * S;
+      const px = lerp(startX, bowlCx, u * u);
+      const py = lerp(startY, bowlBotY - 12 * S, u);
+      ctx.fillStyle = `rgba(56,189,248,${((1 - u * 0.3) * flowAmt).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(px, py, (4.5 + (1 - u) * 2) * S, 0, Math.PI * 2); ctx.fill();
+    }
+    // High-speed particles shooting down the evacuation pipe into the vacuum tank
+    for (let i = 0; i < 16; i++) {
+      const u = ((t * 2.6 + i / 16) % 1);
+      const pt = pipePoint(u, cx, bowlBotY, tankY, S);
+      const pPrev = pipePoint(Math.max(0, u - 0.06), cx, bowlBotY, tankY, S);
+      ctx.strokeStyle = `rgba(56,189,248,${(flowAmt * 0.92).toFixed(2)})`;
+      ctx.lineWidth = 5 * S; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(pPrev.x, pPrev.y); ctx.lineTo(pt.x, pt.y); ctx.stroke();
+      ctx.fillStyle = '#e0f2fe';
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 4 * S, 0, Math.PI * 2); ctx.fill();
+    }
+    // Expanding sonic roar sound waves radiating upward from bowl
+    if (pRush > 0.1) {
+      for (let w = 0; w < 4; w++) {
+        const wu = ((t * 2.2 + w * 0.25) % 1);
+        ctx.strokeStyle = `rgba(250,204,21,${((1 - wu) * pRush * 0.85).toFixed(2)})`;
+        ctx.lineWidth = (4.5 * (1 - wu) + 1) * S;
+        ctx.beginPath();
+        ctx.arc(bowlCx, bowlTopY - 8 * S, (28 + wu * 155) * S, Math.PI * 1.12, Math.PI * 1.88);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#facc15';
+      ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('~85 dB AIR ROAR!', bowlCx, bowlTopY - 120 * S);
+    }
+    ctx.restore();
+  }
+
+  // Outro summary badge
+  if (pOutro > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pOutro;
+    const bw = 420 * S, bh = 54 * S;
+    ctx.fillStyle = 'rgba(15,23,42,0.88)';
+    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 3 * S;
+    rrect(W * 0.5 - bw * 0.5, H * 0.725, bw, bh, 14 * S); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('AIR PRESSURE · 90% LESS WATER', W * 0.5, H * 0.725 + 34 * S);
+    ctx.restore();
+  }
+
+  ctx.restore(); // end zoom
+
+  // Top Title & Bottom Viral Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('WHY AIRPLANE TOILETS ARE SO LOUD', W * 0.5, H * 0.125, W * 0.92);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'rush' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

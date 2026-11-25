@@ -1,0 +1,433 @@
+<!doctype html>
+<!-- How It Actually Works — Why Tape Measure Hooks Are Loose -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, u) => a + (b - a) * u;
+
+const SCRIPT = [
+  { id: 'hook', text: "That wobbly hook on your tape measure? It's loose on purpose.", caption: "LOOSE ON PURPOSE" },
+  { id: 'thick', text: "The hook slides exactly the thickness of its own metal.", caption: "ONE HOOK THICKNESS" },
+  { id: 'pull', text: "Pull against an edge, and the hook slides out to add that thickness.", caption: "PULL: IT EXTENDS" },
+  { id: 'push', text: "Push against a wall, and it slides in to remove it.", caption: "PUSH: IT RETRACTS" },
+  { id: 'exact', text: "So inside and outside measurements are both accurate.", caption: "BOTH ARE EXACT" },
+  { id: 'outro', text: "Bonus: the jagged edge grips a nail head so you can measure alone.", caption: "GRIPS A NAIL" },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
+  cv.width = W; cv.height = H;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  EVENTS = [
+    { t: byId('thick').start + 0.25, type: 'bounce', pitchIndex: 4, intensity: 0.55 },
+    { t: byId('pull').start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.65 },
+    { t: byId('push').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.65 },
+    { t: byId('exact').start + 0.2, type: 'break', pitchIndex: 8, intensity: 0.8 },
+    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 10, intensity: 0.9 },
+  ];
+};
+
+function rrect(x, y, w, h, r) {
+  const rr = Math.min(r, w * 0.5, h * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function drawArrow(x1, y1, x2, y2, color, lw, head) {
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = lw; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - Math.cos(ang - 0.5) * head, y2 - Math.sin(ang - 0.5) * head);
+  ctx.lineTo(x2 - Math.cos(ang + 0.5) * head, y2 - Math.sin(ang + 0.5) * head);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+  const LHook = byId('hook');
+  const LThick = byId('thick');
+  const LPull = byId('pull');
+  const LPush = byId('push');
+  const LExact = byId('exact');
+  const LOutro = byId('outro');
+
+  const pThick = smooth(LThick.start, LThick.start + 0.45, t) * (1 - smooth(LPull.start, LPull.start + 0.35, t));
+  const pPull = smooth(LPull.start, LPull.start + 0.45, t) * (1 - smooth(LPush.start, LPush.start + 0.35, t));
+  const pPush = smooth(LPush.start, LPush.start + 0.45, t) * (1 - smooth(LExact.start, LExact.start + 0.35, t));
+  const pExact = smooth(LExact.start, LExact.start + 0.45, t) * (1 - smooth(LOutro.start, LOutro.start + 0.35, t));
+  const pOutro = smooth(LOutro.start, LOutro.start + 0.5, t);
+  const pWiggle = 1 - smooth(LThick.start, LThick.start + 0.3, t);
+
+  // Blueprint background
+  const bg = ctx.createRadialGradient(W * 0.5, H * 0.46, 40 * S, W * 0.5, H * 0.46, H * 0.68);
+  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // Hook slide amount: 0 = pushed in (retracted), 1 = pulled out (extended)
+  const wiggleSlide = 0.5 + 0.5 * Math.sin(t * 7.2);
+  const thickSlide = 0.5 + 0.5 * Math.sin((t - LThick.start) * 3.8);
+  const exactSlide = 0.5 + 0.5 * Math.sin((t - LExact.start) * 4.2);
+  let slideU = 0.5;
+  if (t < LThick.start) slideU = wiggleSlide;
+  else if (t < LPull.start) slideU = lerp(wiggleSlide, thickSlide, smooth(LThick.start, LThick.start + 0.35, t));
+  else if (t < LPush.start) slideU = lerp(thickSlide, 1.0, smooth(LPull.start, LPull.start + 0.5, t));
+  else if (t < LExact.start) slideU = lerp(1.0, 0.0, smooth(LPush.start, LPush.start + 0.5, t));
+  else if (t < LOutro.start) slideU = lerp(0.0, exactSlide, smooth(LExact.start, LExact.start + 0.35, t));
+  else slideU = lerp(exactSlide, 1.0, smooth(LOutro.start, LOutro.start + 0.45, t));
+
+  const hookThickPx = 22 * S; // visual representation of 1.0 mm metal thickness
+  const slideOffset = slideU * hookThickPx; // hook moves LEFT when extended
+
+  const cx = W * 0.5;
+  const cy = H * 0.43;
+  const zoom = 1 + pThick * 0.1 + smooth(0, DUR, t) * 0.04;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-cx, -cy);
+
+  const bladeX = 188 * S;
+  const bladeY = cy - 66 * S;
+  const bladeW = 540 * S;
+  const bladeH = 132 * S;
+
+  // --- Wood Edge (Pull phase) ---
+  if (pPull > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = pPull;
+    const edgeX = bladeX - slideOffset; // inner face of hook touches wood right edge
+    const wg = ctx.createLinearGradient(edgeX - 180 * S, bladeY, edgeX, bladeY);
+    wg.addColorStop(0, '#78350f'); wg.addColorStop(0.7, '#b45309'); wg.addColorStop(1, '#d97706');
+    ctx.fillStyle = wg;
+    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3 * S;
+    ctx.fillRect(edgeX - 190 * S, bladeY + 28 * S, 190 * S, 210 * S);
+    ctx.strokeRect(edgeX - 190 * S, bladeY + 28 * S, 190 * S, 210 * S);
+    // Wood grain lines
+    ctx.strokeStyle = 'rgba(120,53,15,0.45)'; ctx.lineWidth = 2.5 * S;
+    for (let i = 0; i < 6; i++) {
+      const gy = bladeY + (52 + i * 30) * S;
+      ctx.beginPath();
+      ctx.moveTo(edgeX - 185 * S, gy);
+      ctx.bezierCurveTo(edgeX - 120 * S, gy - 8 * S, edgeX - 60 * S, gy + 8 * S, edgeX - 4 * S, gy);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#fef3c7';
+    ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('BOARD', edgeX - 86 * S, bladeY + 128 * S);
+    ctx.fillText('EDGE', edgeX - 86 * S, bladeY + 152 * S);
+    ctx.restore();
+  }
+
+  // --- Solid Wall (Push phase) ---
+  if (pPush > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = pPush;
+    const wallRightX = bladeX - hookThickPx; // outer face of retracted hook presses flush against wall
+    const wallG = ctx.createLinearGradient(wallRightX - 160 * S, bladeY, wallRightX, bladeY);
+    wallG.addColorStop(0, '#1e293b'); wallG.addColorStop(1, '#475569');
+    ctx.fillStyle = wallG;
+    ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 3.5 * S;
+    ctx.fillRect(wallRightX - 170 * S, bladeY - 120 * S, 170 * S, 380 * S);
+    ctx.strokeRect(wallRightX - 170 * S, bladeY - 120 * S, 170 * S, 380 * S);
+    // Diagonal concrete hatch
+    ctx.strokeStyle = 'rgba(148,163,184,0.22)'; ctx.lineWidth = 2 * S;
+    for (let y = bladeY - 110 * S; y < bladeY + 260 * S; y += 22 * S) {
+      ctx.beginPath(); ctx.moveTo(wallRightX - 168 * S, y); ctx.lineTo(wallRightX - 2 * S, y - 34 * S); ctx.stroke();
+    }
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('WALL', wallRightX - 74 * S, bladeY - 40 * S);
+    ctx.restore();
+  }
+
+  // --- Nail Head (Outro bonus phase) ---
+  if (pOutro > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = pOutro;
+    const nailX = bladeX - slideOffset - hookThickPx * 0.5;
+    const nailY = bladeY + bladeH + 34 * S;
+    // Wooden plank below
+    ctx.fillStyle = '#92400e'; ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2.5 * S;
+    ctx.fillRect(nailX - 120 * S, nailY + 26 * S, 240 * S, 64 * S);
+    ctx.strokeRect(nailX - 120 * S, nailY + 26 * S, 240 * S, 64 * S);
+    // Steel nail shank
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(nailX - 5 * S, nailY - 12 * S, 10 * S, 42 * S);
+    // Steel nail head caught by hook slot
+    const ng = ctx.createRadialGradient(nailX - 4 * S, nailY - 16 * S, 2 * S, nailX, nailY - 14 * S, 18 * S);
+    ng.addColorStop(0, '#f8fafc'); ng.addColorStop(0.6, '#94a3b8'); ng.addColorStop(1, '#475569');
+    ctx.fillStyle = ng; ctx.strokeStyle = '#f8fafc'; ctx.lineWidth = 2.5 * S;
+    rrect(nailX - 18 * S, nailY - 22 * S, 36 * S, 12 * S, 5 * S);
+    ctx.fill(); ctx.stroke();
+    // Glow ring around nail grip
+    ctx.strokeStyle = `rgba(250,204,21,${(0.55 + 0.35 * Math.sin(t * 7)).toFixed(2)})`;
+    ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.arc(nailX, nailY - 12 * S, 32 * S, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#facc15';
+    ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('NAIL SLOT GRIP', nailX, nailY + 114 * S);
+    ctx.restore();
+  }
+
+  // --- Yellow Metallic Tape Blade ---
+  const tapeG = ctx.createLinearGradient(0, bladeY, 0, bladeY + bladeH);
+  tapeG.addColorStop(0, '#fef08a');
+  tapeG.addColorStop(0.18, '#facc15');
+  tapeG.addColorStop(0.72, '#eab308');
+  tapeG.addColorStop(1, '#a16207');
+  ctx.fillStyle = tapeG;
+  ctx.strokeStyle = '#fef9c3';
+  ctx.lineWidth = 3 * S;
+  ctx.fillRect(bladeX, bladeY, bladeW, bladeH);
+  ctx.strokeRect(bladeX, bladeY, bladeW, bladeH);
+
+  // Ruler ticks & cm labels (1 cm = 72*S so zero is aligned at bladeX - hookThickPx when retracted!)
+  const cmPx = 74 * S;
+  const zeroRefX = bladeX - hookThickPx;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(bladeX, bladeY, bladeW, bladeH); ctx.clip();
+  ctx.strokeStyle = '#0f172a';
+  ctx.fillStyle = '#0f172a';
+  ctx.textAlign = 'center';
+  for (let mm = 1; mm <= 75; mm++) {
+    const tx = zeroRefX + (mm / 10) * cmPx;
+    if (tx < bladeX + 4 * S) continue;
+    const isCm = mm % 10 === 0;
+    const isHalf = mm % 5 === 0 && !isCm;
+    const th = isCm ? 46 * S : isHalf ? 30 * S : 18 * S;
+    ctx.lineWidth = (isCm ? 3.5 : isHalf ? 2.5 : 1.8) * S;
+    // Top ticks
+    ctx.beginPath(); ctx.moveTo(tx, bladeY); ctx.lineTo(tx, bladeY + th); ctx.stroke();
+    // Bottom ticks
+    ctx.beginPath(); ctx.moveTo(tx, bladeY + bladeH); ctx.lineTo(tx, bladeY + bladeH - th * 0.72); ctx.stroke();
+    if (isCm) {
+      ctx.font = `900 ${Math.round(28 * S)}px -apple-system, sans-serif`;
+      ctx.fillText(String(mm / 10), tx, bladeY + 80 * S);
+    }
+  }
+  ctx.font = `800 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+  ctx.fillText('cm', zeroRefX + 1.48 * cmPx, bladeY + 78 * S);
+  ctx.restore();
+
+  // --- Sliding Steel L-Hook ---
+  const hookLeftX = bladeX - hookThickPx - slideOffset;
+  const hookStrapW = 148 * S;
+  const hookDropH = bladeH + 58 * S;
+
+  // Metallic steel hook gradient
+  const hookG = ctx.createLinearGradient(hookLeftX, bladeY, hookLeftX + hookStrapW, bladeY + bladeH);
+  hookG.addColorStop(0, '#f1f5f9');
+  hookG.addColorStop(0.45, '#94a3b8');
+  hookG.addColorStop(1, '#475569');
+
+  ctx.save();
+  ctx.fillStyle = hookG;
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 3 * S;
+
+  // Horizontal mounting tab over blade
+  rrect(hookLeftX + hookThickPx - 2 * S, bladeY + 12 * S, hookStrapW, bladeH - 24 * S, 10 * S);
+  ctx.fill(); ctx.stroke();
+
+  // Vertical bent L-lip (thickness = hookThickPx) with jagged bottom grip teeth
+  ctx.beginPath();
+  ctx.moveTo(hookLeftX, bladeY - 4 * S);
+  ctx.lineTo(hookLeftX + hookThickPx, bladeY - 4 * S);
+  ctx.lineTo(hookLeftX + hookThickPx, bladeY + hookDropH - 10 * S);
+  // Jagged/notched nail-grip edge at bottom
+  ctx.lineTo(hookLeftX + hookThickPx * 0.72, bladeY + hookDropH);
+  ctx.lineTo(hookLeftX + hookThickPx * 0.5, bladeY + hookDropH - 12 * S);
+  ctx.lineTo(hookLeftX + hookThickPx * 0.25, bladeY + hookDropH);
+  ctx.lineTo(hookLeftX, bladeY + hookDropH - 10 * S);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Elongated horizontal rivet SLOTS cut into the steel tab (move WITH the hook!)
+  const slot1X = hookLeftX + hookThickPx + 26 * S;
+  const slot2X = hookLeftX + hookThickPx + 84 * S;
+  const slotW = 24 * S + hookThickPx;
+  const slotH = 22 * S;
+  for (const sx of [slot1X, slot2X]) {
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 2.2 * S;
+    rrect(sx, cy - slotH * 0.5, slotW, slotH, slotH * 0.5);
+    ctx.fill(); ctx.stroke();
+  }
+
+  // Fixed Brass/Steel Rivets anchored to the YELLOW BLADE (do NOT move with slideOffset!)
+  const rivet1X = bladeX + 26 * S + 12 * S;
+  const rivet2X = bladeX + 84 * S + 12 * S;
+  for (const rx of [rivet1X, rivet2X]) {
+    const rg = ctx.createRadialGradient(rx - 3 * S, cy - 3 * S, 2 * S, rx, cy, 10 * S);
+    rg.addColorStop(0, '#fef08a'); rg.addColorStop(0.55, '#ca8a04'); rg.addColorStop(1, '#713f12');
+    ctx.fillStyle = rg;
+    ctx.strokeStyle = '#fef9c3'; ctx.lineWidth = 2 * S;
+    ctx.beginPath(); ctx.arc(rx, cy, 9.5 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+
+  // --- Phase-Specific Engineering Overlays ---
+
+  // 1) Wiggle / Slotted Rivets Callout
+  if (pWiggle > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pWiggle;
+    const ay = bladeY - 46 * S;
+    drawArrow(hookLeftX + hookThickPx * 0.5 - 22 * S, ay, hookLeftX + hookThickPx * 0.5 + 32 * S, ay, '#38bdf8', 4.5 * S, 12 * S);
+    drawArrow(hookLeftX + hookThickPx * 0.5 + 32 * S, ay, hookLeftX + hookThickPx * 0.5 - 22 * S, ay, '#38bdf8', 4.5 * S, 12 * S);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('SLOTTED RIVET PLAY', hookLeftX + 74 * S, ay - 20 * S);
+    ctx.restore();
+  }
+
+  // 2) Thickness = Slide Gap Callout
+  if (pThick > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pThick;
+    // Bracket over hook metal thickness
+    const byTop = bladeY - 26 * S;
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3 * S;
+    ctx.beginPath();
+    ctx.moveTo(hookLeftX, byTop + 14 * S); ctx.lineTo(hookLeftX, byTop);
+    ctx.lineTo(hookLeftX + hookThickPx, byTop); ctx.lineTo(hookLeftX + hookThickPx, byTop + 14 * S);
+    ctx.stroke();
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('1.0 mm', hookLeftX + hookThickPx * 0.5, byTop - 12 * S);
+
+    // Highlight gap between blade left edge and hook inner face
+    if (slideOffset > 3 * S) {
+      ctx.fillStyle = 'rgba(56,189,248,0.28)';
+      ctx.fillRect(hookLeftX + hookThickPx, bladeY, slideOffset, bladeH);
+    }
+    ctx.fillStyle = '#facc15';
+    ctx.font = `900 ${Math.round(20 * S)}px -apple-system, sans-serif`;
+    ctx.fillText('SLIDE TRAVEL = HOOK THICKNESS (1.0 mm)', cx, bladeY + bladeH + 92 * S);
+    ctx.restore();
+  }
+
+  // 3) Pull (Outside) Callout
+  if (pPull > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pPull;
+    drawArrow(bladeX + 180 * S, bladeY - 46 * S, bladeX + 340 * S, bladeY - 46 * S, '#4ade80', 6 * S, 16 * S);
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('PULL RIGHT → HOOK EXTENDS (+1 mm)', cx + 30 * S, bladeY - 72 * S);
+    // Dashed zero alignment line at inner face of hook
+    const zeroPullX = hookLeftX + hookThickPx;
+    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2.5 * S; ctx.setLineDash([6 * S, 6 * S]);
+    ctx.beginPath(); ctx.moveTo(zeroPullX, bladeY - 35 * S); ctx.lineTo(zeroPullX, bladeY + bladeH + 75 * S); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText('0.0 cm (INNER FACE)', zeroPullX + 20 * S, bladeY + bladeH + 102 * S);
+    ctx.restore();
+  }
+
+  // 4) Push (Inside) Callout
+  if (pPush > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pPush;
+    drawArrow(bladeX + 340 * S, bladeY - 46 * S, bladeX + 180 * S, bladeY - 46 * S, '#fb923c', 6 * S, 16 * S);
+    ctx.fillStyle = '#fb923c';
+    ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('← PUSH LEFT · HOOK RETRACTS (-1 mm)', cx + 30 * S, bladeY - 72 * S);
+    // Dashed zero alignment line at outer face of hook
+    const zeroPushX = hookLeftX;
+    ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 2.5 * S; ctx.setLineDash([6 * S, 6 * S]);
+    ctx.beginPath(); ctx.moveTo(zeroPushX, bladeY - 35 * S); ctx.lineTo(zeroPushX, bladeY + bladeH + 75 * S); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText('0.0 cm (OUTER FACE)', zeroPushX + 30 * S, bladeY + bladeH + 102 * S);
+    ctx.restore();
+  }
+
+  ctx.restore(); // end zoom transform
+
+  // 5) Exact Measurement Comparison Cards (outside zoom for crisp UI layout)
+  if (pExact > 0.03) {
+    ctx.save();
+    ctx.globalAlpha = pExact;
+    const cardY = H * 0.62;
+    const cardW = 286 * S, cardH = 128 * S;
+    const cards = [
+      { x: W * 0.5 - cardW - 14 * S, label: 'OUTSIDE (PULL)', val: '10.0 cm ✓', sub: 'Hook Extended', col: '#4ade80' },
+      { x: W * 0.5 + 14 * S, label: 'INSIDE (PUSH)', val: '10.0 cm ✓', sub: 'Hook Retracted', col: '#38bdf8' },
+    ];
+    for (const c of cards) {
+      ctx.fillStyle = 'rgba(15,23,42,0.88)';
+      ctx.strokeStyle = c.col; ctx.lineWidth = 3 * S;
+      rrect(c.x, cardY, cardW, cardH, 16 * S); ctx.fill(); ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = `800 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+      ctx.fillText(c.label, c.x + cardW * 0.5, cardY + 34 * S);
+      ctx.fillStyle = c.col;
+      ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+      ctx.fillText(c.val, c.x + cardW * 0.5, cardY + 78 * S);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = `700 ${Math.round(15 * S)}px -apple-system, sans-serif`;
+      ctx.fillText(c.sub, c.x + cardW * 0.5, cardY + 108 * S);
+    }
+    ctx.restore();
+  }
+
+  // Top Title & Bottom Viral Caption
+  let activeLine = LINES[0];
+  for (const l of LINES) if (t >= l.start) activeLine = l;
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('WHY TAPE MEASURE HOOKS ARE LOOSE', W * 0.5, H * 0.125, W * 0.92);
+  if (activeLine) {
+    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
+    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
+    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
+    ctx.fillStyle = activeLine.id === 'exact' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
+    ctx.fillText(activeLine.caption, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (s, c) => {
+  const out = [];
+  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
+  return out;
+};
+window.ready = true;
+</script>

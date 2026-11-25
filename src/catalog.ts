@@ -12,7 +12,12 @@ export type PhysicsNiche =
   | "maze-race"
   | "domino-chain"
   | "wave-interference"
-  | "fourier-draw";
+  | "fourier-draw"
+  | "pi-collisions"
+  | "brachistochrone"
+  | "langtons-ant"
+  | "metronome-sync"
+  | "monty-hall";
 
 export type PhysicsJob = {
   id: string;
@@ -43,13 +48,18 @@ export type PublishJob = PhysicsJob | ExplainerJob;
 const PHYSICS_ROTATION: PhysicsNiche[] = [
   "physics-ring",
   "duel-balls",
+  "pi-collisions",
+  "brachistochrone",
   "sorting-race",
-  "marble-drop",
-  "pendulum-wave",
-  "ball-grow",
+  "langtons-ant",
   "double-pendulum",
+  "metronome-sync",
+  "marble-drop",
+  "monty-hall",
   "gravity-orbit",
+  "pendulum-wave",
   "maze-race",
+  "ball-grow",
   "domino-chain",
   "wave-interference",
   "fourier-draw",
@@ -89,6 +99,81 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Even with nearly identical starting speeds, sensitive dependence on initial conditions sends these two simulated spheres on completely different paths. Watch who takes the final point.\n\n#shorts #chaos #physics #simulation",
     tags: ["chaos theory", "physics duel", "ball simulation", "shorts", "science"],
+    categoryId: "28",
+  },
+  {
+    id: "pi-collisions-seed113",
+    channel: "physics",
+    niche: "pi-collisions",
+    seed: 113,
+    seconds: 24,
+    hook: "COUNT THE CLACKS...",
+    narration:
+      "These two blocks only bounce, yet the number of collisions spells out the digits of pi. Make the big block a hundred times heavier, and you unlock one more digit.",
+    title: "These Two Blocks Calculate Pi Just By Colliding #shorts",
+    description:
+      "Galperin's billiard theorem in action: two elastic blocks colliding against a wall naturally compute 31, 314, and 3,141 — the exact digits of Pi.\n\n#shorts #pi #math #physics",
+    tags: ["pi collisions", "mathematics", "physics simulation", "science", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "brachistochrone-seed114",
+    channel: "physics",
+    niche: "brachistochrone",
+    seed: 114,
+    seconds: 24,
+    hook: "SHORTEST ISN'T FASTEST",
+    narration:
+      "Four balls, four ramps, and the straight line is the slowest. The curve called a cycloid wins every time because it trades distance for early speed.",
+    title: "The Straight Line LOSES This Gravity Race #shorts",
+    description:
+      "The Brachistochrone problem proved that the shortest path between two points is NOT the fastest under gravity. Watch the cycloid curve overtake the straight ramp every single time.\n\n#shorts #brachistochrone #physics #math",
+    tags: ["brachistochrone", "cycloid", "gravity race", "physics", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "langtons-ant-seed115",
+    channel: "physics",
+    niche: "langtons-ant",
+    seed: 115,
+    seconds: 24,
+    hook: "WAIT FOR STEP 10,000...",
+    narration:
+      "This ant follows just two rules: turn right on white, left on black. For ten thousand steps it looks like chaos, then it suddenly builds a perfect highway, and no one fully knows why.",
+    title: "This Ant Goes Crazy… Then Builds a Highway #shorts",
+    description:
+      "Langton's Ant is a two-rule cellular automaton that wanders chaotically for 10,000 steps before spontaneously locking into a repeating 104-step diagonal highway.\n\n#shorts #langtonsant #chaos #computerscience",
+    tags: ["langtons ant", "cellular automata", "chaos theory", "math", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "metronome-sync-seed116",
+    channel: "physics",
+    niche: "metronome-sync",
+    seed: 116,
+    seconds: 24,
+    hook: "THEY SYNC THEMSELVES...",
+    narration:
+      "Thirty-two metronomes start completely out of step. The board they sit on moves just slightly, and those tiny pushes pull every beat into perfect sync.",
+    title: "32 Metronomes Start in Chaos… Then This Happens #shorts",
+    description:
+      "Coupled Kuramoto oscillators on a freely sliding board transfer microscopic momentum pulses until 32 random rhythms lock into 100% unison.\n\n#shorts #metronomes #physics #synchronization",
+    tags: ["metronome sync", "kuramoto model", "physics", "satisfying", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "monty-hall-seed117",
+    channel: "physics",
+    niche: "monty-hall",
+    seed: 117,
+    seconds: 24,
+    hook: "SWITCH OR STAY?",
+    narration:
+      "Three doors, one prize, and the host opens a losing door. Switching wins two out of three times, and these thousand simulated games prove it.",
+    title: "1,000 Games Prove Your Brain Is Wrong (Monty Hall) #shorts",
+    description:
+      "The most counterintuitive probability paradox in math: watch 1,000 live simulated games prove why switching doors doubles your odds from 33.3% to 66.7%.\n\n#shorts #montyhall #probability #math",
+    tags: ["monty hall problem", "probability", "math paradox", "statistics", "shorts"],
     categoryId: "28",
   },
   {
@@ -266,6 +351,56 @@ export const EXPLAINER_JOBS: ExplainerJob[] = [
     description:
       "An airplane wing's curved airfoil shape and angle of attack accelerate airflow over the top and deflect air downward, creating a pressure difference that generates massive upward lift.\n\n#shorts #aviation #howitworks #engineering",
     tags: ["how airplanes fly", "aerodynamics", "lift", "engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-tape-measure-hook",
+    channel: "explainer",
+    episode: "tape-measure-hook",
+    title: "Your Tape Measure's Loose Hook Isn't Broken #shorts",
+    description:
+      "That wobbly metal hook slides by exactly its own thickness so both inside push measurements and outside pull measurements stay 100% accurate. Bonus: the slot grips a nail head!\n\n#shorts #engineering #howitworks #tools",
+    tags: ["tape measure", "engineering design", "how it works", "everyday genius", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-airplane-vacuum-toilet",
+    channel: "explainer",
+    episode: "airplane-vacuum-toilet",
+    title: "Why Airplane Toilets Are So LOUD #shorts",
+    description:
+      "Airplane toilets don't flush with heavy water tanks — they use a low-pressure vacuum tank under the floor. When the valve snaps open, pressurized cabin air rushes in with a roar.\n\n#shorts #aviation #howitworks #engineering",
+    tags: ["airplane toilet", "aviation engineering", "vacuum physics", "how it works", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-key-fob-rolling-code",
+    channel: "explainer",
+    episode: "key-fob-rolling-code",
+    title: "Why Thieves Can't Just Record Your Car Key #shorts",
+    description:
+      "Modern car keys use rolling-code cryptography: your fob and car share a secret counter so every unlock generates a one-time code, instantly rejecting replayed recordings.\n\n#shorts #cars #cybersecurity #howitworks",
+    tags: ["rolling code", "car key", "cryptography", "automotive engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-tuned-mass-damper",
+    channel: "explainer",
+    episode: "tuned-mass-damper",
+    title: "The 660-Ton Ball Keeping This Skyscraper Standing #shorts",
+    description:
+      "Suspended near the top of Taipei 101 is a 660-ton steel tuned mass damper. During typhoons and earthquakes, it swings out of phase with the tower while hydraulic dampers turn sway into heat.\n\n#shorts #skyscrapers #civilengineering #howitworks",
+    tags: ["tuned mass damper", "taipei 101", "civil engineering", "physics", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-pop-up-toaster",
+    channel: "explainer",
+    episode: "pop-up-toaster",
+    title: "How Your Toaster Knows When to Pop #shorts",
+    description:
+      "Pushing the lever loads a spring while an electromagnet holds the bread down as nichrome wires glow red. When the circuit timer cuts power to the magnet, the spring launches your toast! (Older models used a bimetallic strip.)\n\n#shorts #toaster #engineering #howitworks",
+    tags: ["how toasters work", "electromagnet", "everyday engineering", "how it works", "shorts"],
     categoryId: "27",
   },
   {
@@ -663,6 +798,51 @@ const INFINITE_ANGLES: Record<
     titlePrefix: "Fourier Epicycles Geometry",
     topic: "Fourier series and harmonic synthesis",
   },
+  "pi-collisions": {
+    hooks: ["COUNT THE CLACKS...", "BLOCKS CALCULATE PI", "3 → 31 → 314 → 3141"],
+    narrations: [
+      "Two elastic blocks colliding with a wall naturally count out the exact digits of Pi.",
+      "Multiply the heavy block's mass by one hundred and you unlock another digit of Pi.",
+    ],
+    titlePrefix: "Two Blocks Calculating Pi",
+    topic: "Galperin's billiard theorem and elastic collisions",
+  },
+  "brachistochrone": {
+    hooks: ["SHORTEST ISN'T FASTEST", "STRAIGHT LINE LOSES", "CYCLOID VS STRAIGHT"],
+    narrations: [
+      "The shortest path between two points is not the fastest under gravity — watch the cycloid curve steal the lead.",
+      "Trading distance for an early gravity boost lets the curved track crush the straight ramp.",
+    ],
+    titlePrefix: "Brachistochrone Gravity Race",
+    topic: "calculus of variations and the cycloid curve",
+  },
+  "langtons-ant": {
+    hooks: ["WAIT FOR STEP 10,000...", "TWO RULES → HIGHWAY", "CHAOS TO ORDER"],
+    narrations: [
+      "Two tiny rules create ten thousand steps of pure chaos — until an infinite diagonal highway suddenly emerges.",
+      "Watch order spontaneously crystallize out of randomness in Langton's Ant.",
+    ],
+    titlePrefix: "Langton's Ant Chaos Highway",
+    topic: "cellular automata and emergent complexity",
+  },
+  "metronome-sync": {
+    hooks: ["THEY SYNC THEMSELVES...", "32 METRONOMES IN SYNC", "CHAOS TO UNISON"],
+    narrations: [
+      "Thirty-two random metronomes share tiny pushes through a sliding board until every beat snaps into perfect unison.",
+      "Watch Kuramoto synchronization turn thirty-two chaotic rhythms into a single hypnotic pulse.",
+    ],
+    titlePrefix: "32 Metronomes Self-Sync",
+    topic: "coupled oscillators and spontaneous synchronization",
+  },
+  "monty-hall": {
+    hooks: ["SWITCH OR STAY?", "1,000 GAMES PROVE IT", "33% VS 66.7%"],
+    narrations: [
+      "One thousand simulated games settle the Monty Hall debate once and for all — switching doors doubles your odds.",
+      "Watch the live win bars lock onto 33 percent for staying versus 67 percent for switching.",
+    ],
+    titlePrefix: "Monty Hall 1,000-Game Proof",
+    topic: "conditional probability and the Monty Hall paradox",
+  },
 };
 
 /**
@@ -731,6 +911,11 @@ const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "domino-chain": "Giant Dominoes",
   "wave-interference": "Wave Interference",
   "fourier-draw": "Fourier Epicycles",
+  "pi-collisions": "Blocks Calculate Pi",
+  "brachistochrone": "Fastest Ramp Race",
+  "langtons-ant": "Langton's Ant",
+  "metronome-sync": "32 Metronomes Sync",
+  "monty-hall": "Monty Hall Paradox",
 };
 
 const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
@@ -746,6 +931,11 @@ const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
   "domino-chain": "WAIT FOR THE FINAL MONOLITH",
   "wave-interference": "WAIT FOR PERFECT RESONANCE",
   "fourier-draw": "GUESS THE SHAPE BEFORE 50%",
+  "pi-collisions": "WATCH THE CLACK COUNTER",
+  "brachistochrone": "WHICH RAMP WINS? PICK A COLOR",
+  "langtons-ant": "WAIT FOR THE HIGHWAY TO APPEAR",
+  "metronome-sync": "WATCH ALL 32 LOCK TOGETHER",
+  "monty-hall": "WOULD YOU SWITCH OR STAY?",
 };
 
 function formatEpisodeLabel(slug: string): string {

@@ -1,0 +1,440 @@
+<!doctype html>
+<!-- Metronome Sync: 32 Kuramoto-coupled metronomes on an oscillating platform snapping into 100% golden unison -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = '32 CHAOTIC METRONOMES SYNC UP!';
+const N = 32;
+let rng = 1, events = [], sparks = [];
+let phases = [], freqs = [], hues = [], prevSign = [];
+let simTime = 0, platformX = 0, syncR = 0, meanPsi = 0;
+let lastChaoticTickT = -1, lastSyncTickSign = 1;
+let clusterBreakTriggered = false, finaleTriggered = false;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+function computeOrder() {
+  let sumCos = 0, sumSin = 0;
+  for (let i = 0; i < N; i++) {
+    sumCos += Math.cos(phases[i]);
+    sumSin += Math.sin(phases[i]);
+  }
+  const r = Math.hypot(sumCos, sumSin) / N;
+  const psi = Math.atan2(sumSin, sumCos);
+  return { r, psi };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || '32 CHAOTIC METRONOMES SYNC UP!';
+  cv.width = W; cv.height = H;
+  rng = ((cfg.seed || 1) * 1664525 + 1013904223) >>> 0;
+
+  // Initialize 32 metronomes with random phases (ensuring genuinely chaotic start: r <= 0.20)
+  phases = [];
+  freqs = [];
+  hues = [];
+  prevSign = [];
+  const baseOmega = Math.PI * 2 * 1.65; // ~1.65 Hz crisp metronome beat
+
+  for (let attempt = 0; attempt < 16; attempt++) {
+    phases = [];
+    for (let i = 0; i < N; i++) phases.push(rand() * Math.PI * 2);
+    const ord = computeOrder();
+    if (ord.r >= 0.08 && ord.r <= 0.19) break;
+  }
+
+  for (let i = 0; i < N; i++) {
+    // Slight natural frequency spread around baseOmega
+    freqs.push(baseOmega + (rand() - 0.5) * 0.55);
+    hues.push((i / N) * 320 + 180);
+    prevSign.push(Math.sin(phases[i]) >= 0 ? 1 : -1);
+  }
+
+  const initOrd = computeOrder();
+  syncR = initOrd.r;
+  meanPsi = initOrd.psi;
+  platformX = 0;
+  simTime = 0;
+  events = []; sparks = [];
+  lastChaoticTickT = -1;
+  lastSyncTickSign = 1;
+  clusterBreakTriggered = false;
+  finaleTriggered = false;
+};
+
+function spawnSparks(x, y, col, n, S) {
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const spd = (90 + rand() * 250) * S;
+    sparks.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 1.0, size: (2.5 + rand() * 4) * S, col });
+  }
+}
+
+function stepPhysics(dt, S) {
+  simTime += dt;
+  const finaleStart = DUR * 0.88;
+  const p = Math.max(0, Math.min(1, simTime / finaleStart));
+
+  // Sub-step Kuramoto coupled oscillator dynamics for smooth stability
+  // Coupling strength K ramps organically so clusters form (p ~ 0.35-0.70) and lock into 100% unison by p = 1.0
+  const subSteps = 4;
+  const h = dt / subSteps;
+  const K = p < 0.12
+    ? 0.04
+    : 0.12 + 3.2 * Math.pow((p - 0.12) / 0.88, 1.85);
+  const baseOmega = Math.PI * 2 * 1.65;
+
+  for (let s = 0; s < subSteps; s++) {
+    const ord = computeOrder();
+    syncR = ord.r;
+    meanPsi = ord.psi;
+    for (let i = 0; i < N; i++) {
+      // Natural frequency gradually converges under strong platform locking
+      const effOmega = freqs[i] * (1 - p * 0.85) + baseOmega * (p * 0.85);
+      let dTheta = effOmega + K * Math.max(0.22, syncR) * Math.sin(meanPsi - phases[i]);
+      // Final crisp phase-lock snap in the last 10% before finale so sync hits 100% cleanly at 88% of DUR
+      if (p > 0.86) {
+        const lockPull = ((p - 0.86) / 0.14) * 9.5;
+        dTheta += lockPull * Math.sin(meanPsi - phases[i]);
+      }
+      phases[i] += dTheta * h;
+    }
+  }
+
+  const finalOrd = computeOrder();
+  syncR = simTime >= finaleStart ? 1.0 : finalOrd.r;
+  meanPsi = finalOrd.psi;
+  if (simTime >= finaleStart) {
+    for (let i = 0; i < N; i++) phases[i] = meanPsi;
+  }
+
+  // Platform horizontal oscillation driven by collective momentum: -r * sin(psi)
+  const targetPlatX = -syncR * Math.sin(meanPsi) * 38 * S;
+  platformX += (targetPlatX - platformX) * 0.35;
+
+  // Audio events:
+  // When chaotic (syncR < 0.78), subtle rhythmic ticks from center crossings (throttled)
+  // When synced (syncR >= 0.78), unified crisp metronome beat on meanPsi zero-crossings!
+  const meanSign = Math.sin(meanPsi) >= 0 ? 1 : -1;
+  if (syncR >= 0.75 && !clusterBreakTriggered) {
+    clusterBreakTriggered = true;
+    events.push({ t: simTime, type: 'break', pitchIndex: 9, intensity: 0.82 });
+  }
+  if (simTime >= finaleStart && !finaleTriggered) {
+    finaleTriggered = true;
+    events.push({ t: simTime, type: 'win', pitchIndex: 12, intensity: 1.0 });
+    spawnSparks(W * 0.5, H * 0.50, '#facc15', 36, S);
+  }
+
+  if (syncR >= 0.82) {
+    if (meanSign !== lastSyncTickSign && simTime > 0.2) {
+      lastSyncTickSign = meanSign;
+      events.push({ t: simTime, type: 'bounce', pitchIndex: finaleTriggered ? 11 : 8, intensity: finaleTriggered ? 0.72 : 0.56 });
+    }
+  } else {
+    for (let i = 0; i < N; i++) {
+      const sg = Math.sin(phases[i]) >= 0 ? 1 : -1;
+      if (sg !== prevSign[i]) {
+        prevSign[i] = sg;
+        if (simTime - lastChaoticTickT >= 0.085 && simTime > 0.1) {
+          lastChaoticTickT = simTime;
+          events.push({ t: simTime, type: 'bounce', pitchIndex: i % 11, intensity: 0.30 + syncR * 0.25 });
+        }
+      }
+    }
+  }
+
+  // Update sparks
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    sp.x += sp.vx * dt;
+    sp.y += sp.vy * dt;
+    sp.life -= dt * 1.9;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const dt = 1 / FPS;
+  stepPhysics(dt, S);
+
+  const finaleStart = DUR * 0.88;
+  const isFinale = simTime >= finaleStart;
+  const syncPct = Math.min(100, Math.round(syncR * 100));
+
+  // --- RENDER ---
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Ambient glow intensifies as sync approaches 100%
+  const bgGrad = ctx.createRadialGradient(W * 0.5, H * 0.52, 30 * S, W * 0.5, H * 0.52, 420 * S);
+  bgGrad.addColorStop(0, isFinale ? 'rgba(250,204,21,0.18)' : `rgba(34,211,238,${0.05 + syncR * 0.10})`);
+  bgGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Top HOOK text
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(37 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = isFinale ? 'rgba(250,204,21,0.55)' : 'rgba(34,211,238,0.45)';
+  ctx.shadowBlur = 14 * S;
+  ctx.fillText(HOOK, W * 0.5, H * 0.088);
+  ctx.restore();
+
+  // Live SYNC % Meter + Phase-Lock Circle HUD
+  const hudX = 52 * S, hudY = H * 0.125, hudW = W - 104 * S, hudH = 112 * S;
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.78)';
+  ctx.strokeStyle = isFinale ? '#facc15' : 'rgba(148,163,184,0.28)';
+  ctx.lineWidth = (isFinale ? 3 : 2) * S;
+  ctx.beginPath(); ctx.roundRect(hudX, hudY, hudW, hudH, 20 * S); ctx.fill(); ctx.stroke();
+
+  // Left: SYNC % big readout + progress bar
+  ctx.textAlign = 'left';
+  ctx.font = `800 ${Math.round(18 * S)}px monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('KURAMOTO SYNC ORDER', hudX + 24 * S, hudY + 32 * S);
+
+  ctx.font = `900 ${Math.round(44 * S)}px monospace`;
+  ctx.fillStyle = isFinale ? '#fde047' : syncPct >= 75 ? '#38bdf8' : '#ffffff';
+  ctx.shadowColor = isFinale ? '#facc15' : '#22d3ee';
+  ctx.shadowBlur = 14 * S;
+  ctx.fillText(`${syncPct}%`, hudX + 24 * S, hudY + 76 * S);
+  ctx.shadowBlur = 0;
+
+  // Bar next to %
+  const barX = hudX + 165 * S, barY = hudY + 54 * S, barW = hudW - 295 * S, barH = 18 * S;
+  ctx.fillStyle = 'rgba(30,41,59,0.9)';
+  ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 9 * S); ctx.fill();
+  const barGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  barGrad.addColorStop(0, '#ec4899');
+  barGrad.addColorStop(0.5, '#22d3ee');
+  barGrad.addColorStop(1, '#facc15');
+  ctx.fillStyle = barGrad;
+  ctx.beginPath(); ctx.roundRect(barX, barY, Math.max(10 * S, barW * syncR), barH, 9 * S); ctx.fill();
+
+  // Right: Mini unit phase circle showing all 32 oscillators collapsing onto one golden point!
+  const pcX = hudX + hudW - 60 * S, pcY = hudY + hudH * 0.5, pcR = 38 * S;
+  ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(pcX, pcY, pcR, 0, Math.PI * 2); ctx.stroke();
+
+  // Order parameter vector from center
+  ctx.strokeStyle = '#facc15';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.moveTo(pcX, pcY);
+  ctx.lineTo(pcX + Math.cos(meanPsi) * syncR * pcR, pcY + Math.sin(meanPsi) * syncR * pcR);
+  ctx.stroke();
+
+  for (let i = 0; i < N; i++) {
+    const dx = pcX + Math.cos(phases[i]) * pcR;
+    const dy = pcY + Math.sin(phases[i]) * pcR;
+    ctx.fillStyle = isFinale ? '#fde047' : `hsl(${hues[i] % 360}, 95%, 64%)`;
+    ctx.beginPath(); ctx.arc(dx, dy, 3.6 * S, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+
+  // --- OSCILLATING PLATFORM + 32 METRONOMES (4 rows x 8 cols) ---
+  const platW = W - 116 * S;
+  const platLeft = (W - platW) * 0.5 + platformX;
+  const platTop = H * 0.275;
+  const platH = H * 0.555;
+  const platBottom = platTop + platH;
+
+  // Static ground base below rolling cylinders
+  const groundY = platBottom + 44 * S;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath(); ctx.moveTo(40 * S, groundY); ctx.lineTo(W - 40 * S, groundY); ctx.stroke();
+
+  // Two visibly rolling neon cylinders supporting the oscillating platform
+  const cylR = 20 * S;
+  const cylY = groundY - cylR;
+  const cylPositions = [W * 0.27 + platformX * 0.5, W * 0.73 + platformX * 0.5];
+  const rollAngle = platformX / cylR;
+  for (const cxPos of cylPositions) {
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = isFinale ? '#facc15' : '#38bdf8';
+    ctx.lineWidth = 3.5 * S;
+    ctx.shadowColor = isFinale ? '#facc15' : '#22d3ee';
+    ctx.shadowBlur = 14 * S;
+    ctx.beginPath(); ctx.arc(cxPos, cylY, cylR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Spokes so rotation is unmistakably visible
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 2 * S;
+    for (let k = 0; k < 4; k++) {
+      const a = rollAngle + k * (Math.PI * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(cxPos, cylY);
+      ctx.lineTo(cxPos + Math.cos(a) * (cylR - 3 * S), cylY + Math.sin(a) * (cylR - 3 * S));
+      ctx.stroke();
+    }
+  }
+
+  // Oscillating platform frame
+  ctx.fillStyle = 'rgba(15,23,42,0.72)';
+  ctx.strokeStyle = isFinale ? '#facc15' : '#38bdf8';
+  ctx.lineWidth = 3.5 * S;
+  ctx.shadowColor = isFinale ? '#facc15' : '#22d3ee';
+  ctx.shadowBlur = 18 * S;
+  ctx.beginPath();
+  ctx.roundRect(platLeft, platTop, platW, platH, 22 * S);
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Platform bottom neon rail
+  ctx.fillStyle = isFinale ? '#facc15' : '#22d3ee';
+  ctx.beginPath();
+  ctx.roundRect(platLeft - 14 * S, platBottom - 6 * S, platW + 28 * S, 12 * S, 6 * S);
+  ctx.fill();
+  ctx.restore();
+
+  // Draw 4 rows x 8 columns = 32 glowing metronomes inside the swaying platform
+  const rows = 4, cols = 8;
+  const padX = 24 * S, padY = 24 * S;
+  const cellW = (platW - padX * 2) / cols;
+  const cellH = (platH - padY * 2) / rows;
+
+  for (let r = 0; r < rows; r++) {
+    // Shelf line under each row
+    const shelfY = platTop + padY + (r + 1) * cellH - 12 * S;
+    ctx.strokeStyle = 'rgba(148,163,184,0.22)';
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath();
+    ctx.moveTo(platLeft + 18 * S, shelfY);
+    ctx.lineTo(platLeft + platW - 18 * S, shelfY);
+    ctx.stroke();
+
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      const mx = platLeft + padX + (c + 0.5) * cellW;
+      const baseY = shelfY;
+      const bodyW = cellW * 0.66;
+      const bodyH = cellH * 0.66;
+
+      // Metronome trapezoid housing
+      ctx.save();
+      ctx.fillStyle = 'rgba(30,41,59,0.85)';
+      ctx.strokeStyle = isFinale ? 'rgba(250,204,21,0.55)' : 'rgba(148,163,184,0.3)';
+      ctx.lineWidth = 1.6 * S;
+      ctx.beginPath();
+      ctx.moveTo(mx - bodyW * 0.5, baseY);
+      ctx.lineTo(mx - bodyW * 0.24, baseY - bodyH);
+      ctx.lineTo(mx + bodyW * 0.24, baseY - bodyH);
+      ctx.lineTo(mx + bodyW * 0.5, baseY);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // Pendulum needle angle
+      const swingAngle = Math.sin(phases[idx]) * 0.64;
+      const pivotY = baseY - 10 * S;
+      const needleLen = bodyH * 1.06;
+      const tipX = mx + Math.sin(swingAngle) * needleLen;
+      const tipY = pivotY - Math.cos(swingAngle) * needleLen;
+
+      // Blend hue toward radiant gold as syncR -> 1
+      const goldBlend = Math.max(0, (syncR - 0.72) / 0.28);
+      const col = isFinale || goldBlend > 0.85
+        ? '#fde047'
+        : `hsl(${hues[idx] % 360}, 95%, ${62 + goldBlend * 12}%)`;
+
+      // Needle shaft
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 3.2 * S;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = (isFinale ? 18 : 10) * S;
+      ctx.beginPath();
+      ctx.moveTo(mx, pivotY);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+
+      // Glowing bob weight near tip
+      const bobX = mx + Math.sin(swingAngle) * (needleLen * 0.78);
+      const bobY = pivotY - Math.cos(swingAngle) * (needleLen * 0.78);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(bobX, bobY, 5.2 * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(bobX, bobY, 2.0 * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Sparks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sp.life);
+    ctx.fillStyle = sp.col;
+    ctx.shadowColor = sp.col;
+    ctx.shadowBlur = 10 * S;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size * sp.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Bottom status caption
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(21 * S)}px monospace`;
+  ctx.fillStyle = isFinale ? '#fde047' : '#94a3b8';
+  const statusTxt = syncPct < 30
+    ? 'RANDOM PHASES  •  PLATFORM COUPLING STARTING'
+    : syncPct < 80
+      ? 'CLUSTERS FORMING  •  MOMENTUM TRANSFERRING'
+      : 'ALL 32 METRONOMES LOCKED IN GOLDEN UNISON!';
+  ctx.fillText(statusTxt, W * 0.5, groundY + 48 * S);
+  ctx.restore();
+
+  // Finale banner at ~88% of DUR
+  if (isFinale) {
+    const finAge = Math.min(1, (simTime - finaleStart) / 0.35);
+    const scale = 0.88 + 0.12 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(W * 0.5, H * 0.52);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.92)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.43, -70 * S, W * 0.86, 140 * S, 28 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 24 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(48 * S)}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('PERFECT SYNC! 🎵', 0, 6 * S);
+    ctx.font = `800 ${Math.round(22 * S)}px monospace`;
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText('32 / 32 METRONOMES  •  100% LOCKED', 0, 44 * S);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>
