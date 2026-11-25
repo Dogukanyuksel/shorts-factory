@@ -118,33 +118,43 @@ async function main() {
                 const W = this.width;
                 const H = this.height;
                 const S = W / 720;
+                const fitText = (text: string, maxW: number, maxPx: number, minPx: number, weight = 800) => {
+                  let px = Math.round(maxPx * S);
+                  const minScaled = Math.round(minPx * S);
+                  while (px > minScaled) {
+                    ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
+                    if (ctx.measureText(text).width <= maxW) break;
+                    px -= 1;
+                  }
+                  ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
+                };
                 ctx.save();
-                // Sol üst seri rozeti (EP. 03 — profil binge-watch için)
+                // Sol üst seri rozeti (Safe-Zone içinde)
                 if (badgeText) {
-                  const bw = 122 * S;
-                  const bh = 42 * S;
-                  const bx = 28 * S;
-                  const by = H * 0.055;
-                  ctx.fillStyle = "rgba(8, 15, 34, 0.84)";
+                  const bw = 118 * S;
+                  const bh = 40 * S;
+                  const bx = 36 * S;
+                  const by = H * 0.068;
+                  ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
                   ctx.beginPath();
-                  ctx.roundRect(bx, by, bw, bh, 21 * S);
+                  ctx.roundRect(bx, by, bw, bh, 20 * S);
                   ctx.fill();
                   ctx.strokeStyle = "#fbbf24";
                   ctx.lineWidth = 2.2 * S;
                   ctx.stroke();
                   ctx.textAlign = "center";
-                  ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+                  fitText(badgeText, bw - 18 * S, 20, 13, 900);
                   ctx.fillStyle = "#fde68a";
-                  ctx.fillText(badgeText, bx + bw * 0.5, by + 28 * S);
+                  ctx.fillText(badgeText, bx + bw * 0.5, by + 27 * S);
                 }
-                // Son 3.0 sn: A) / B) sonraki bölüm oylama + abone ol kartı
+                // Son 3.0 sn: Safe-Zone içinde A/B oylama + abone ol kartı
                 if (pollText && tSec >= durVal - 3.0) {
                   const alpha = Math.min(1, (tSec - (durVal - 3.0)) / 0.35);
                   ctx.globalAlpha = Math.max(0, alpha);
-                  const boxW = W * 0.9;
-                  const boxH = 122 * S;
+                  const boxW = W * 0.82;
+                  const boxH = 120 * S;
                   const bx = (W - boxW) * 0.5;
-                  const by = H * 0.708;
+                  const by = H * 0.685;
                   ctx.fillStyle = "rgba(5, 10, 24, 0.93)";
                   ctx.beginPath();
                   ctx.roundRect(bx, by, boxW, boxH, 20 * S);
@@ -153,15 +163,15 @@ async function main() {
                   ctx.lineWidth = 3 * S;
                   ctx.stroke();
                   ctx.textAlign = "center";
-                  ctx.font = `900 ${Math.round(19 * S)}px -apple-system, sans-serif`;
+                  fitText("VOTE NEXT EPISODE IN COMMENTS", boxW - 26 * S, 19, 12, 900);
                   ctx.fillStyle = "#fde047";
                   ctx.fillText("VOTE NEXT EPISODE IN COMMENTS", W * 0.5, by + 32 * S);
-                  ctx.font = `800 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+                  fitText(pollText, boxW - 26 * S, 21, 12, 800);
                   ctx.fillStyle = "#ffffff";
                   ctx.fillText(pollText, W * 0.5, by + 68 * S);
-                  ctx.font = `800 ${Math.round(17 * S)}px -apple-system, sans-serif`;
+                  fitText("SUBSCRIBE TO SEE THE WINNER", boxW - 26 * S, 16, 11, 800);
                   ctx.fillStyle = "#38bdf8";
-                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 102 * S);
+                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 100 * S);
                 }
                 ctx.restore();
               }

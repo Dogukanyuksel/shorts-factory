@@ -1,0 +1,65 @@
+name: Telegram Monitor — YouTube & Instagram Reports (Every 6h)
+
+on:
+  schedule:
+    # Her 6 saatte bir (00:15, 06:15, 12:15, 18:15 UTC) YT & IG ayrı rapor + yeni yorum bildirimi
+    - cron: "15 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  telegram-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Repo indir
+        uses: actions/checkout@v4
+
+      - name: Secret kontrolü
+        id: check
+        env:
+          HAS_BOT: ${{ secrets.TELEGRAM_BOT_TOKEN != '' }}
+          HAS_CHAT: ${{ secrets.TELEGRAM_CHAT_ID != '' || secrets.TELEGRAM_CHAT_ID_YOUTUBE != '' }}
+        run: |
+          if [ "$HAS_BOT" = "true" ] && [ "$HAS_CHAT" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID eklenmediği için atlandı."
+          fi
+
+      - name: Node.js 22 kur
+        if: steps.check.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bağımlılıklar
+        if: steps.check.outputs.ready == 'true'
+        run: npm ci --ignore-scripts
+
+      - name: YT & IG raporlarını ve yeni yorumları Telegram'a yolla
+        if: steps.check.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID_YOUTUBE: ${{ secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+          TELEGRAM_CHAT_ID_INSTAGRAM: ${{ secrets.TELEGRAM_CHAT_ID_INSTAGRAM }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: npm run telegram:monitor
+
+      - name: Bildirim durumunu kaydet
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          if ! git diff --quiet state/telegram-notified.json || [ -n "$(git ls-files --others --exclude-standard state/telegram-notified.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state/telegram-notified.json
+            git commit -m "chore(telegram): bildirim durumu guncellendi"
+            git pull --rebase origin main
+            git push origin main
+          fi

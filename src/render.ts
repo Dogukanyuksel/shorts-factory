@@ -91,35 +91,45 @@ async function main() {
                 const W = this.width;
                 const H = this.height;
                 const S = W / 720;
+                const fitText = (text: string, maxW: number, maxPx: number, minPx: number, weight = 800) => {
+                  let px = Math.round(maxPx * S);
+                  const minScaled = Math.round(minPx * S);
+                  while (px > minScaled) {
+                    ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
+                    if (ctx.measureText(text).width <= maxW) break;
+                    px -= 1;
+                  }
+                  ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
+                };
                 ctx.save();
                 ctx.textAlign = "center";
-                // İlk 3.5 sn: tahmin/yorum tetikleyici rozet
+                // İlk 3.5 sn: Safe-Zone içinde tahmin/yorum tetikleyici rozet
                 if (ctaText && t <= 3.5) {
                   const alpha = t < 0.3 ? t / 0.3 : t > 3.0 ? (3.5 - t) / 0.5 : 1;
                   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-                  const boxW = Math.min(W * 0.88, Math.max(420 * S, ctaText.length * 16.5 * S + 44 * S));
-                  const boxH = 54 * S;
+                  const boxW = W * 0.82;
+                  const boxH = 52 * S;
                   const bx = (W - boxW) * 0.5;
-                  const by = H * 0.162;
-                  ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
+                  const by = H * 0.168;
+                  ctx.fillStyle = "rgba(8, 15, 34, 0.88)";
                   ctx.beginPath();
-                  ctx.roundRect(bx, by, boxW, boxH, 27 * S);
+                  ctx.roundRect(bx, by, boxW, boxH, 26 * S);
                   ctx.fill();
                   ctx.strokeStyle = "#38bdf8";
                   ctx.lineWidth = 2.5 * S;
                   ctx.stroke();
-                  ctx.font = `800 ${Math.round(23 * S)}px -apple-system, sans-serif`;
+                  fitText(ctaText, boxW - 32 * S, 22, 13, 800);
                   ctx.fillStyle = "#e0f2fe";
-                  ctx.fillText(ctaText, W * 0.5, by + 35 * S);
+                  ctx.fillText(ctaText, W * 0.5, by + 33 * S);
                 }
-                // Son 3.4 sn: A) / B) sonraki video oylama + abone ol kartı
+                // Son 3.4 sn: Safe-Zone (sağ butonlar ve alt yazı alanından uzak) A/B oylama + abone ol kartı
                 if (pollText && t >= durVal - 3.4) {
                   const alpha = Math.min(1, (t - (durVal - 3.4)) / 0.35);
                   ctx.globalAlpha = Math.max(0, alpha);
-                  const boxW = W * 0.9;
-                  const boxH = 138 * S;
+                  const boxW = W * 0.82;
+                  const boxH = 132 * S;
                   const bx = (W - boxW) * 0.5;
-                  const by = H * 0.818;
+                  const by = H * 0.72;
                   ctx.fillStyle = "rgba(5, 10, 24, 0.93)";
                   ctx.beginPath();
                   ctx.roundRect(bx, by, boxW, boxH, 22 * S);
@@ -127,15 +137,15 @@ async function main() {
                   ctx.strokeStyle = "#facc15";
                   ctx.lineWidth = 3 * S;
                   ctx.stroke();
-                  ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
+                  fitText("VOTE NEXT VIDEO IN COMMENTS", boxW - 28 * S, 20, 13, 900);
                   ctx.fillStyle = "#fde047";
-                  ctx.fillText("VOTE NEXT VIDEO IN COMMENTS", W * 0.5, by + 36 * S);
-                  ctx.font = `800 ${Math.round(23 * S)}px -apple-system, sans-serif`;
+                  ctx.fillText("VOTE NEXT VIDEO IN COMMENTS", W * 0.5, by + 35 * S);
+                  fitText(pollText, boxW - 28 * S, 22, 13, 800);
                   ctx.fillStyle = "#ffffff";
-                  ctx.fillText(pollText, W * 0.5, by + 76 * S);
-                  ctx.font = `800 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+                  ctx.fillText(pollText, W * 0.5, by + 74 * S);
+                  fitText("SUBSCRIBE TO SEE THE WINNER", boxW - 28 * S, 17, 12, 800);
                   ctx.fillStyle = "#38bdf8";
-                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 114 * S);
+                  ctx.fillText("SUBSCRIBE TO SEE THE WINNER", W * 0.5, by + 110 * S);
                 }
                 ctx.restore();
               }

@@ -11,6 +11,7 @@
     "publish:physics": "tsx src/auto-publish.ts --channel physics",
     "publish:explainer": "tsx src/auto-publish.ts --channel explainer",
     "analytics": "tsx src/analytics.ts",
+    "telegram:monitor": "tsx src/telegram-monitor.ts",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
