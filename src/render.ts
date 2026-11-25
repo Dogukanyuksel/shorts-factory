@@ -153,7 +153,8 @@ async function main() {
       "-i", rawMp4,
       "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", pcmPath,
       "-vf", "scale=1080:1920:flags=lanczos,setsar=1,format=yuv420p",
-      "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-r", String(fps),
+      "-c:v", "libx264", "-profile:v", "main", "-level", "4.1", "-preset", "medium", "-crf", "18",
+      "-maxrate", "10M", "-bufsize", "20M", "-r", String(fps),
       "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
       finalMp4,
     ]);
