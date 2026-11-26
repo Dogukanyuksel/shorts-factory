@@ -1,113 +1,55 @@
-name: Publish Watchdog (7/24 Bulut Hata & Gecikme Kontrolü)
+name: Zamanlayıcı & Watchdog (Güvenilir Yayın Takvimi)
 
+# GitHub'ın cron'u saatlerce gecikebiliyor/atlayabiliyor. Bu iş yayın takvimini KENDİSİ tutar:
+# saati gelmiş ama çalışmamış (veya başarısız olmuş) işleri hemen başlatır.
+# Çok sık ve birden fazla yoldan tetiklenir; bunlardan tek birinin gelmesi kaçırılan her şeyi telafi eder.
 on:
   schedule:
-    # Her cron satırı TEK bir hedefe bağlıdır (hedef dakikadan tahmin edilmez → gecikmeye dayanıklı):
-    - cron: "25 11,17,23 * * *" # Physics Shorts (:07'den ~18 dk sonra)
-    - cron: "55 11,17,23 * * *" # Explainer Shorts (:37'den ~18 dk sonra)
-    - cron: "45 14 * * *" # Clear Mechanics 16:9 (14:15'ten 30 dk sonra)
-    - cron: "45 15 * * *" # Kinetic Lab 16:9 (15:15'ten 30 dk sonra)
+    - cron: "*/10 * * * *"
+  # Herhangi bir yayın/etkileşim/CI işi bittiğinde de kontrol et (cron hiç gelmese bile zincir devam eder)
+  workflow_run:
+    workflows:
+      - "CI"
+      - "Auto-Publish Physics Shorts (3x Daily — 6h Spaced)"
+      - "Auto-Publish How-It-Works Shorts (3x Daily — 6h Spaced)"
+      - "Auto-Publish Daily 16:9 Long-Form (Both Channels)"
+      - "Organik Etkileşim — Kendi Videolarımızdaki Yorumlara Yanıt (2 saatte bir)"
+      - "Telegram Monitor — YouTube & Instagram Reports (Every 6h)"
+    types: [completed]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Sadece göster, hiçbir şey başlatma"
+        type: boolean
+        default: false
 
 permissions:
   actions: write
   contents: read
 
 concurrency:
-  group: publish-watchdog
-  cancel-in-progress: true
+  group: scheduler
+  cancel-in-progress: false
 
 jobs:
-  check-and-heal:
+  dispatch:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Son yayınları bulutta denetle (gerekirse 1x oto-yenile)
+      - name: Repo indir
+        uses: actions/checkout@v4
+
+      - name: Node.js 22 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bağımlılıklar
+        run: npm ci --ignore-scripts
+
+      - name: Saati gelmiş işleri kontrol et ve gerekirse başlat
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          SCHEDULE: ${{ github.event.schedule }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
-        run: |
-          NOW_EPOCH=$(date -u +%s)
-          ALERTS=""
-          NL=$'\n'
-
-          # Hedef = "workflow_dosyası:longform_kanalı" (shorts için kanal boş)
-          case "$SCHEDULE" in
-            "25 11,17,23 * * *") TARGETS="auto-publish-physics.yml:" ;;
-            "55 11,17,23 * * *") TARGETS="auto-publish-explainer.yml:" ;;
-            "45 14 * * *")       TARGETS="auto-publish-longform.yml:explainer" ;;
-            "45 15 * * *")       TARGETS="auto-publish-longform.yml:physics" ;;
-            *)
-              if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-                TARGETS="auto-publish-physics.yml: auto-publish-explainer.yml: auto-publish-longform.yml:explainer auto-publish-longform.yml:physics"
-              else
-                echo "::warning::Bilinmeyen watchdog schedule'ı: '$SCHEDULE'"; exit 0
-              fi
-              ;;
-          esac
-
-          for T in $TARGETS; do
-            WF="${T%%:*}"
-            LF_CH="${T#*:}"
-            LABEL="$WF${LF_CH:+ ($LF_CH)}"
-
-            if [ -n "$LF_CH" ]; then
-              # Long-form: run-name "Long-Form <kanal>" veya "Long-Form both" olan en son koşu
-              JQ_FILTER="[.[] | select(.displayTitle | test(\"Long-Form (${LF_CH}|both)\"))][0]"
-              RETRY_ARGS="-f channel=${LF_CH}"
-            else
-              JQ_FILTER=".[0]"
-              RETRY_ARGS=""
-            fi
-
-            ROW=$(gh run list -R "$REPO" --workflow="$WF" --limit 20 \
-              --json databaseId,conclusion,status,url,createdAt,event,displayTitle \
-              --jq "$JQ_FILTER | if . == null then \"\" else \"\(.databaseId)|\(.status)|\(.conclusion)|\(.createdAt)|\(.url)|\(.event)\" end")
-
-            STATUS=$(echo "$ROW" | cut -d'|' -f2)
-            CONC=$(echo "$ROW" | cut -d'|' -f3)
-            CREATED=$(echo "$ROW" | cut -d'|' -f4)
-            URL=$(echo "$ROW" | cut -d'|' -f5)
-            EVENT=$(echo "$ROW" | cut -d'|' -f6)
-
-            if [ -n "$CREATED" ]; then
-              CREATED_EPOCH=$(date -u -d "$CREATED" +%s 2>/dev/null || echo 0)
-            else
-              CREATED_EPOCH=0
-            fi
-            AGE_MIN=$(( (NOW_EPOCH - CREATED_EPOCH) / 60 ))
-            echo "[watchdog] $LABEL -> status=$STATUS conclusion=$CONC age=${AGE_MIN}m event=$EVENT"
-
-            # 1) Hata durumu (tamamlandı ama success/skipped değil)
-            if [ "$STATUS" = "completed" ] && [ "$CONC" != "success" ] && [ "$CONC" != "skipped" ]; then
-              ALERTS="${ALERTS}${NL}• ❌ <b>${LABEL}</b> başarısız oldu (${CONC}) — ${URL}"
-              # Son 60 dk içindeyse ve zaten manuel/oto retry değilse 1 kez yeniden dene.
-              # Çift yayın riski yok: publish script'leri güncel state'i okur + yayın aralığı korumasına uyar.
-              if [ "$AGE_MIN" -le 60 ] && [ "$EVENT" != "workflow_dispatch" ]; then
-                gh workflow run "$WF" -R "$REPO" --ref main $RETRY_ARGS && \
-                  ALERTS="${ALERTS}${NL}  ↻ Bulut watchdog 1 kez otomatik yeniden başlattı." || true
-              fi
-            # 2) Cron tamamen atlandıysa (son 50 dk içinde hiç koşmadıysa)
-            elif [ "$AGE_MIN" -gt 50 ] && [ "$EVENT_NAME" = "schedule" ]; then
-              ALERTS="${ALERTS}${NL}• ⏰ <b>${LABEL}</b> son ${AGE_MIN} dk'dır tetiklenmedi (GitHub cron atladı/gecikti)."
-              # Gecikmiş cron sonradan gelirse yayın aralığı koruması onu otomatik atlar (çift video olmaz)
-              gh workflow run "$WF" -R "$REPO" --ref main $RETRY_ARGS && \
-                ALERTS="${ALERTS}${NL}  ↻ Bulut watchdog şimdi otomatik tetikledi." || true
-            fi
-          done
-
-          if [ -n "$ALERTS" ]; then
-            echo "::warning::Watchdog müdahale etti!"
-            if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-              MSG="🛡️ <b>Shorts Factory Bulut Watchdog</b>${ALERTS}"
-              curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -H "Content-Type: application/json" \
-                -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$MSG" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" || true
-            fi
-          else
-            echo "✅ [watchdog] Tüm yayınlar bulutta sağlıklı."
-          fi
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+        run: npx tsx src/scheduler.ts
