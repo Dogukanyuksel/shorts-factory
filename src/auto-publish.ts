@@ -19,7 +19,20 @@ import {
   tallyABVotes,
   uploadReelToInstagram,
 } from "./instagram.js";
+import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
 import { runVideoQc } from "./qc.js";
+import { syncPublishedStateFromRemote } from "./state-sync.js";
+import {
+  activeBlock,
+  formatTrTime,
+  loadQuotaState,
+  quotaKey,
+  recordQuotaBlock,
+  resolveYouTubeClient,
+  writeLastError,
+  writePublishNotice,
+  YouTubeQuotaError,
+} from "./youtube-quota.js";
 import { fetchYouTubeComments, uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
 
 export type PublishedRecord = {
@@ -83,7 +96,8 @@ async function renderJob(job: PublishJob): Promise<string> {
       "--seconds", String(job.seconds),
       "--fps", "60",
       "--hook", job.hook,
-      "--narration", job.narration,
+      // Sessiz formatlarda robotik anlatım eklenmez (render.ts boş anlatımı atlar)
+      ...(job.silent ? [] : ["--narration", job.narration]),
       "--cta", kit.introCta,
       "--poll", kit.pollLine,
     ]);
@@ -122,6 +136,8 @@ async function main() {
   const privacyStatus: PrivacyStatus =
     privacyRaw === "private" || privacyRaw === "unlisted" ? privacyRaw : "public";
 
+  // Başka bir run (ör. watchdog yeniden denemesi) bu arada yayın yaptıysa onu da gör
+  syncPublishedStateFromRemote(STATE_PATH);
   const state = await loadState();
 
   if (syncIgOnly) {
@@ -153,6 +169,30 @@ async function main() {
     return;
   }
 
+  // Yayın aralığı koruması: gecikmiş cron + watchdog tetiklemesi aynı slotta 2 video yayınlamasın
+  const minGapHours = resolveMinGapHours();
+  const sinceLast = hoursSinceLastPublish(state.published, channel, "short");
+  if (!dryRun && minGapHours > 0 && sinceLast < minGapHours) {
+    console.log(
+      `[auto-publish] "${channel}" kanalında son short ${sinceLast.toFixed(1)} saat önce yayınlandı (< ${minGapHours} saat). ` +
+        "Çift yayını önlemek için atlanıyor (zorlamak için FORCE_PUBLISH=true).",
+    );
+    return;
+  }
+
+  // Kota bloğu: bu kanalın Google projesinin kotası doluysa render bile yapmadan atla (run "failed" olmaz)
+  const ytClient = resolveYouTubeClient(channel);
+  if (!dryRun && ytClient.clientId) {
+    const block = activeBlock(await loadQuotaState(), quotaKey(ytClient.clientId));
+    if (block) {
+      await writePublishNotice(
+        `⏸️ ${channel} yayını atlandı: YouTube kotası dolu (${block.reason}). ` +
+          `Kota ${formatTrTime(block.until)} (TR saati) sonra sıfırlanır, sistem kendiliğinden devam eder.`,
+      );
+      return;
+    }
+  }
+
   const publishedIds = new Set(state.published.map((r) => r.id));
 
   // Önceki videonun hem YouTube Shorts hem Instagram Reels yorumlarındaki A/B oylarını birleştirip kazananı öne al
@@ -163,8 +203,7 @@ async function main() {
     "";
   const metaTokenPre = process.env.META_ACCESS_TOKEN?.trim() || "";
   const ytApiKeyPre = process.env.YOUTUBE_API_KEY?.trim() || "";
-  const ytClientIdPre = process.env.YOUTUBE_CLIENT_ID?.trim() || "";
-  const ytClientSecretPre = process.env.YOUTUBE_CLIENT_SECRET?.trim() || "";
+  const { clientId: ytClientIdPre, clientSecret: ytClientSecretPre } = resolveYouTubeClient(channel);
   const ytRefreshPre = resolveRefreshToken(channel);
 
   const lastWithPoll = [...state.published]
@@ -253,8 +292,7 @@ async function main() {
     return;
   }
 
-  const clientId = process.env.YOUTUBE_CLIENT_ID?.trim() || "";
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET?.trim() || "";
+  const { clientId, clientSecret } = ytClient;
   const refreshToken = resolveRefreshToken(channel);
 
   if (!clientId || !clientSecret || !refreshToken) {
@@ -268,19 +306,50 @@ async function main() {
   const kit = getEngagementKit(job);
 
   console.log(`[auto-publish] YouTube'a yükleniyor (${privacyStatus})...`);
-  const result = await uploadVideoToYouTube(
-    mp4Path,
-    {
-      title: job.title,
-      description: kit.enrichedDescription,
-      tags: job.tags,
-      categoryId: job.categoryId,
-      privacyStatus,
-    },
-    { clientId, clientSecret, refreshToken },
-  );
+  let result: Awaited<ReturnType<typeof uploadVideoToYouTube>>;
+  try {
+    result = await uploadVideoToYouTube(
+      mp4Path,
+      {
+        title: job.title,
+        description: kit.enrichedDescription,
+        tags: job.tags,
+        categoryId: job.categoryId,
+        privacyStatus,
+      },
+      { clientId, clientSecret, refreshToken },
+    );
+  } catch (err) {
+    if (err instanceof YouTubeQuotaError) {
+      const block = await recordQuotaBlock(quotaKey(clientId), err.reason, channel);
+      await writePublishNotice(
+        `⏸️ ${channel}: YouTube kotası doldu (${err.reason}). Video kaybolmadı, bir sonraki slotta yeniden denenecek. ` +
+          `Kota ${formatTrTime(block.until)} (TR saati) sonra sıfırlanır.`,
+      );
+      return; // başarılı çıkış: watchdog gereksiz yeniden deneme yapmaz, Telegram'a "HATA" gitmez
+    }
+    throw err;
+  }
 
   console.log(`\n✅ [auto-publish] YOUTUBE YAYINLANDI: ${result.url}`);
+
+  // Kaydı HEMEN yaz: sonraki adımlarda (Instagram, push) hata olsa bile aynı video tekrar yüklenmesin
+  const record: PublishedRecord = {
+    id: job.id,
+    channel,
+    title: job.title,
+    videoId: result.videoId,
+    url: result.url,
+    poll: {
+      optionAKey: kit.optionAKey,
+      optionBKey: kit.optionBKey,
+      optionA: kit.optionA,
+      optionB: kit.optionB,
+    },
+    publishedAt: new Date().toISOString(),
+  };
+  state.published.push(record);
+  await saveState(state);
 
   // İsteğe bağlı: Meta API secret'ları tanımlıysa aynı MP4'ü Instagram Reels'e de yayınla + A/B ilk yorum at
   const igUserId =
@@ -310,28 +379,17 @@ async function main() {
     }
   }
 
-  state.published.push({
-    id: job.id,
-    channel,
-    title: job.title,
-    videoId: result.videoId,
-    url: result.url,
-    ...(instagramMediaId ? { instagramMediaId } : {}),
-    poll: {
-      optionAKey: kit.optionAKey,
-      optionBKey: kit.optionBKey,
-      optionA: kit.optionA,
-      optionB: kit.optionB,
-    },
-    publishedAt: new Date().toISOString(),
-  });
-  await saveState(state);
+  if (instagramMediaId) {
+    record.instagramMediaId = instagramMediaId;
+    await saveState(state);
+  }
 }
 
 const isDirectRun = process.argv[1]?.endsWith("auto-publish.ts") || process.argv[1]?.endsWith("auto-publish.js");
 if (isDirectRun) {
-  main().catch((e) => {
+  main().catch(async (e) => {
     console.error("[auto-publish] HATA:", e);
+    await writeLastError(e);
     process.exit(1);
   });
 }

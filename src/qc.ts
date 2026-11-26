@@ -47,7 +47,18 @@ export function parseFfmpegProbe(stderr: string) {
  * Yayın öncesi otomatik kalite kontrol kapısı (Pre-Publish QC Gate).
  * Bozuk, sessiz, yanlış çözünürlüklü veya 60 sn sınırını aşan videoların yayınlanmasını engeller.
  */
-export async function runVideoQc(filePath: string): Promise<QcReport> {
+export type QcOptions = {
+  width?: number;
+  height?: number;
+  minSec?: number;
+  maxSec?: number;
+};
+
+/** Varsayılan: dikey YouTube Shorts / Instagram Reels (1080x1920, 12–59.5 sn). */
+export const SHORTS_QC: Required<QcOptions> = { width: 1080, height: 1920, minSec: 12, maxSec: 59.5 };
+
+export async function runVideoQc(filePath: string, opts: QcOptions = {}): Promise<QcReport> {
+  const cfg = { ...SHORTS_QC, ...opts };
   const errors: string[] = [];
   const st = await stat(filePath);
   const fileSizeBytes = st.size;
@@ -65,11 +76,11 @@ export async function runVideoQc(filePath: string): Promise<QcReport> {
   if (!parsed.hasAacAudio) {
     errors.push("AAC ses akışı bulunamadı (sessiz video engellendi).");
   }
-  if (parsed.width !== 1080 || parsed.height !== 1920) {
-    errors.push(`Beklenen çözünürlük 1080x1920, bulunan: ${parsed.width}x${parsed.height}`);
+  if (parsed.width !== cfg.width || parsed.height !== cfg.height) {
+    errors.push(`Beklenen çözünürlük ${cfg.width}x${cfg.height}, bulunan: ${parsed.width}x${parsed.height}`);
   }
-  if (parsed.durationSec < 12 || parsed.durationSec > 59.5) {
-    errors.push(`Shorts süresi sınır dışında (${parsed.durationSec.toFixed(1)}s; 12–59.5s arası olmalı).`);
+  if (parsed.durationSec < cfg.minSec || parsed.durationSec > cfg.maxSec) {
+    errors.push(`Video süresi sınır dışında (${parsed.durationSec.toFixed(1)}s; ${cfg.minSec}–${cfg.maxSec}s arası olmalı).`);
   }
 
   return {

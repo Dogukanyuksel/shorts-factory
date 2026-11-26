@@ -1,5 +1,9 @@
 name: Auto-Publish Daily 16:9 Long-Form (Both Channels)
 
+# Watchdog hangi kanalın koşusu olduğunu bu başlıktan ayırt eder ("Long-Form explainer|physics|both")
+run-name: >-
+  Long-Form ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (github.event.schedule == '15 14 * * *' && 'explainer' || 'physics') }}
+
 on:
   schedule:
     # Her gün 1 uzun video / kanal (PC kapalıyken 7/24 bulutta):
@@ -29,13 +33,13 @@ on:
         description: "Sadece render al, YouTube'a yükleme (test)"
         type: boolean
         default: false
+      force:
+        description: "Günlük yayın aralığı korumasını (20 saat) yok say ve yine de yayınla"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
-
-concurrency:
-  group: auto-publish-longform-${{ github.event.inputs.channel || github.event.schedule }}
-  cancel-in-progress: false
 
 jobs:
   publish-explainer-longform:
@@ -44,11 +48,33 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (inputs.channel == 'explainer' || inputs.channel == 'both'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    # Kanal bazlı kuyruk: aynı kanalın iki koşusu asla paralel yayın yapmaz
+    concurrency:
+      group: auto-publish-longform-explainer
+      cancel-in-progress: false
     steps:
       - name: Repo indir
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Secret kontrolü
+        id: check_secrets
+        env:
+          HAS_ID: ${{ secrets.YOUTUBE_CLIENT_ID != '' || secrets.YOUTUBE_CLIENT_ID_EXPLAINER != '' }}
+          HAS_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' || secrets.YOUTUBE_CLIENT_SECRET_EXPLAINER != '' }}
+          HAS_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_EXPLAINER != '' }}
+          IS_DRY: ${{ inputs.dry_run == true }}
+        run: |
+          if [ "$IS_DRY" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_ID" = "true" ] && [ "$HAS_SECRET" = "true" ] && [ "$HAS_TOKEN" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::error::YouTube Explainer secret'ları eksik, 30 dk render boşa harcanmadan durduruldu. Kurulum: docs/CHANNEL_SETUP_GUIDE.md"
+            exit 1
+          fi
 
       - name: Node.js 22 kur
         uses: actions/setup-node@v4
@@ -63,20 +89,42 @@ jobs:
           npx playwright-core install chromium --with-deps
 
       - name: Clear Mechanics 16:9 uzun video üret ve YouTube'a yükle
+        id: publish
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_CLIENT_ID_EXPLAINER: ${{ secrets.YOUTUBE_CLIENT_ID_EXPLAINER }}
+          YOUTUBE_CLIENT_SECRET_EXPLAINER: ${{ secrets.YOUTUBE_CLIENT_SECRET_EXPLAINER }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_EXPLAINER }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+          # Watchdog yeniden denemesi + cron aynı gün 2 uzun video yayınlamasın
+          MIN_PUBLISH_GAP_HOURS: "20"
+          FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:longform:explainer
 
       - name: Yayın durumunu (state/published.json) güvenli kaydet
-        if: inputs.dry_run != true
+        if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure') && inputs.dry_run != true
         run: |
           npx tsx src/safe-git-push.ts state/published.json "chore(publish): clear mechanics 16x9 uzun video yayinlandi"
+          if [ -f state/youtube-quota.json ]; then
+            npx tsx src/safe-git-push.ts state/youtube-quota.json "chore(quota): YouTube kota durumu guncellendi"
+          fi
 
-      - name: Hata durumunda Telegram uyarısı
+      - name: Bilgi notu (ör. kota doldu) varsa Telegram'a ilet
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+        run: |
+          if [ -f out/publish-notice.txt ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            TEXT="ℹ️ <b>Clear Mechanics 16:9</b>"$'\n'"$(sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' out/publish-notice.txt)"
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
+          fi
+
+      - name: Hata durumunda Telegram uyarısı (sebebiyle)
         if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -84,9 +132,12 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            REASON="(sebep dosyası yok — render/kurulum adımında hata olabilir, logu açın)"
+            [ -f out/last-error.txt ] && REASON="$(head -c 600 out/last-error.txt | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+            TEXT="🚨 <b>Clear Mechanics 16:9 HATA</b>"$'\n'"<b>Sebep:</b> ${REASON}"$'\n'"Log: ${RUN_URL}"
             curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "🚨 <b>Long-Form HATA (Clear Mechanics)</b>"$'\n'"Log: ${RUN_URL}" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" || true
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
           fi
 
   publish-physics-longform:
@@ -95,11 +146,32 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (inputs.channel == 'physics' || inputs.channel == 'both'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    concurrency:
+      group: auto-publish-longform-physics
+      cancel-in-progress: false
     steps:
       - name: Repo indir
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Secret kontrolü
+        id: check_secrets
+        env:
+          HAS_ID: ${{ secrets.YOUTUBE_CLIENT_ID != '' || secrets.YOUTUBE_CLIENT_ID_PHYSICS != '' }}
+          HAS_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' || secrets.YOUTUBE_CLIENT_SECRET_PHYSICS != '' }}
+          HAS_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_PHYSICS != '' }}
+          IS_DRY: ${{ inputs.dry_run == true }}
+        run: |
+          if [ "$IS_DRY" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_ID" = "true" ] && [ "$HAS_SECRET" = "true" ] && [ "$HAS_TOKEN" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::error::YouTube Physics secret'ları eksik, 30 dk render boşa harcanmadan durduruldu. Kurulum: docs/CHANNEL_SETUP_GUIDE.md"
+            exit 1
+          fi
 
       - name: Node.js 22 kur
         uses: actions/setup-node@v4
@@ -114,20 +186,41 @@ jobs:
           npx playwright-core install chromium --with-deps
 
       - name: Kinetic Lab 16:9 uzun video üret ve YouTube'a yükle
+        id: publish
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_CLIENT_ID_PHYSICS: ${{ secrets.YOUTUBE_CLIENT_ID_PHYSICS }}
+          YOUTUBE_CLIENT_SECRET_PHYSICS: ${{ secrets.YOUTUBE_CLIENT_SECRET_PHYSICS }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_PHYSICS }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+          MIN_PUBLISH_GAP_HOURS: "20"
+          FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:longform:physics
 
       - name: Yayın durumunu (state/published.json) güvenli kaydet
-        if: inputs.dry_run != true
+        if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure') && inputs.dry_run != true
         run: |
           npx tsx src/safe-git-push.ts state/published.json "chore(publish): kinetic lab 16x9 uzun video yayinlandi"
+          if [ -f state/youtube-quota.json ]; then
+            npx tsx src/safe-git-push.ts state/youtube-quota.json "chore(quota): YouTube kota durumu guncellendi"
+          fi
 
-      - name: Hata durumunda Telegram uyarısı
+      - name: Bilgi notu (ör. kota doldu) varsa Telegram'a ilet
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+        run: |
+          if [ -f out/publish-notice.txt ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            TEXT="ℹ️ <b>Kinetic Lab 16:9</b>"$'\n'"$(sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' out/publish-notice.txt)"
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
+          fi
+
+      - name: Hata durumunda Telegram uyarısı (sebebiyle)
         if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -135,7 +228,10 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            REASON="(sebep dosyası yok — render/kurulum adımında hata olabilir, logu açın)"
+            [ -f out/last-error.txt ] && REASON="$(head -c 600 out/last-error.txt | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+            TEXT="🚨 <b>Kinetic Lab 16:9 HATA</b>"$'\n'"<b>Sebep:</b> ${REASON}"$'\n'"Log: ${RUN_URL}"
             curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "🚨 <b>Long-Form HATA (Kinetic Lab)</b>"$'\n'"Log: ${RUN_URL}" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" || true
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
           fi

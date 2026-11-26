@@ -33,3 +33,25 @@ test("redactTokens: hata mesajlarındaki access_token, API key ve Bearer/OAuth s
   assert.ok(!safe.includes("tok_xyz"));
   assert.ok(safe.includes("access_token=[REDACTED]"));
 });
+
+test("hoursSinceLastPublish: short ve longform kayıtlarını kanal bazında ayrı ölçer", async () => {
+  const { hoursSinceLastPublish } = await import("../src/devops.js");
+  const now = new Date("2026-11-26T12:00:00Z");
+  const recs = [
+    { id: "a", channel: "physics", publishedAt: "2026-11-26T11:00:00Z" },
+    { id: "longform-physics-ep1", channel: "physics", publishedAt: "2026-11-25T12:00:00Z" },
+    { id: "b", channel: "explainer", publishedAt: "2026-11-26T06:00:00Z" },
+  ];
+  assert.equal(hoursSinceLastPublish(recs, "physics", "short", now), 1);
+  assert.equal(hoursSinceLastPublish(recs, "physics", "longform", now), 24);
+  assert.equal(hoursSinceLastPublish(recs, "explainer", "short", now), 6);
+  assert.equal(hoursSinceLastPublish(recs, "explainer", "longform", now), Infinity);
+});
+
+test("resolveMinGapHours: FORCE_PUBLISH korumayı kapatır, geçersiz değer 0 olur", async () => {
+  const { resolveMinGapHours } = await import("../src/devops.js");
+  assert.equal(resolveMinGapHours({ MIN_PUBLISH_GAP_HOURS: "3" }), 3);
+  assert.equal(resolveMinGapHours({ MIN_PUBLISH_GAP_HOURS: "3", FORCE_PUBLISH: "true" }), 0);
+  assert.equal(resolveMinGapHours({ MIN_PUBLISH_GAP_HOURS: "abc" }), 0);
+  assert.equal(resolveMinGapHours({}), 0);
+});

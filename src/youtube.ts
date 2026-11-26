@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { fetchWithRetry } from "./devops.js";
+import { detectQuotaReason, YouTubeAuthError, YouTubeQuotaError } from "./youtube-quota.js";
 
 export type PrivacyStatus = "public" | "private" | "unlisted";
 
@@ -62,6 +63,13 @@ export async function refreshAccessToken(creds: YouTubeCredentials): Promise<str
 
   const text = await res.text();
   if (!res.ok) {
+    if (/invalid_grant/i.test(text)) {
+      throw new YouTubeAuthError(
+        "YouTube refresh token geçersiz (invalid_grant): token iptal edilmiş ya da süresi dolmuş. " +
+          "Google Cloud OAuth ekranı 'Testing' modundaysa tokenlar 7 günde düşer → 'In production' yapın ve " +
+          "`npm run youtube:auth` ile yeni token alıp GitHub secret'ını güncelleyin.",
+      );
+    }
     throw new Error(`YouTube OAuth token yenileme hatası (${res.status}): ${text.slice(0, 400)}`);
   }
 
@@ -98,6 +106,10 @@ export async function uploadVideoToYouTube(
 
   if (!initRes.ok) {
     const errText = await initRes.text();
+    const quotaReason = detectQuotaReason(initRes.status, errText);
+    if (quotaReason) {
+      throw new YouTubeQuotaError(quotaReason, `YouTube kotası/limiti doldu (${quotaReason}).`);
+    }
     throw new Error(`YouTube resumable init hatası (${initRes.status}): ${errText.slice(0, 500)}`);
   }
 
@@ -120,6 +132,10 @@ export async function uploadVideoToYouTube(
 
   const uploadText = await uploadRes.text();
   if (!uploadRes.ok) {
+    const quotaReason = detectQuotaReason(uploadRes.status, uploadText);
+    if (quotaReason) {
+      throw new YouTubeQuotaError(quotaReason, `YouTube kotası/limiti doldu (${quotaReason}).`);
+    }
     throw new Error(`YouTube video yükleme hatası (${uploadRes.status}): ${uploadText.slice(0, 500)}`);
   }
 

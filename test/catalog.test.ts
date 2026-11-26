@@ -24,7 +24,7 @@ test("pickNextJob (physics): ardışık iki video asla aynı simülasyon mekani�
     published.add(job.id);
     prevNiche = job.niche;
   }
-  assert.equal(seenNiches.size, 19, "19 farklı fizik mekaniği rotasyonda olmalı");
+  assert.equal(seenNiches.size, 21, "21 farklı fizik mekaniği rotasyonda olmalı");
 });
 
 test("pickNextJob (explainer): 38 bölümü eksiksiz sırayla verir, tüm HTML dosyaları mevcuttur ve sonra null döner", () => {
@@ -116,4 +116,24 @@ test("parseFfmpegProbe (QC Gate) ve teknik birim doğruluğu kontrolü", () => {
     const allText = `${j.title} ${j.description}`;
     assert.ok(!/\b\d+\s*km\/s\b/i.test(allText), `Birim hatası (km/s yerine km/h olmalı): ${j.id}`);
   }
+});
+
+test("Sessiz viral formatlar robotik anlatım almaz, diğer fizik videoları anlatımlı kalır", async () => {
+  const { pickNextJob, SILENT_NICHES } = await import("../src/catalog.js");
+  const published = new Set<string>();
+  let silentCount = 0;
+  let voicedCount = 0;
+  for (let i = 0; i < 60; i++) {
+    const job = pickNextJob("physics", published);
+    if (!job || job.channel !== "physics") break;
+    if (SILENT_NICHES.has(job.niche)) {
+      assert.equal(job.silent, true, `${job.id} sessiz olmalı`);
+      silentCount++;
+    } else {
+      assert.ok(!job.silent, `${job.id} anlatımlı olmalı`);
+      voicedCount++;
+    }
+    published.add(job.id);
+  }
+  assert.ok(silentCount >= 6 && voicedCount > silentCount, `sessiz=${silentCount}, anlatımlı=${voicedCount}`);
 });

@@ -10,6 +10,10 @@ on:
         description: "Sadece render al, YouTube'a yükleme (test)"
         type: boolean
         default: false
+      force:
+        description: "Yayın aralığı korumasını (2 saat) yok say ve yine de yayınla"
+        type: boolean
+        default: false
       sync_instagram_only:
         description: "Sadece YouTube'da olup Instagram'da eksik olan Reels'leri eşitle"
         type: boolean
@@ -43,8 +47,8 @@ jobs:
       - name: Secret kontrolü
         id: check_secrets
         env:
-          HAS_ID: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}
-          HAS_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' }}
+          HAS_ID: ${{ secrets.YOUTUBE_CLIENT_ID != '' || secrets.YOUTUBE_CLIENT_ID_PHYSICS != '' }}
+          HAS_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' || secrets.YOUTUBE_CLIENT_SECRET_PHYSICS != '' }}
           HAS_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_PHYSICS != '' }}
           IS_DRY: ${{ inputs.dry_run == true }}
         run: |
@@ -72,10 +76,13 @@ jobs:
           npx playwright-core install chromium --with-deps
 
       - name: Render al ve YouTube + Instagram'a yükle
+        id: publish
         if: steps.check_secrets.outputs.ready == 'true'
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_CLIENT_ID_PHYSICS: ${{ secrets.YOUTUBE_CLIENT_ID_PHYSICS }}
+          YOUTUBE_CLIENT_SECRET_PHYSICS: ${{ secrets.YOUTUBE_CLIENT_SECRET_PHYSICS }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_PHYSICS }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           IG_USER_ID: ${{ secrets.IG_USER_ID_PHYSICS }}
@@ -83,14 +90,34 @@ jobs:
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           SYNC_INSTAGRAM_ONLY: ${{ inputs.sync_instagram_only == true && 'true' || 'false' }}
+          # Gecikmiş cron + watchdog tetiklemesi aynı slotta 2. videoyu yayınlamasın
+          MIN_PUBLISH_GAP_HOURS: "2"
+          FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:physics
 
       - name: Yayın durumunu (state/published.json) güvenli kaydet
-        if: steps.check_secrets.outputs.ready == 'true' && inputs.dry_run != true
+        # always(): YouTube yüklemesinden SONRA bir hata olsa bile kayıt push edilsin (tekrar yüklemeyi önler)
+        if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure') && inputs.dry_run != true
         run: |
           npx tsx src/safe-git-push.ts state/published.json "chore(publish): physics short yayinlandi"
+          if [ -f state/youtube-quota.json ]; then
+            npx tsx src/safe-git-push.ts state/youtube-quota.json "chore(quota): YouTube kota durumu guncellendi"
+          fi
 
-      - name: Hata durumunda Telegram uyarısı
+      - name: Bilgi notu (ör. kota doldu) varsa Telegram'a ilet
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+        run: |
+          if [ -f out/publish-notice.txt ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            TEXT="ℹ️ <b>Kinetic Lab Shorts</b>"$'\n'"$(sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' out/publish-notice.txt)"
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
+          fi
+
+      - name: Hata durumunda Telegram uyarısı (sebebiyle)
         if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -98,7 +125,10 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            REASON="(sebep dosyası yok — render/kurulum adımında hata olabilir, logu açın)"
+            [ -f out/last-error.txt ] && REASON="$(head -c 600 out/last-error.txt | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+            TEXT="🚨 <b>Kinetic Lab Shorts HATA</b>"$'\n'"<b>Sebep:</b> ${REASON}"$'\n'"Log: ${RUN_URL}"
             curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               -H "Content-Type: application/json" \
-              -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"🚨 <b>Shorts Factory HATA</b>\nWorkflow: <b>Auto-Publish Physics</b>\nLog: ${RUN_URL}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}" || true
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
           fi

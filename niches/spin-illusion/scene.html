@@ -1,0 +1,225 @@
+<!doctype html>
+<!--
+  Kinetic Lab — "Reverse The Spin" Bistable Rotation Illusion
+  Ortografik (perspektifsiz) projeksiyon + derinlik ipucu olmayan nokta bulutu = beyin dönüş yönünü
+  İKİ şekilde de yorumlayabilir (kinetik derinlik etkisi). İzleyiciye görev verilir: "yönü tersine çevir".
+  seed → şekil + renk + eğim varyantı. Süre, dönüş periyoduna tam bölünür → kusursuz loop.
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 16, HOOK = 'REVERSE THE SPIN WITH YOUR MIND', SEED = 1;
+let points = [], outline = [], arrows = [], events = [], variant = null, period = 4, lastHalf = -1;
+
+// Deterministik RNG (mulberry32)
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SHAPES = ['cylinder', 'cone', 'sphere', 'bowl', 'torus', 'hourglass', 'cube', 'ribbon'];
+const PALETTES = [
+  { dot: [210, 210, 215], line: '#f5f5f5', arrow: '#fbbf24', name: 'GRAY' },
+  { dot: [236, 72, 153], line: '#f9a8d4', arrow: '#fde047', name: 'PINK' },
+  { dot: [74, 222, 128], line: '#d9f99d', arrow: '#fde047', name: 'GREEN' },
+  { dot: [96, 165, 250], line: '#bfdbfe', arrow: '#f472b6', name: 'BLUE' },
+  { dot: [192, 132, 252], line: '#e9d5ff', arrow: '#facc15', name: 'PURPLE' },
+];
+
+/** Yüzey üzerinde (u,v) ∈ [0,1)² → birim 3D nokta. Merkez orijin, yükseklik ~[-1,1]. */
+function surface(shape, u, v) {
+  const a = u * Math.PI * 2;
+  switch (shape) {
+    case 'cylinder': {
+      // yan yüzey + üst/alt kapak kenar bandı
+      return [Math.cos(a) * 0.9, (v - 0.5) * 1.5, Math.sin(a) * 0.9];
+    }
+    case 'cone': {
+      const r = 0.95 * v; // tepe aşağıda (ters koni)
+      return [Math.cos(a) * r, -0.9 + 1.8 * v, Math.sin(a) * r];
+    }
+    case 'sphere': {
+      const phi = Math.acos(1 - 2 * v);
+      return [Math.sin(phi) * Math.cos(a) * 0.95, Math.cos(phi) * 0.95, Math.sin(phi) * Math.sin(a) * 0.95];
+    }
+    case 'bowl': {
+      const phi = (Math.PI / 2) * v; // alt yarım küre
+      return [Math.sin(phi) * Math.cos(a) * 1.0, -Math.cos(phi) * 0.8 + 0.2, Math.sin(phi) * Math.sin(a) * 1.0];
+    }
+    case 'torus': {
+      const b = v * Math.PI * 2, R = 0.7, r = 0.28;
+      return [(R + r * Math.cos(b)) * Math.cos(a), r * Math.sin(b), (R + r * Math.cos(b)) * Math.sin(a)];
+    }
+    case 'hourglass': {
+      const y = (v - 0.5) * 1.8;
+      const r = 0.25 + 0.65 * Math.abs(y) / 0.9;
+      return [Math.cos(a) * r, y, Math.sin(a) * r];
+    }
+    case 'cube': {
+      // 4 yan yüz (kübün dönme belirsizliği en güçlü yüzler)
+      const face = Math.floor(u * 4), s = (u * 4) % 1;
+      const p = -0.75 + 1.5 * s, y = (v - 0.5) * 1.5;
+      if (face === 0) return [p, y, 0.75];
+      if (face === 1) return [0.75, y, -p];
+      if (face === 2) return [-p, y, -0.75];
+      return [-0.75, y, p];
+    }
+    case 'ribbon': {
+      // kendi etrafında yarım tur bükülen şerit (Möbius benzeri)
+      const tw = a / 2, w = (v - 0.5) * 0.5;
+      return [Math.cos(a) * (0.8 + w * Math.cos(tw)), w * Math.sin(tw) * 1.6, Math.sin(a) * (0.8 + w * Math.cos(tw))];
+    }
+  }
+  return [0, 0, 0];
+}
+
+/** Şeklin silüet/kenar çizgileri (yatay halkalar) — videodaki ince kontur hissi. */
+function outlineRings(shape) {
+  const rings = [];
+  const ring = (fn) => { const pts = []; for (let i = 0; i <= 96; i++) pts.push(fn(i / 96)); rings.push(pts); };
+  if (shape === 'cylinder') { ring((u) => surface(shape, u, 0)); ring((u) => surface(shape, u, 1)); }
+  else if (shape === 'cone') ring((u) => surface(shape, u, 1));
+  else if (shape === 'bowl') ring((u) => surface(shape, u, 1));
+  else if (shape === 'hourglass') { ring((u) => surface(shape, u, 0)); ring((u) => surface(shape, u, 1)); ring((u) => surface(shape, u, 0.5)); }
+  else if (shape === 'sphere') ring((u) => surface(shape, u, 0.5));
+  else if (shape === 'torus') { ring((u) => surface(shape, u, 0.25)); ring((u) => surface(shape, u, 0.75)); }
+  return rings;
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 16; SEED = cfg.seed || 1;
+  HOOK = cfg.hook || 'REVERSE THE SPIN WITH YOUR MIND';
+  cv.width = W; cv.height = H;
+  const r = rng(SEED * 9973 + 17);
+  const shape = SHAPES[(SEED - 1) % SHAPES.length];
+  const pal = PALETTES[Math.floor((SEED - 1) / SHAPES.length) % PALETTES.length];
+  // Dönüş periyodu: DUR'a tam bölünür (4 veya 5 tur) → son kare = ilk kare
+  const turns = DUR >= 18 ? 5 : 4;
+  period = DUR / turns;
+  const tilt = 0.32 + r() * 0.12; // yukarıdan hafif bakış (üst elipsi görünür kılar)
+  variant = { shape, pal, tilt };
+
+  const N = shape === 'cube' ? 7000 : 9000;
+  points = [];
+  for (let i = 0; i < N; i++) {
+    const p = surface(shape, r(), r());
+    points.push({ p, b: 0.45 + r() * 0.55, s: 0.8 + r() * 1.2 });
+  }
+  outline = outlineRings(shape);
+  // Yüzeye yapışık oklar (videodaki sarı yön okları) — ön ve arka aynı parlaklıkta → belirsizlik korunur
+  arrows = [];
+  const arrowCount = shape === 'sphere' ? 4 : 3;
+  for (let i = 0; i < arrowCount; i++) {
+    const u0 = i / arrowCount, v0 = shape === 'sphere' ? 0.5 : 0.5 + (i % 2 ? 0.18 : -0.18);
+    arrows.push({ u0, v0 });
+  }
+  events = []; lastHalf = -1;
+};
+
+function project(p, ang, S, cx, cy, scale) {
+  // Y ekseni etrafında dönüş + X ekseni etrafında sabit eğim, ORTOGRAFİK projeksiyon (derinlik ipucu yok)
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const x = p[0] * ca + p[2] * sa;
+  const z = -p[0] * sa + p[2] * ca;
+  const ct = Math.cos(variant.tilt), st = Math.sin(variant.tilt);
+  const y = p[1] * ct - z * st;
+  return [cx + x * scale, cy - y * scale];
+}
+
+function drawArrow(ang, S, cx, cy, scale, a) {
+  const pts = [];
+  for (let k = 0; k <= 14; k++) {
+    const u = (a.u0 + k * 0.006) % 1;
+    pts.push(project(surface(variant.shape, u, a.v0), ang, S, cx, cy, scale));
+  }
+  ctx.strokeStyle = variant.pal.arrow; ctx.lineWidth = 6 * S; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]))); ctx.stroke();
+  // ok başı
+  const [x1, y1] = pts[pts.length - 1], [x0, y0] = pts[pts.length - 4];
+  const dir = Math.atan2(y1 - y0, x1 - x0), L = 18 * S;
+  ctx.beginPath();
+  ctx.moveTo(x1 - Math.cos(dir - 0.55) * L, y1 - Math.sin(dir - 0.55) * L);
+  ctx.lineTo(x1, y1);
+  ctx.lineTo(x1 - Math.cos(dir + 0.55) * L, y1 - Math.sin(dir + 0.55) * L);
+  ctx.stroke();
+}
+
+function wrapText(text, maxW) {
+  const words = text.split(' '), lines = []; let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; } else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function drawFrame(t) {
+  const S = W / 720, cx = W * 0.5, cy = H * 0.5, scale = 290 * S;
+  const ang = (t / period) * Math.PI * 2;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+
+  // Yarım turda bir hafif ritim (ses), görsel ipucu vermez
+  const half = Math.floor(t / (period / 2));
+  if (half !== lastHalf) { lastHalf = half; events.push({ t, type: 'bounce', pitchIndex: (half % 2) ? 4 : 2, intensity: 0.22 }); }
+
+  // Nokta bulutu — tüm noktalar aynı boyut/parlaklık dağılımında (ön/arka ayırt edilemez)
+  // Arka ışık halesi (simetrik → yön ipucu vermez) + noktalar ADDITIVE parıltıyla
+  const [dr, dg, db] = variant.pal.dot;
+  const halo = ctx.createRadialGradient(cx, cy, scale * 0.2, cx, cy, scale * 1.6);
+  halo.addColorStop(0, `rgba(${dr},${dg},${db},0.10)`); halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'lighter';
+  for (const pt of points) {
+    const [x, y] = project(pt.p, ang, S, cx, cy, scale);
+    ctx.fillStyle = `rgba(${dr},${dg},${db},${pt.b * 0.55})`;
+    ctx.fillRect(x, y, pt.s * S, pt.s * S);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // İnce kontur halkaları
+  ctx.strokeStyle = variant.pal.line; ctx.globalAlpha = 0.8; ctx.lineWidth = 2 * S;
+  ctx.shadowColor = variant.pal.line; ctx.shadowBlur = 10 * S;
+  for (const ring of outline) {
+    ctx.beginPath();
+    ring.forEach((p, i) => { const [x, y] = project(p, ang, S, cx, cy, scale); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  ctx.shadowColor = variant.pal.arrow; ctx.shadowBlur = 14 * S;
+  for (const a of arrows) drawArrow(ang, S, cx, cy, scale, a);
+  ctx.shadowBlur = 0;
+  // Vinyet (kenarları karart → göz merkeze odaklanır)
+  const vg = ctx.createRadialGradient(cx, cy, H * 0.25, cx, cy, H * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.7)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+  // Metin: görev (hook) üstte, alt satırda meydan okuma — tüm video boyunca (loop'ta da anlamlı)
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
+  wrapText(HOOK, W * 0.86).forEach((l, i) => ctx.fillText(l, W * 0.5, H * 0.115 + i * 50 * S));
+  ctx.font = `700 ${Math.round(26 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.72)';
+  const sub = t < DUR * 0.5 ? 'Stare at the center. Blink. Try again.' : 'Did it flip? Most people need 3 tries.';
+  ctx.fillText(sub, W * 0.5, H * 0.87);
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) { drawFrame((startFrame + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.9).slice(23)); }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>
