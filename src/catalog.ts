@@ -19,7 +19,9 @@ export type PhysicsNiche =
   | "metronome-sync"
   | "monty-hall"
   | "gravity-compare"
-  | "giant-vs-swarm";
+  | "giant-vs-swarm"
+  | "spin-illusion"
+  | "doubling-ladder";
 
 export type PhysicsJob = {
   id: string;
@@ -925,6 +927,24 @@ const INFINITE_ANGLES: Record<
     titlePrefix: "1 Giant Ball vs 100 Tiny Balls",
     topic: "elastic momentum transfer and kinetic energy",
   },
+  "spin-illusion": {
+    hooks: ["REVERSE THE SPIN WITH YOUR MIND", "WHICH WAY IS IT SPINNING?", "CAN YOU MAKE IT SPIN BOTH WAYS?"],
+    narrations: [
+      "There is no right answer. Your brain chooses the direction, and with focus you can flip it.",
+      "Without depth cues, your visual system has to guess. Stare at the center and make it reverse.",
+    ],
+    titlePrefix: "Your Mind Can Reverse This Spin",
+    topic: "bistable perception and the kinetic depth effect",
+  },
+  "doubling-ladder": {
+    hooks: ["HOW MANY FOLDS TO REACH THE MOON?", "GUESS BEFORE IT LANDS", "THE POWER OF DOUBLING"],
+    narrations: [
+      "Every step doubles it. Guess the number before it lands.",
+      "Exponential growth starts invisible, then explodes past everything you know.",
+    ],
+    titlePrefix: "How Many Doublings Does It Take?",
+    topic: "exponential growth and the power of doubling",
+  },
 };
 
 /**
@@ -1000,6 +1020,8 @@ export const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "monty-hall": "Monty Hall Paradox",
   "gravity-compare": "Moon vs Earth vs Jupiter",
   "giant-vs-swarm": "1 Giant vs 100 Balls",
+  "spin-illusion": "Reverse The Spin Illusion",
+  "doubling-ladder": "How Many Doublings?",
 };
 
 const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
@@ -1022,6 +1044,8 @@ const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
   "monty-hall": "WOULD YOU SWITCH OR STAY?",
   "gravity-compare": "WATCH ALL 3 PLANETS AT ONCE",
   "giant-vs-swarm": "COUNT THE ELASTIC COLLISIONS",
+  "spin-illusion": "CAN YOU FLIP IT BOTH WAYS?",
+  "doubling-ladder": "GUESS THE NUMBER BEFORE IT LANDS",
 };
 
 function formatEpisodeLabel(slug: string): string {

@@ -2,6 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   BODY_TRIGGERS,
+  DOUBLING_SCENARIOS,
+  SPIN_CHALLENGES,
+  SPIN_SHAPES,
+  STEREOGRAM_OBJECTS,
   GRAVITY_ACTIVITIES,
   GRAVITY_BODIES,
   INSIDE_SUBJECTS,
@@ -382,6 +386,66 @@ const gravityFormats: Format<GravityPair>[] = [
   },
 ];
 
+type SpinItem = { shape: string; ch: (typeof SPIN_CHALLENGES)[number] };
+
+/** @biologistmichael formatı — hazır sahne: niches/spin-illusion */
+const spinFormats: Format<SpinItem>[] = [
+  {
+    key: "spin-challenge",
+    series: "Mind Spin Challenge",
+    channel: "physics",
+    base: 93,
+    title: (x) => tcStart(x.ch.caption(x.shape)),
+    hook: (x) => x.ch.caption(x.shape).toUpperCase(),
+    visual: (x) =>
+      `niches/spin-illusion: black background, ${x.shape} made of ~6,500 noise dots, orthographic rotation (no depth cues), yellow surface arrows.`,
+    ending: () => `Rotation period divides the duration → perfect loop; viewer keeps trying to flip it.`,
+    comment: () => "Did it flip for you? A) Yes, both ways  B) Not yet",
+  },
+];
+
+/** @biologistmichael stereogram serisi — sahne şablonu henüz yok */
+const stereoFormats: Format<string>[] = [
+  {
+    key: "stereogram",
+    series: "Hidden 3D (Stereogram)",
+    channel: "physics",
+    base: 88,
+    title: (x) => `Only 3% Can See ${tc(x)} Hidden in This Image`,
+    hook: () => "ADJUST YOUR EYES TO SEE IN 3D",
+    visual: (x) => `Procedural autostereogram (repeating texture) hiding ${x}; slow drifting texture, reveal outline in the last 2 s.`,
+    ending: () => `Reveal fades back into the pattern → loop.`,
+    comment: () => "Did you see it? A) Instantly  B) Still trying",
+  },
+];
+
+/** @pixiomstudio formatı — hazır sahne: niches/doubling-ladder */
+const doublingFormats: Format<(typeof DOUBLING_SCENARIOS)[number]>[] = [
+  {
+    key: "doubling-guess",
+    series: "Power of Doubling",
+    channel: "explainer",
+    base: 91,
+    title: (x) => `How Many ${tc(x.step)} for ${tc(x.item)} to Reach ${tc(x.target)}?`,
+    hook: () => "GUESS THE NUMBER BEFORE IT LANDS",
+    visual: (x) =>
+      `niches/doubling-ladder: ${x.item} doubles each step, log camera pull-back, real-scale landmarks (dice → cat → you → Burj → Everest → ISS → Moon), counter + progress bar to ${x.target}.`,
+    ending: () => `Final number freeze + "Did you guess it?" → fade to step 0 (loop).`,
+    comment: () => "What was your guess? A) Under 50  B) Over 50",
+  },
+  {
+    key: "doubling-vs",
+    series: "Linear vs Exponential",
+    channel: "physics",
+    base: 82,
+    title: (x) => `+1 vs ×2: Which Reaches ${tc(x.target)} First?`,
+    hook: () => "ADD ONE OR DOUBLE? PICK NOW",
+    visual: (x) => `Split screen: left adds 1 ${x.item} per step, right doubles; same counter, right column explodes past landmarks.`,
+    ending: () => `Left still near zero → reset (loop).`,
+    comment: () => "Who won? A) +1  B) ×2",
+  },
+];
+
 // ───────────────────────── ÜRETİM ─────────────────────────
 
 function expand<T>(items: T[], formats: Format<T>[], keyOf: (x: T) => string): Idea[] {
@@ -443,6 +507,13 @@ export function generateIdeas(): Idea[] {
     ...expand(BODY_TRIGGERS, bodyFormats, (x) => x),
     ...expand(VISUAL_PROOFS, proofFormats, (x) => x),
     ...expand(MYTHS, mythFormats, (x) => x.myth),
+    ...expand(
+      SPIN_SHAPES.flatMap((shape) => SPIN_CHALLENGES.map((ch) => ({ shape, ch }))),
+      spinFormats,
+      (x) => `${x.shape}-${x.ch.key}`,
+    ),
+    ...expand(STEREOGRAM_OBJECTS, stereoFormats, (x) => x),
+    ...expand(DOUBLING_SCENARIOS, doublingFormats, (x) => `${x.item}-${x.target}`),
     ...expand(buildGravityPairs(), gravityFormats, (x) => `${x.act}-${x.a.name}-${x.b.name}`),
   ];
   const seenIds = new Set<string>();

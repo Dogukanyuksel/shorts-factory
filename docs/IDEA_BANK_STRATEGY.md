@@ -1,5 +1,53 @@
 # Fikir Bankası & Rakip Format Analizi (25 Kasım 2026)
 
+## 0. GÜNCELLEME (26 Kasım) — İki hesabın ekran kayıtları analiz edildi
+
+Kullanıcının paylaştığı ekran kayıtlarından kare kare okundu (izlenme sayıları profil ızgarasından).
+
+### @biologistmichael — "Zihnin güçlü, dönüşü tersine çevir"
+| Video | İzlenme |
+|---|---|
+| Gri silindir, sarı oklar ("reverse the spin of the gray cylinder") | **22.2M** |
+| Renkli doku stereogramı ("Adjust eyes correctly to see in 3-D") | **9.5M** / **8.8M** |
+| Mor küre | 6.1M · 3.1M |
+| Altın koni yüzeyi | 5.7M |
+| Gökkuşağı 3D şerit | 5.1M |
+| Pembe kase | 4M |
+
+- **Format:** siyah zemin, **gürültü noktalarından** oluşan 3D şekil, **ortografik** (perspektifsiz) dönüş, ince kontur + sarı yön okları.
+  Derinlik ipucu olmadığı için beyin dönüş yönünü iki şekilde de yorumlayabiliyor (*kinetik derinlik etkisi / bistabil algı*).
+- **Asıl viral motor caption'da:** izleyiciye **görev** veriliyor → *"Your mind is powerful, reverse the spin of the gray cylinder."*
+  Yorumlar övünme ve meydan okuma: *"Easiest one yet"* (53.8K beğeni), *"I reached the point where I can have it spin both ways"*.
+  İzleyici başarana kadar **tekrar tekrar izliyor** → çok yüksek izlenme oranı (APV).
+- Anlatım yok, sadece trend müzik; 10–20 sn; kusursuz loop.
+- Pembe video: aynı koni önce **üçgen**, sonra **daire**, sonra **koni** olarak görünüyor (projeksiyon açılımı, referans matematik reel'iyle aynı fikir).
+
+### @pixiomstudio — "How Many Folds To Reach Mars?" (~16M)
+- **227K beğeni · 1.144 yorum · 4.362 paylaşım**, 36 sn.
+- **Format:** 0.1 mm kâğıt her adımda ikiye katlanır; üstte büyük **sayaç** ("28 folds = 26.8 km") + hedefe **ilerleme çubuğu**;
+  kamera geri çekilirken **gerçek ölçekli karşılaştırmalar**: zar → kedi → sen → ev → Burj Khalifa → Everest → uçak → uzay → ISS → … → Samanyolu → evren.
+- Her kilometre taşında altyazı: *"Taller than you"*, *"Higher than Everest"*, *"83 folds: across the Milky Way"*.
+- **Caption'ın sonu yorum tetikleyici:** *"Guess before it lands: how many folds for Mars?"* → izleyici tahminini yazıyor (1.1K yorum).
+
+### Ortak ders
+Her ikisi de **tamamen kodla üretilmiş prosedürel animasyon**: kamera, 3D model ya da seslendirme yok. Bu, bizim HTML canvas + Playwright motorumuzun tam olarak yaptığı şey.
+
+### Bu oturumda üretilen hazır sahneler (render + QC geçti)
+| Niş | Format | Varyant (`--seed`) |
+|---|---|---|
+| `niches/spin-illusion` | biologistmichael dönüş illüzyonu | 8 şekil × 5 renk = 40 (seed 1–40) |
+| `niches/doubling-ladder` | pixiomstudio ikiye katlama merdiveni | 8 senaryo (kâğıt→Ay, para→Ay, $1→uzay, bakteri→Güneş, karınca→Everest, kâğıt→evren, nilüfer→ISS, mikro→Burj) |
+
+```bash
+npx tsx src/render.ts --niche spin-illusion --seed 1 --seconds 16 --hook "REVERSE THE SPIN WITH YOUR MIND"
+```
+
+```bash
+npx tsx src/render.ts --niche doubling-ladder --seed 1 --seconds 30 --hook "HOW MANY FOLDS TO REACH THE MOON?"
+```
+
+Bu nişler `PhysicsNiche` tipine eklendi ama **otomatik yayın rotasyonuna (`PHYSICS_ROTATION`) eklenmedi**. Kanala girmeleri için onay bekleniyor.
+
 ## 1. İncelenen hesaplar: ne görülebildi, ne görülemedi
 
 | Kaynak | Durum | Görülen |

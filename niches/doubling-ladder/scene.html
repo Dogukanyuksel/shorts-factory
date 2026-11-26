@@ -1,0 +1,212 @@
+<!doctype html>
+<!--
+  Clear Mechanics / Kinetic Lab — "How Many Doublings To Reach X?" Exponential Growth Ladder
+  Bir şey her adımda İKİYE katlanır; kamera logaritmik olarak geri çekilir, gerçek ölçekli
+  karşılaştırma nesneleri (zar, kedi, insan, Burj Khalifa, Everest, ISS, Ay...) geçilir.
+  Sayaç + hedefe ilerleme çubuğu + kilometre taşı altyazıları. seed → senaryo.
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#0b1030;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 720, H = 1280, FPS = 60, DUR = 30, HOOK = '', SEED = 1;
+let sc = null, events = [], lastStep = -1, passed = new Set();
+
+const LY = 9.4607e15; // ışık yılı (m)
+// Karşılaştırma nesneleri (metre). kind: çizim stili
+const LANDMARKS = [
+  { h: 0.016, name: 'Dice', label: 'Taller than a dice', kind: 'dice' },
+  { h: 0.30, name: 'Cat', label: 'Taller than a cat', kind: 'cat' },
+  { h: 1.75, name: 'You', label: 'Taller than you', kind: 'person' },
+  { h: 10, name: 'House', label: 'Taller than a house', kind: 'house' },
+  { h: 93, name: 'Statue of Liberty', label: 'Taller than the Statue of Liberty', kind: 'tower' },
+  { h: 330, name: 'Eiffel Tower', label: 'Taller than the Eiffel Tower', kind: 'tower' },
+  { h: 828, name: 'Burj Khalifa', label: 'Taller than the Burj Khalifa', kind: 'tower' },
+  { h: 8849, name: 'Everest', label: 'Higher than Everest', kind: 'mountain' },
+  { h: 10_000, name: 'Plane', label: 'Above the planes', kind: 'line' },
+  { h: 100_000, name: 'Space', label: 'You just reached SPACE', kind: 'line' },
+  { h: 408_000, name: 'Space Station', label: 'Past the Space Station', kind: 'line' },
+  { h: 35_786_000, name: 'GPS / TV satellites', label: 'Past the TV satellites', kind: 'line' },
+  { h: 384_400_000, name: 'Moon', label: 'Past the MOON', kind: 'orb', col: '#e5e7eb' },
+  { h: 54_600_000_000, name: 'Mars', label: 'Reached MARS', kind: 'orb', col: '#f97316' },
+  { h: 149_600_000_000, name: 'Sun', label: 'Past the SUN', kind: 'orb', col: '#facc15' },
+  { h: 5_900_000_000_000, name: 'Pluto', label: 'Past Pluto', kind: 'orb', col: '#cbd5e1' },
+  { h: 4.24 * LY, name: 'Nearest star', label: 'Reached the nearest star', kind: 'orb', col: '#fde68a' },
+  { h: 100_000 * LY, name: 'Milky Way', label: 'Across the Milky Way', kind: 'galaxy' },
+  { h: 2.5e6 * LY, name: 'Andromeda', label: 'Reached Andromeda', kind: 'galaxy' },
+  { h: 93e9 * LY, name: 'Observable universe', label: 'Bigger than the observable universe', kind: 'galaxy' },
+];
+
+// Senaryolar: başlangıç uzunluğu (m), adım adı, hedef. Hepsi gerçek hesap (2^n büyüme).
+const SCENARIOS = [
+  { base: 0.0001, step: 'folds', item: 'a 0.1 mm sheet of paper', verb: 'Fold', target: 'Moon', hook: 'HOW MANY FOLDS TO REACH THE MOON?', col: '#fde68a' },
+  { base: 0.0015, step: 'doublings', item: 'a stack of 1 coin (1.5 mm)', verb: 'Double', target: 'Moon', hook: 'DOUBLE A COIN STACK. WHEN DOES IT HIT THE MOON?', col: '#fbbf24' },
+  { base: 0.00011, step: 'doublings', item: 'a $1 bill (0.11 mm)', verb: 'Double', target: 'Space', hook: '$1 DOUBLED: HOW FAST DOES IT REACH SPACE?', col: '#86efac' },
+  { base: 0.000002, step: 'divisions', item: 'one bacterium (2 µm)', verb: 'Divide', target: 'Sun', hook: 'ONE BACTERIUM LINED UP… HOW LONG TO THE SUN?', col: '#a5f3fc' },
+  { base: 0.005, step: 'doublings', item: 'a 5 mm ant', verb: 'Double', target: 'Everest', hook: 'DOUBLE AN ANT. WHEN IS IT TALLER THAN EVEREST?', col: '#fca5a5' },
+  { base: 0.0001, step: 'folds', item: 'a 0.1 mm sheet of paper', verb: 'Fold', target: 'Observable universe', hook: 'HOW MANY FOLDS TO OUTGROW THE UNIVERSE?', col: '#c4b5fd' },
+  { base: 0.002, step: 'days', item: 'a 2 mm water lily doubling daily', verb: 'Grow', target: 'Space Station', hook: 'A LILY DOUBLES DAILY. WHEN DOES IT REACH THE ISS?', col: '#bbf7d0' },
+  { base: 0.00000025, step: 'doublings', item: 'a grain of salt atom row (0.25 µm)', verb: 'Double', target: 'Burj Khalifa', hook: 'FROM INVISIBLE TO BURJ KHALIFA IN HOW MANY STEPS?', col: '#e0f2fe' },
+];
+
+function fmtLen(m) {
+  if (m < 0.0001) return `${+(m * 1e6).toPrecision(3)} µm`;
+  if (m < 0.01) return `${+(m * 1000).toPrecision(3)} mm`;
+  if (m < 1) return `${+(m * 100).toPrecision(3)} cm`;
+  if (m < 1000) return `${+m.toPrecision(3)} m`;
+  if (m < 0.01 * LY) return `${Math.round(m / 1000).toLocaleString('en-US')} km`;
+  if (m < 1e9 * LY) return `${(+(m / LY).toPrecision(3)).toLocaleString('en-US')} light-years`;
+  return `${+(m / LY / 1e9).toPrecision(3)} billion light-years`;
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 30; SEED = cfg.seed || 1;
+  const s = SCENARIOS[(SEED - 1) % SCENARIOS.length];
+  const target = LANDMARKS.find((l) => l.name === s.target);
+  const steps = Math.ceil(Math.log2(target.h / s.base));
+  sc = { ...s, targetH: target.h, steps };
+  HOOK = cfg.hook && !/^CAN IT ESCAPE/.test(cfg.hook) ? cfg.hook : s.hook;
+  cv.width = W; cv.height = H;
+  events = []; lastStep = -1; passed = new Set();
+};
+
+// Zaman çizelgesi: 1.2 sn giriş, büyüme, 2.4 sn final tutuşu, 0.6 sn sıfırlamaya geçiş (loop)
+function stepAt(t) {
+  const t0 = 1.2, t1 = DUR - 3.0;
+  if (t <= t0) return 0;
+  if (t >= t1) return sc.steps;
+  const x = (t - t0) / (t1 - t0);
+  // Başta yavaş (izleyici kuralı anlasın), sonra hızlanan adımlar
+  return sc.steps * (x * x * 0.45 + x * 0.55);
+}
+
+function drawLandmark(l, groundY, pxPerM, S, x) {
+  const hp = l.h * pxPerM;
+  if (hp < 6 * S) return;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, H * 0.2, W, H); ctx.clip();
+  ctx.strokeStyle = 'rgba(125,211,252,0.9)'; ctx.fillStyle = 'rgba(56,189,248,0.10)'; ctx.lineWidth = 2.5 * S;
+  ctx.font = `700 ${Math.round(20 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
+  const topY = groundY - hp;
+  if (l.kind === 'dice' || l.kind === 'house') {
+    const w = l.kind === 'dice' ? hp : hp * 1.1;
+    ctx.beginPath(); ctx.rect(x - w / 2, topY, w, hp); ctx.fill(); ctx.stroke();
+    if (l.kind === 'house') { ctx.beginPath(); ctx.moveTo(x - w / 2, topY); ctx.lineTo(x, topY - hp * 0.45); ctx.lineTo(x + w / 2, topY); ctx.stroke(); }
+    else { ctx.fillStyle = '#c7d2fe'; for (const [dx, dy] of [[-0.25, -0.25], [0.25, 0.25], [0, 0], [-0.25, 0.25], [0.25, -0.25]]) { ctx.beginPath(); ctx.arc(x + dx * w, topY + hp / 2 + dy * hp, hp * 0.08, 0, 7); ctx.fill(); } }
+  } else if (l.kind === 'cat' || l.kind === 'person') {
+    const head = hp * (l.kind === 'cat' ? 0.38 : 0.16);
+    ctx.beginPath(); ctx.arc(x, topY + head, head, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(x - head * (l.kind === 'cat' ? 1.1 : 0.9), topY + head * 2, head * (l.kind === 'cat' ? 2.2 : 1.8), hp - head * 2, head * 0.6); ctx.fill(); ctx.stroke();
+  } else if (l.kind === 'tower') {
+    ctx.beginPath(); ctx.moveTo(x - hp * 0.09, groundY); ctx.lineTo(x - hp * 0.02, topY + hp * 0.08); ctx.lineTo(x, topY); ctx.lineTo(x + hp * 0.02, topY + hp * 0.08); ctx.lineTo(x + hp * 0.09, groundY); ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (l.kind === 'mountain') {
+    ctx.fillStyle = 'rgba(251,146,60,0.75)'; ctx.strokeStyle = '#fdba74';
+    ctx.beginPath(); ctx.moveTo(x - hp * 1.2, groundY); ctx.lineTo(x, topY); ctx.lineTo(x + hp * 1.2, groundY); ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (l.kind === 'line') {
+    ctx.setLineDash([10 * S, 8 * S]); ctx.beginPath(); ctx.moveTo(W * 0.04, topY); ctx.lineTo(W * 0.96, topY); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(11,16,48,0.75)'; ctx.fillRect(W * 0.56, topY - 34 * S, W * 0.4, 30 * S);
+  } else if (l.kind === 'orb' || l.kind === 'galaxy') {
+    const r = (l.kind === 'galaxy' ? 70 : 26) * S;
+    ctx.fillStyle = l.col || '#a78bfa'; ctx.shadowColor = l.col || '#a78bfa'; ctx.shadowBlur = 30 * S;
+    if (l.kind === 'galaxy') { ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.ellipse(x, topY, r, r * 0.35, -0.3, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+    else { ctx.beginPath(); ctx.arc(x, topY, r, 0, 7); ctx.fill(); }
+    ctx.shadowBlur = 0;
+  }
+  ctx.fillStyle = '#e0f2fe';
+  const orbR = l.kind === 'galaxy' ? 70 * S : l.kind === 'orb' ? 26 * S : 0;
+  const ly = l.kind === 'line' ? topY - 8 * S : Math.max(topY - orbR - 12 * S, H * 0.24);
+  ctx.fillText(`${l.name} · ${fmtLen(l.h)}`, l.kind === 'line' ? W * 0.76 : x, ly);
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const k = stepAt(t);
+  const n = Math.floor(k + 1e-9);
+  const h = sc.base * Math.pow(2, k);
+  const groundY = H * 0.80;
+  // Kamera: yığının tepesi ekranın ~%55'inde kalacak şekilde ölçek; başta en az 4 cm görünür
+  const viewM = Math.max(0.04, h / 0.55);
+  const pxPerM = (groundY - H * 0.22) / viewM;
+
+  if (n !== lastStep) {
+    lastStep = n;
+    if (n > 0 && n <= sc.steps) events.push({ t, type: n === sc.steps ? 'win' : 'bounce', pitchIndex: n % 10, intensity: n === sc.steps ? 1 : 0.32 });
+  }
+
+  // Arka plan: derin uzay gradyanı + yıldızlar (yükseldikçe kararır)
+  const sky = Math.min(1, Math.log10(Math.max(1, h)) / 8);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, `rgb(${Math.round(16 - 12 * sky)},${Math.round(22 - 18 * sky)},${Math.round(64 - 50 * sky)})`);
+  g.addColorStop(1, '#0b1030');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  for (let i = 0; i < 90; i++) { const sx = (i * 397) % W, sy = (i * 211) % (H * 0.8); ctx.globalAlpha = 0.15 + sky * 0.6 * ((i % 7) / 7); ctx.fillRect(sx, sy, 2 * S, 2 * S); }
+  ctx.globalAlpha = 1;
+
+  // Zemin
+  ctx.fillStyle = 'rgba(253,230,138,0.85)'; ctx.fillRect(0, groundY, W, 3 * S);
+
+  // Geçilen / görünen karşılaştırma nesneleri (sağda)
+  let caption = '';
+  for (const l of LANDMARKS) {
+    if (l.h > sc.targetH * 1.0001) continue;
+    if (h >= l.h && !passed.has(l.name)) { passed.add(l.name); events.push({ t, type: 'break', pitchIndex: 7, intensity: 0.4 }); }
+    if (passed.has(l.name)) caption = l.label;
+    if (l.h * pxPerM <= (groundY - H * 0.25)) drawLandmark(l, groundY, pxPerM, S, W * 0.72);
+  }
+
+  // Yığın (solda): ışıklı sütun, üstünde halka
+  const colW = 120 * S, x = W * 0.36;
+  const hp = Math.min(h * pxPerM, groundY - H * 0.06);
+  const grd = ctx.createLinearGradient(x - colW / 2, 0, x + colW / 2, 0);
+  grd.addColorStop(0, sc.col); grd.addColorStop(0.5, '#fffbeb'); grd.addColorStop(1, sc.col);
+  ctx.save(); ctx.shadowColor = sc.col; ctx.shadowBlur = 40 * S; ctx.fillStyle = grd;
+  ctx.fillRect(x - colW / 2, groundY - hp, colW, hp); ctx.restore();
+  if (n < 9) { ctx.strokeStyle = 'rgba(120,53,15,0.45)'; ctx.lineWidth = 1; for (let i = 1; i < 2 ** n; i++) { const yy = groundY - (hp * i) / 2 ** n; ctx.beginPath(); ctx.moveTo(x - colW / 2, yy); ctx.lineTo(x + colW / 2, yy); ctx.stroke(); } }
+  ctx.strokeStyle = '#fffbeb'; ctx.lineWidth = 3 * S; ctx.beginPath(); ctx.ellipse(x, groundY - hp, colW * 0.62, 12 * S, 0, 0, 7); ctx.stroke();
+
+  // Üst bilgi: hook, sayaç, ilerleme çubuğu (log ölçek)
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(38 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
+  const words = HOOK.split(' '); let line = '', lines = [];
+  for (const w of words) { const tl = line ? line + ' ' + w : w; if (ctx.measureText(tl).width > W * 0.88 && line) { lines.push(line); line = w; } else line = tl; }
+  lines.push(line); lines.forEach((l, i) => ctx.fillText(l, W / 2, H * 0.07 + i * 44 * S));
+  const cy = H * 0.07 + lines.length * 44 * S + 6 * S;
+  ctx.font = `800 ${Math.round(34 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#fde68a';
+  ctx.fillText(`${n} ${sc.step} = ${fmtLen(sc.base * 2 ** n)}`, W / 2, cy);
+  const prog = Math.min(1, Math.log(h / sc.base) / Math.log(sc.targetH / sc.base));
+  const bx = W * 0.1, bw = W * 0.8, by = cy + 26 * S;
+  ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(bx, by, bw, 6 * S);
+  ctx.fillStyle = '#38bdf8'; ctx.fillRect(bx, by, bw * prog, 6 * S);
+  ctx.fillStyle = '#f97316'; ctx.beginPath(); ctx.arc(bx + bw, by + 3 * S, 9 * S, 0, 7); ctx.fill();
+  ctx.font = `700 ${Math.round(18 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#e5e7eb'; ctx.textAlign = 'right'; ctx.fillText(sc.target, bx + bw + 10 * S, by + 30 * S); ctx.textAlign = 'center';
+
+  // Alt yazı: kural → kilometre taşı → final
+  let bottom;
+  if (t < 1.2 + 1.6) bottom = sc.verb === 'Fold' ? `Fold ${sc.item} in half… again and again` : `${sc.verb} ${sc.item} ×2… again and again`;
+  else if (t >= DUR - 3.0) bottom = `${sc.steps} ${sc.step}: ${LANDMARKS.find((l) => l.name === sc.target).label}!`;
+  else bottom = caption || 'Every step doubles it';
+  let fs = 30;
+  do { ctx.font = `800 ${Math.round(fs * S)}px -apple-system, sans-serif`; fs -= 1; } while (ctx.measureText(bottom).width > W * 0.9 && fs > 16);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(bottom, W / 2, H * 0.87);
+  if (t >= DUR - 3.0) {
+    ctx.font = `700 ${Math.round(24 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#fde68a';
+    ctx.fillText('Did you guess it? Comment your number', W / 2, H * 0.915);
+  }
+  // Loop geçişi: son 0.6 sn karart → ilk kare (0 adım) ile kusursuz birleşir
+  if (t > DUR - 0.6) { ctx.fillStyle = `rgba(11,16,48,${(t - (DUR - 0.6)) / 0.6})`; ctx.fillRect(0, 0, W, H); }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) { drawFrame((startFrame + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.9).slice(23)); }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

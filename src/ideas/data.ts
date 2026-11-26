@@ -496,3 +496,57 @@ export const GRAVITY_ACTIVITIES: string[] = [
   "a pole vault",
   "a fountain",
 ];
+
+/**
+ * 10) @biologistmichael formatı (izlenme: 22.2M, 6.1M, 5.7M, 5.1M, 4M ...):
+ * siyah zemin, nokta bulutundan 3D şekil, ortografik dönüş → yön belirsiz; caption bir GÖREV verir
+ * ("Your mind is powerful, reverse the spin of the gray cylinder."). Yorumlar: "I can spin both ways".
+ */
+export const SPIN_SHAPES: string[] = [
+  "gray cylinder", "pink cone", "green sphere", "purple bowl", "blue torus", "golden hourglass",
+  "white cube", "twisted ribbon", "red double cone", "cyan spiral tower", "orange tube", "silver ring",
+];
+export const SPIN_CHALLENGES: Array<{ key: string; caption: (shape: string) => string }> = [
+  { key: "reverse", caption: (s) => `Your mind is powerful — reverse the spin of the ${s}` },
+  { key: "both-ways", caption: (s) => `Can you make the ${s} spin BOTH ways?` },
+  { key: "which-way", caption: (s) => `Which way is the ${s} spinning? Left or right?` },
+  { key: "stop", caption: (s) => `Only 1% can make the ${s} stop for a second` },
+  { key: "inside-out", caption: (s) => `Flip the ${s} inside out with your eyes` },
+];
+
+/**
+ * 11) @biologistmichael stereogram serisi (9.5M, 8.8M, 1.9M): "Adjust eyes correctly to see in 3-D"
+ * Prosedürel otostereogram: gizli 3D nesne, desenli doku.
+ */
+export const STEREOGRAM_OBJECTS: string[] = [
+  "a shark", "a heart", "a skull", "a rocket", "a dinosaur", "a spiral staircase", "a planet with rings",
+  "a hidden word", "a dolphin", "a pyramid", "a butterfly", "a DNA helix", "a human brain", "a cat face",
+  "a key", "an eye", "a castle", "a star", "a pi symbol", "a question mark",
+];
+
+/**
+ * 12) @pixiomstudio formatı ("How Many Folds To Reach Mars?", 227K beğeni, 1.1K yorum, 4.3K paylaşım):
+ * her adımda ikiye katlanan şey + gerçek ölçekli karşılaştırma nesneleri + sayaç + "Guess before it lands".
+ */
+export const DOUBLING_SCENARIOS: Array<{ item: string; target: string; step: string }> = [
+  { item: "a sheet of paper", target: "the Moon", step: "folds" },
+  { item: "a sheet of paper", target: "the Sun", step: "folds" },
+  { item: "a sheet of paper", target: "the edge of the universe", step: "folds" },
+  { item: "a stack of coins", target: "the Moon", step: "doublings" },
+  { item: "a $1 bill stack", target: "space", step: "doublings" },
+  { item: "a single bacterium", target: "the Sun", step: "divisions" },
+  { item: "an ant", target: "Everest's height", step: "doublings" },
+  { item: "a grain of rice", target: "a stadium full", step: "chessboard squares" },
+  { item: "a penny saved", target: "1 million dollars", step: "days" },
+  { item: "a water lily", target: "the whole lake", step: "days" },
+  { item: "a rumor", target: "every human on Earth", step: "shares" },
+  { item: "a virus", target: "the whole world", step: "infection rounds" },
+  { item: "a pizza slice cut", target: "atom size", step: "cuts" },
+  { item: "a human hair", target: "the Earth's diameter", step: "doublings" },
+  { item: "a Lego brick tower", target: "the ISS", step: "doublings" },
+  { item: "a domino (each 1.5× bigger)", target: "the Empire State Building", step: "dominoes" },
+  { item: "a 1 GB file", target: "all data on Earth", step: "doublings" },
+  { item: "a sugar cube", target: "the Pyramid of Giza", step: "doublings" },
+  { item: "a cut in half chocolate bar", target: "a single molecule", step: "cuts" },
+  { item: "a tree's branches", target: "a million leaves", step: "splits" },
+];
