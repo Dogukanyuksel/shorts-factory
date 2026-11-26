@@ -179,6 +179,12 @@ async function main() {
 
   const state = await loadState();
   const notified = await loadNotified();
+  // Çift rapor koruması: zamanlayıcı + gecikmiş cron aynı dönemde iki kez çalışırsa ikinci rapor gönderilmez
+  const minGapH = Number(process.env.MIN_REPORT_GAP_HOURS || 0);
+  if (minGapH > 0 && notified.lastReportAt && Date.now() - Date.parse(notified.lastReportAt) < minGapH * 3_600_000) {
+    console.log(`[telegram-monitor] Son rapor ${minGapH} saatten yeni, bu çalışma atlanıyor.`);
+    return;
+  }
   const seen = new Set(notified.seenCommentKeys);
   const ytApiKey = process.env.YOUTUBE_API_KEY?.trim() || "";
   const metaToken = process.env.META_ACCESS_TOKEN?.trim() || "";
