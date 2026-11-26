@@ -25,3 +25,11 @@ test("buildReply: aynı yorum için deterministik, farklı yorumlar için çeşi
   assert.ok(variants.size >= 3, `yalnızca ${variants.size} farklı yanıt`);
   assert.match(buildReply("t1", "çok güzel olmuş", "explainer") || "", /[ğüşıöçİ]|teşekkür|harika|sevindik/i);
 });
+
+test("isOwnChannelComment: kendi ilk anket yorumumuz bildirim/yanıt dışı kalır", async () => {
+  const { isOwnChannelComment } = await import("../src/telegram-monitor.js");
+  assert.equal(isOwnChannelComment("UC1", "UC1", "anything"), true);
+  assert.equal(isOwnChannelComment("UC1", "UC2", "VOTE NEXT SIMULATION 👇\nA) x\nB) y"), true);
+  assert.equal(isOwnChannelComment("UC1", "UC2", "so cool!"), false);
+  assert.equal(isOwnChannelComment(undefined, undefined, "nice"), false);
+});

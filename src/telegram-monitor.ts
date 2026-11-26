@@ -116,16 +116,32 @@ async function fetchYouTubeCommentDetails(
   const json = (await res.json()) as {
     items?: Array<{
       id?: string;
-      snippet?: { topLevelComment?: { snippet?: { authorDisplayName?: string; textDisplay?: string } } };
+      snippet?: {
+        /** Videonun sahibi olan kanal */
+        channelId?: string;
+        topLevelComment?: {
+          snippet?: { authorDisplayName?: string; textDisplay?: string; authorChannelId?: { value?: string } };
+        };
+      };
     }>;
   };
   return (json.items || [])
+    .filter((it) => !isOwnChannelComment(it.snippet?.channelId, it.snippet?.topLevelComment?.snippet?.authorChannelId?.value, it.snippet?.topLevelComment?.snippet?.textDisplay))
     .map((it) => ({
       id: it.id || "",
       author: it.snippet?.topLevelComment?.snippet?.authorDisplayName || "Viewer",
       text: it.snippet?.topLevelComment?.snippet?.textDisplay?.trim() || "",
     }))
     .filter((c) => Boolean(c.id && c.text));
+}
+
+/**
+ * Kendi kanalımızın yazdığı yorum mu? (ör. her yeni short'a otomatik attığımız ilk anket yorumu)
+ * Yazar kanalı = videonun sahibi kanal ise ya da metin bizim anket şablonumuzsa → bildirim/yanıt YOK.
+ */
+export function isOwnChannelComment(videoChannelId?: string, authorChannelId?: string, text?: string): boolean {
+  if (videoChannelId && authorChannelId && videoChannelId === authorChannelId) return true;
+  return /^\s*vote next (simulation|episode)/i.test(text || "");
 }
 
 async function fetchInstagramMediaInfo(
