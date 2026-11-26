@@ -181,6 +181,21 @@
       "videoId": "nSxpjGzlDFg",
       "url": "https://www.youtube.com/watch?v=nSxpjGzlDFg",
       "publishedAt": "2026-11-26T16:50:33.836Z"
+    },
+    {
+      "id": "doubling-ladder-seed1",
+      "channel": "physics",
+      "title": "How Many Paper Folds to Reach the Moon? #shorts",
+      "videoId": "poAINYA1Z_c",
+      "url": "https://youtube.com/shorts/poAINYA1Z_c",
+      "poll": {
+        "optionAKey": "physics-ring",
+        "optionBKey": "gravity-compare",
+        "optionA": "7-Ring Escape",
+        "optionB": "Moon vs Earth vs Jupiter"
+      },
+      "publishedAt": "2026-11-26T17:11:05.815Z",
+      "instagramMediaId": "18102423791438038"
     }
   ]
 }
