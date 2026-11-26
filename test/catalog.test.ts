@@ -24,7 +24,7 @@ test("pickNextJob (physics): ardışık iki video asla aynı simülasyon mekani�
     published.add(job.id);
     prevNiche = job.niche;
   }
-  assert.equal(seenNiches.size, 19, "19 farklı fizik mekaniği rotasyonda olmalı");
+  assert.equal(seenNiches.size, 21, "21 farklı fizik mekaniği rotasyonda olmalı");
 });
 
 test("pickNextJob (explainer): 38 bölümü eksiksiz sırayla verir, tüm HTML dosyaları mevcuttur ve sonra null döner", () => {

@@ -47,8 +47,8 @@ jobs:
       - name: Secret kontrolü
         id: check_secrets
         env:
-          HAS_ID: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}
-          HAS_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' }}
+          HAS_ID: ${{ secrets.YOUTUBE_CLIENT_ID != '' || secrets.YOUTUBE_CLIENT_ID_EXPLAINER != '' }}
+          HAS_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' || secrets.YOUTUBE_CLIENT_SECRET_EXPLAINER != '' }}
           HAS_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_EXPLAINER != '' }}
           IS_DRY: ${{ inputs.dry_run == true }}
         run: |
@@ -81,6 +81,8 @@ jobs:
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_CLIENT_ID_EXPLAINER: ${{ secrets.YOUTUBE_CLIENT_ID_EXPLAINER }}
+          YOUTUBE_CLIENT_SECRET_EXPLAINER: ${{ secrets.YOUTUBE_CLIENT_SECRET_EXPLAINER }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_EXPLAINER }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           IG_USER_ID: ${{ secrets.IG_USER_ID_EXPLAINER }}
@@ -98,8 +100,24 @@ jobs:
         if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure') && inputs.dry_run != true
         run: |
           npx tsx src/safe-git-push.ts state/published.json "chore(publish): explainer short yayinlandi"
+          if [ -f state/youtube-quota.json ]; then
+            npx tsx src/safe-git-push.ts state/youtube-quota.json "chore(quota): YouTube kota durumu guncellendi"
+          fi
 
-      - name: Hata durumunda Telegram uyarısı
+      - name: Bilgi notu (ör. kota doldu) varsa Telegram'a ilet
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+        run: |
+          if [ -f out/publish-notice.txt ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            TEXT="ℹ️ <b>Clear Mechanics Shorts</b>"$'\n'"$(sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' out/publish-notice.txt)"
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
+          fi
+
+      - name: Hata durumunda Telegram uyarısı (sebebiyle)
         if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -107,7 +125,10 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            REASON="(sebep dosyası yok — render/kurulum adımında hata olabilir, logu açın)"
+            [ -f out/last-error.txt ] && REASON="$(head -c 600 out/last-error.txt | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+            TEXT="🚨 <b>Clear Mechanics Shorts HATA</b>"$'\n'"<b>Sebep:</b> ${REASON}"$'\n'"Log: ${RUN_URL}"
             curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               -H "Content-Type: application/json" \
-              -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"🚨 <b>Shorts Factory HATA</b>\nWorkflow: <b>Auto-Publish Explainer</b>\nLog: ${RUN_URL}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}" || true
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
           fi

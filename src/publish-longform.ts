@@ -6,6 +6,17 @@ import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
 import { runVideoQc } from "./qc.js";
 import { renderLongformVideo } from "./render-longform.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
+import {
+  activeBlock,
+  formatTrTime,
+  loadQuotaState,
+  quotaKey,
+  recordQuotaBlock,
+  resolveYouTubeClient,
+  writeLastError,
+  writePublishNotice,
+  YouTubeQuotaError,
+} from "./youtube-quota.js";
 import { uploadVideoToYouTube } from "./youtube.js";
 
 interface PublishedRecord {
@@ -80,6 +91,18 @@ async function main() {
     return;
   }
 
+  // Kota bloğu: 30 dk render'ı boşa harcamadan atla
+  const ytClient = resolveYouTubeClient(channel);
+  if (!dryRun && ytClient.clientId) {
+    const block = activeBlock(await loadQuotaState(), quotaKey(ytClient.clientId));
+    if (block) {
+      await writePublishNotice(
+        `⏸️ ${channel} uzun video atlandı: YouTube kotası dolu (${block.reason}). Kota ${formatTrTime(block.until)} (TR saati) sonra sıfırlanır.`,
+      );
+      return;
+    }
+  }
+
   const prevLongformCount = state.published.filter(
     (r) => r.channel === channel && r.id.startsWith(`longform-${channel}-`),
   ).length;
@@ -114,25 +137,36 @@ async function main() {
     return;
   }
 
-  const clientId = process.env.YOUTUBE_CLIENT_ID?.trim() || "";
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET?.trim() || "";
+  const { clientId, clientSecret } = ytClient;
   const refreshToken = resolveRefreshToken(channel);
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error(`YouTube API secret'ları eksik (${channel})!`);
   }
 
   console.log(`[publish-longform] YouTube'a yükleniyor (${privacy})...`);
-  const uploaded = await uploadVideoToYouTube(
-    rendered.mp4Path,
-    {
-      title: rendered.title,
-      description: fullDescription,
-      tags: rendered.tags,
-      categoryId: "28",
-      privacyStatus: privacy,
-    },
-    { clientId, clientSecret, refreshToken },
-  );
+  let uploaded: Awaited<ReturnType<typeof uploadVideoToYouTube>>;
+  try {
+    uploaded = await uploadVideoToYouTube(
+      rendered.mp4Path,
+      {
+        title: rendered.title,
+        description: fullDescription,
+        tags: rendered.tags,
+        categoryId: "28",
+        privacyStatus: privacy,
+      },
+      { clientId, clientSecret, refreshToken },
+    );
+  } catch (err) {
+    if (err instanceof YouTubeQuotaError) {
+      const block = await recordQuotaBlock(quotaKey(clientId), err.reason, channel);
+      await writePublishNotice(
+        `⏸️ ${channel} uzun video: YouTube kotası doldu (${err.reason}). Yarın yeniden denenecek; kota ${formatTrTime(block.until)} (TR saati) sonra sıfırlanır.`,
+      );
+      return;
+    }
+    throw err;
+  }
 
   const watchUrl = `https://www.youtube.com/watch?v=${uploaded.videoId}`;
   console.log(`\n✅ [publish-longform] YOUTUBE 16:9 UZUN VİDEO YAYINLANDI: ${watchUrl}`);
@@ -148,7 +182,8 @@ async function main() {
   await saveState(state);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error("[publish-longform] HATA:", err);
+  await writeLastError(err);
   process.exit(1);
 });

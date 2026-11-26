@@ -109,7 +109,7 @@ window.init = (cfg) => {
   const tilt = 0.32 + r() * 0.12; // yukarıdan hafif bakış (üst elipsi görünür kılar)
   variant = { shape, pal, tilt };
 
-  const N = shape === 'cube' ? 5200 : 6500;
+  const N = shape === 'cube' ? 7000 : 9000;
   points = [];
   for (let i = 0; i < N; i++) {
     const p = surface(shape, r(), r());
@@ -174,22 +174,35 @@ function drawFrame(t) {
   if (half !== lastHalf) { lastHalf = half; events.push({ t, type: 'bounce', pitchIndex: (half % 2) ? 4 : 2, intensity: 0.22 }); }
 
   // Nokta bulutu — tüm noktalar aynı boyut/parlaklık dağılımında (ön/arka ayırt edilemez)
+  // Arka ışık halesi (simetrik → yön ipucu vermez) + noktalar ADDITIVE parıltıyla
   const [dr, dg, db] = variant.pal.dot;
+  const halo = ctx.createRadialGradient(cx, cy, scale * 0.2, cx, cy, scale * 1.6);
+  halo.addColorStop(0, `rgba(${dr},${dg},${db},0.10)`); halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'lighter';
   for (const pt of points) {
     const [x, y] = project(pt.p, ang, S, cx, cy, scale);
-    ctx.fillStyle = `rgba(${dr},${dg},${db},${pt.b * 0.85})`;
+    ctx.fillStyle = `rgba(${dr},${dg},${db},${pt.b * 0.55})`;
     ctx.fillRect(x, y, pt.s * S, pt.s * S);
   }
+  ctx.globalCompositeOperation = 'source-over';
 
   // İnce kontur halkaları
-  ctx.strokeStyle = variant.pal.line; ctx.globalAlpha = 0.75; ctx.lineWidth = 2 * S;
+  ctx.strokeStyle = variant.pal.line; ctx.globalAlpha = 0.8; ctx.lineWidth = 2 * S;
+  ctx.shadowColor = variant.pal.line; ctx.shadowBlur = 10 * S;
   for (const ring of outline) {
     ctx.beginPath();
     ring.forEach((p, i) => { const [x, y] = project(p, ang, S, cx, cy, scale); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
     ctx.stroke();
   }
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  ctx.shadowColor = variant.pal.arrow; ctx.shadowBlur = 14 * S;
   for (const a of arrows) drawArrow(ang, S, cx, cy, scale, a);
+  ctx.shadowBlur = 0;
+  // Vinyet (kenarları karart → göz merkeze odaklanır)
+  const vg = ctx.createRadialGradient(cx, cy, H * 0.25, cx, cy, H * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.7)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 
   // Metin: görev (hook) üstte, alt satırda meydan okuma — tüm video boyunca (loop'ta da anlamlı)
   ctx.save(); ctx.textAlign = 'center';

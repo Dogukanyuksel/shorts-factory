@@ -18,7 +18,9 @@ export function buildInstagramCaption(title: string, description: string): strin
   // YouTube'a özel #shorts etiketini temizle, Instagram Reels için temiz İngilizce caption üret
   const cleanTitle = title.replace(/#shorts\b/gi, "").replace(/\s{2,}/g, " ").trim();
   const cleanDesc = description.replace(/#shorts\b/gi, "#reels").trim();
-  const combined = `${cleanTitle}\n\n${cleanDesc}`;
+  // Takipçi kazanımı: açık takip çağrısı (yoksa ekle) — referans viral hesapların ortak kalıbı
+  const followCta = /follow for/i.test(cleanDesc) ? "" : "\n\n✨ Follow for a new one every day";
+  const combined = `${cleanTitle}\n\n${cleanDesc}${followCta}`;
   return combined.slice(0, 2200);
 }
 
