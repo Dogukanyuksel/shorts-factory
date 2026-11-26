@@ -31,11 +31,16 @@ export type PhysicsJob = {
   seconds: number;
   hook: string;
   narration: string;
+  /** true → robotik sesli anlatım EKLENMEZ (yalnızca SFX). Referans viral formatlar (illüzyon, katlama) sessiz çalışır. */
+  silent?: boolean;
   title: string;
   description: string;
   tags: string[];
   categoryId: string;
 };
+
+/** Sessiz (anlatımsız) çalışan nişler — referans hesaplarda da seslendirme yok, sadece müzik/efekt. */
+export const SILENT_NICHES: ReadonlySet<PhysicsNiche> = new Set<PhysicsNiche>(["spin-illusion", "doubling-ladder"]);
 
 export type ExplainerJob = {
   id: string;
@@ -79,85 +84,6 @@ export const PHYSICS_ROTATION: PhysicsNiche[] = [
  * Her videoda benzersiz İngilizce sesli bilim/matematik anlatımı vardır.
  */
 export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
-  // ▶ VİRAL FORMAT ÖNCELİĞİ (26 Kasım): @biologistmichael (22.2M) ve @pixiomstudio (~16M) formatları
-  {
-    id: "spin-illusion-seed1",
-    channel: "physics",
-    niche: "spin-illusion",
-    seed: 1,
-    seconds: 16,
-    hook: "REVERSE THE SPIN WITH YOUR MIND",
-    narration: "There is no right answer. Your brain picks the direction. Stare at the center, blink, and make it reverse.",
-    title: "Your Mind Can Reverse This Spinning Cylinder #shorts",
-    description: "Your mind is powerful: reverse the spin of the gray cylinder. ✨ Without depth cues your brain has to guess the direction, so with focus you can flip it. Comment if you made it spin both ways!\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
-    tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
-    categoryId: "28",
-  },
-  {
-    id: "doubling-ladder-seed1",
-    channel: "physics",
-    niche: "doubling-ladder",
-    seed: 1,
-    seconds: 30,
-    hook: "HOW MANY FOLDS TO REACH THE MOON?",
-    narration: "Fold a sheet of paper in half, again and again. Every fold doubles it. Guess the number before it lands.",
-    title: "How Many Paper Folds to Reach the Moon? #shorts",
-    description: "Fold a 0.1 mm sheet of paper in half. Again. And again. Past a dice, a cat, you, the Burj Khalifa, Everest, space, the Space Station… Guess before it lands: how many folds for the Moon? 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
-    tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
-    categoryId: "28",
-  },
-  {
-    id: "spin-illusion-seed10",
-    channel: "physics",
-    niche: "spin-illusion",
-    seed: 10,
-    seconds: 16,
-    hook: "CAN YOU MAKE IT SPIN BOTH WAYS?",
-    narration: "Your visual system has no depth cues here. Watch the cone and try to flip its direction with your mind.",
-    title: "Can You Make This Cone Spin BOTH Ways? #shorts",
-    description: "Only your brain decides which way this pink cone spins. Try to reverse it: stare at the tip, blink, try again. Most people need 3 tries.\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
-    tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
-    categoryId: "28",
-  },
-  {
-    id: "doubling-ladder-seed4",
-    channel: "physics",
-    niche: "doubling-ladder",
-    seed: 4,
-    seconds: 30,
-    hook: "ONE BACTERIUM LINED UP… HOW LONG TO THE SUN?",
-    narration: "One bacterium divides. Then again. Line them up and watch exponential growth race past the Moon toward the Sun.",
-    title: "One Bacterium Doubling… When Does It Reach the Sun? #shorts",
-    description: "Start with a single 2 µm bacterium. Every division doubles the line. Guess how many divisions until it reaches the Sun 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
-    tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
-    categoryId: "28",
-  },
-  {
-    id: "spin-illusion-seed19",
-    channel: "physics",
-    niche: "spin-illusion",
-    seed: 19,
-    seconds: 16,
-    hook: "WHICH WAY IS THE SPHERE SPINNING?",
-    narration: "Left or right? There is no correct answer. Your brain chooses, and you can switch it.",
-    title: "Which Way Is This Sphere Spinning? (Your Brain Decides) #shorts",
-    description: "Left or right? This green sphere has no depth cues, so your brain picks a direction. Can you switch it? Comment LEFT or RIGHT.\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
-    tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
-    categoryId: "28",
-  },
-  {
-    id: "doubling-ladder-seed6",
-    channel: "physics",
-    niche: "doubling-ladder",
-    seed: 6,
-    seconds: 30,
-    hook: "HOW MANY FOLDS TO OUTGROW THE UNIVERSE?",
-    narration: "Every fold doubles the thickness. Past the Sun, past Pluto, across the Milky Way, and beyond the observable universe.",
-    title: "How Many Paper Folds to Outgrow the Universe? #shorts",
-    description: "Fold a sheet of paper in half over and over. Past the Moon, the Sun, Pluto, the Milky Way, Andromeda… Guess before it lands: how many folds to outgrow the observable universe? 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
-    tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
-    categoryId: "28",
-  },
   {
     id: "physics-ring-seed101",
     channel: "physics",
@@ -204,6 +130,51 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     categoryId: "28",
   },
   {
+    id: "brachistochrone-seed114",
+    channel: "physics",
+    niche: "brachistochrone",
+    seed: 114,
+    seconds: 24,
+    hook: "SHORTEST ISN'T FASTEST",
+    narration:
+      "Four balls, four ramps, and the straight line is the slowest. The curve called a cycloid wins every time because it trades distance for early speed.",
+    title: "The Straight Line LOSES This Gravity Race #shorts",
+    description:
+      "The Brachistochrone problem proved that the shortest path between two points is NOT the fastest under gravity. Watch the cycloid curve overtake the straight ramp every single time.\n\n#shorts #brachistochrone #physics #math",
+    tags: ["brachistochrone", "cycloid", "gravity race", "physics", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "metronome-sync-seed116",
+    channel: "physics",
+    niche: "metronome-sync",
+    seed: 116,
+    seconds: 24,
+    hook: "THEY SYNC THEMSELVES...",
+    narration:
+      "Thirty-two metronomes start completely out of step. The board they sit on moves just slightly, and those tiny pushes pull every beat into perfect sync.",
+    title: "32 Metronomes Start in Chaos… Then This Happens #shorts",
+    description:
+      "Coupled Kuramoto oscillators on a freely sliding board transfer microscopic momentum pulses until 32 random rhythms lock into 100% unison.\n\n#shorts #metronomes #physics #synchronization",
+    tags: ["metronome sync", "kuramoto model", "physics", "satisfying", "shorts"],
+    categoryId: "28",
+  },
+  // ▶ VİRAL FORMATLAR (sessiz) sesli videolarla DÖNÜŞÜMLÜ: @biologistmichael (22.2M) & @pixiomstudio (~16M)
+  {
+    id: "spin-illusion-seed1",
+    channel: "physics",
+    niche: "spin-illusion",
+    seed: 1,
+    seconds: 16,
+    hook: "REVERSE THE SPIN WITH YOUR MIND",
+    narration: "There is no right answer. Your brain picks the direction. Stare at the center, blink, and make it reverse.",
+    silent: true,
+    title: "Your Mind Can Reverse This Spinning Cylinder #shorts",
+    description: "Your mind is powerful: reverse the spin of the gray cylinder. ✨ Without depth cues your brain has to guess the direction, so with focus you can flip it. Comment if you made it spin both ways!\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
+    tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
+    categoryId: "28",
+  },
+  {
     id: "giant-vs-swarm-seed202",
     channel: "physics",
     niche: "giant-vs-swarm",
@@ -216,6 +187,20 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Elastic momentum transfer in a 2D circular arena: 1 heavy sphere (45x mass) colliding with 100 lightweight particles.\n\n#shorts #physics #simulation #satisfying #science",
     tags: ["physics simulation", "momentum transfer", "elastic collision", "satisfying", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "doubling-ladder-seed1",
+    channel: "physics",
+    niche: "doubling-ladder",
+    seed: 1,
+    seconds: 30,
+    hook: "HOW MANY FOLDS TO REACH THE MOON?",
+    narration: "Fold a sheet of paper in half, again and again. Every fold doubles it. Guess the number before it lands.",
+    silent: true,
+    title: "How Many Paper Folds to Reach the Moon? #shorts",
+    description: "Fold a 0.1 mm sheet of paper in half. Again. And again. Past a dice, a cat, you, the Burj Khalifa, Everest, space, the Space Station… Guess before it lands: how many folds for the Moon? 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
+    tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
     categoryId: "28",
   },
   {
@@ -234,18 +219,17 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     categoryId: "28",
   },
   {
-    id: "brachistochrone-seed114",
+    id: "spin-illusion-seed10",
     channel: "physics",
-    niche: "brachistochrone",
-    seed: 114,
-    seconds: 24,
-    hook: "SHORTEST ISN'T FASTEST",
-    narration:
-      "Four balls, four ramps, and the straight line is the slowest. The curve called a cycloid wins every time because it trades distance for early speed.",
-    title: "The Straight Line LOSES This Gravity Race #shorts",
-    description:
-      "The Brachistochrone problem proved that the shortest path between two points is NOT the fastest under gravity. Watch the cycloid curve overtake the straight ramp every single time.\n\n#shorts #brachistochrone #physics #math",
-    tags: ["brachistochrone", "cycloid", "gravity race", "physics", "shorts"],
+    niche: "spin-illusion",
+    seed: 10,
+    seconds: 16,
+    hook: "CAN YOU MAKE IT SPIN BOTH WAYS?",
+    narration: "Your visual system has no depth cues here. Watch the cone and try to flip its direction with your mind.",
+    silent: true,
+    title: "Can You Make This Cone Spin BOTH Ways? #shorts",
+    description: "Only your brain decides which way this pink cone spins. Try to reverse it: stare at the tip, blink, try again. Most people need 3 tries.\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
+    tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
     categoryId: "28",
   },
   {
@@ -264,18 +248,17 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     categoryId: "28",
   },
   {
-    id: "metronome-sync-seed116",
+    id: "doubling-ladder-seed4",
     channel: "physics",
-    niche: "metronome-sync",
-    seed: 116,
-    seconds: 24,
-    hook: "THEY SYNC THEMSELVES...",
-    narration:
-      "Thirty-two metronomes start completely out of step. The board they sit on moves just slightly, and those tiny pushes pull every beat into perfect sync.",
-    title: "32 Metronomes Start in Chaos… Then This Happens #shorts",
-    description:
-      "Coupled Kuramoto oscillators on a freely sliding board transfer microscopic momentum pulses until 32 random rhythms lock into 100% unison.\n\n#shorts #metronomes #physics #synchronization",
-    tags: ["metronome sync", "kuramoto model", "physics", "satisfying", "shorts"],
+    niche: "doubling-ladder",
+    seed: 4,
+    seconds: 30,
+    hook: "ONE BACTERIUM LINED UP… HOW LONG TO THE SUN?",
+    narration: "One bacterium divides. Then again. Line them up and watch exponential growth race past the Moon toward the Sun.",
+    silent: true,
+    title: "One Bacterium Doubling… When Does It Reach the Sun? #shorts",
+    description: "Start with a single 2 µm bacterium. Every division doubles the line. Guess how many divisions until it reaches the Sun 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
+    tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
     categoryId: "28",
   },
   {
@@ -294,6 +277,20 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     categoryId: "28",
   },
   {
+    id: "spin-illusion-seed19",
+    channel: "physics",
+    niche: "spin-illusion",
+    seed: 19,
+    seconds: 16,
+    hook: "WHICH WAY IS THE SPHERE SPINNING?",
+    narration: "Left or right? There is no correct answer. Your brain chooses, and you can switch it.",
+    silent: true,
+    title: "Which Way Is This Sphere Spinning? (Your Brain Decides) #shorts",
+    description: "Left or right? This green sphere has no depth cues, so your brain picks a direction. Can you switch it? Comment LEFT or RIGHT.\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
+    tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
+    categoryId: "28",
+  },
+  {
     id: "sorting-race-seed103",
     channel: "physics",
     niche: "sorting-race",
@@ -306,6 +303,20 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Visualizing time complexity in action: watch classic computer science sorting algorithms compete on the exact same shuffled array, with every comparison mapped to pitch.\n\n#shorts #computerscience #algorithms #coding",
     tags: ["sorting algorithm", "computer science", "visualization", "coding", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "doubling-ladder-seed6",
+    channel: "physics",
+    niche: "doubling-ladder",
+    seed: 6,
+    seconds: 30,
+    hook: "HOW MANY FOLDS TO OUTGROW THE UNIVERSE?",
+    narration: "Every fold doubles the thickness. Past the Sun, past Pluto, across the Milky Way, and beyond the observable universe.",
+    silent: true,
+    title: "How Many Paper Folds to Outgrow the Universe? #shorts",
+    description: "Fold a sheet of paper in half over and over. Past the Moon, the Sun, Pluto, the Milky Way, Andromeda… Guess before it lands: how many folds to outgrow the observable universe? 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
+    tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
     categoryId: "28",
   },
   {
@@ -1058,6 +1069,7 @@ export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): Publ
         seconds: 24,
         hook,
         narration,
+        ...(SILENT_NICHES.has(niche) ? { silent: true } : {}),
         title: `${meta.titlePrefix} #${seed - 199} #shorts`,
         description: `Deterministic 60fps physics & math visualization exploring ${meta.topic} (Run #${seed - 199}). Every collision is synthesized in real time.\n\n#shorts #physics #simulation #science`,
         tags: ["physics simulation", "science", "math", niche.replace("-", " "), "shorts"],

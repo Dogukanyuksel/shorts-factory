@@ -11,7 +11,7 @@ on:
         type: boolean
         default: false
       force:
-        description: "Yayın aralığı korumasını (3 saat) yok say ve yine de yayınla"
+        description: "Yayın aralığı korumasını (2 saat) yok say ve yine de yayınla"
         type: boolean
         default: false
       sync_instagram_only:
@@ -91,7 +91,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           SYNC_INSTAGRAM_ONLY: ${{ inputs.sync_instagram_only == true && 'true' || 'false' }}
           # Gecikmiş cron + watchdog tetiklemesi aynı slotta 2. videoyu yayınlamasın
-          MIN_PUBLISH_GAP_HOURS: "3"
+          MIN_PUBLISH_GAP_HOURS: "2"
           FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:explainer
 

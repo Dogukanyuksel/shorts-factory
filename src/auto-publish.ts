@@ -96,7 +96,8 @@ async function renderJob(job: PublishJob): Promise<string> {
       "--seconds", String(job.seconds),
       "--fps", "60",
       "--hook", job.hook,
-      "--narration", job.narration,
+      // Sessiz formatlarda robotik anlatım eklenmez (render.ts boş anlatımı atlar)
+      ...(job.silent ? [] : ["--narration", job.narration]),
       "--cta", kit.introCta,
       "--poll", kit.pollLine,
     ]);
