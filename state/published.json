@@ -226,6 +226,21 @@
       },
       "publishedAt": "2026-11-26T20:08:25.607Z",
       "instagramMediaId": "18501643324109372"
+    },
+    {
+      "id": "spin-illusion-seed10",
+      "channel": "physics",
+      "title": "Can You Make This Cone Spin BOTH Ways? #shorts",
+      "videoId": "LRJfPvTilI4",
+      "url": "https://youtube.com/shorts/LRJfPvTilI4",
+      "poll": {
+        "optionAKey": "doubling-ladder",
+        "optionBKey": "duel-balls",
+        "optionA": "How Many Doublings?",
+        "optionB": "Chaos Arena Duel"
+      },
+      "publishedAt": "2026-11-26T23:09:36.873Z",
+      "instagramMediaId": "18213566296366304"
     }
   ]
 }
