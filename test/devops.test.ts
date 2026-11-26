@@ -55,3 +55,11 @@ test("resolveMinGapHours: FORCE_PUBLISH korumayı kapatır, geçersiz değer 0 o
   assert.equal(resolveMinGapHours({ MIN_PUBLISH_GAP_HOURS: "abc" }), 0);
   assert.equal(resolveMinGapHours({}), 0);
 });
+
+test("resolveMetaToken: kanala özel Meta token ortak token'a göre önceliklidir", async () => {
+  const { resolveMetaToken } = await import("../src/devops.js");
+  const env = { META_ACCESS_TOKEN: "shared", META_ACCESS_TOKEN_PHYSICS: "phys" };
+  assert.equal(resolveMetaToken("physics", env), "phys");
+  assert.equal(resolveMetaToken("explainer", env), "shared");
+  assert.equal(resolveMetaToken("explainer", {}), "");
+});

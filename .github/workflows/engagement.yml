@@ -49,6 +49,8 @@ jobs:
           IG_USER_ID_PHYSICS: ${{ secrets.IG_USER_ID_PHYSICS }}
           IG_USER_ID_EXPLAINER: ${{ secrets.IG_USER_ID_EXPLAINER }}
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_ACCESS_TOKEN_PHYSICS: ${{ secrets.META_ACCESS_TOKEN_PHYSICS }}
+          META_ACCESS_TOKEN_EXPLAINER: ${{ secrets.META_ACCESS_TOKEN_EXPLAINER }}
           # Kanal başına günlük YouTube yanıt sınırı (her yanıt 50 kota birimi; yükleme kotasını korur)
           YT_DAILY_REPLY_CAP: "25"
           IG_RUN_REPLY_CAP: "25"

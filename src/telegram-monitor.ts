@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fetchYouTubeStatistics } from "./analytics.js";
 import { loadState } from "./auto-publish.js";
-import { fetchWithRetry, isValidInstagramMediaId } from "./devops.js";
+import { fetchWithRetry, isValidInstagramMediaId, resolveMetaToken } from "./devops.js";
 
 type NotifiedState = {
   seenCommentKeys: string[];
@@ -187,7 +187,8 @@ async function main() {
   }
   const seen = new Set(notified.seenCommentKeys);
   const ytApiKey = process.env.YOUTUBE_API_KEY?.trim() || "";
-  const metaToken = process.env.META_ACCESS_TOKEN?.trim() || "";
+  const metaTokenFor = (ch: "physics" | "explainer") => resolveMetaToken(ch);
+  const metaToken = metaTokenFor("physics") || metaTokenFor("explainer");
   const sep = "━━━━━━━━━━━━━━━━━━━━";
 
   let ytBlock = "";
@@ -283,7 +284,9 @@ async function main() {
 
       for (const rec of recentIgRecs) {
         if (!rec.instagramMediaId) continue;
-        const info = await fetchInstagramMediaInfo(rec.instagramMediaId, metaToken);
+        const recToken = metaTokenFor(rec.channel);
+        if (!recToken) continue;
+        const info = await fetchInstagramMediaInfo(rec.instagramMediaId, recToken);
         if (!info) continue;
         igLikes += info.likes;
         igComments += info.commentsCount;

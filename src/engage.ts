@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { loadState, type PublishedRecord } from "./auto-publish.js";
-import { isValidInstagramMediaId } from "./devops.js";
+import { isValidInstagramMediaId, resolveMetaToken } from "./devops.js";
 import { fetchInstagramCommentsDetailed, getInstagramUsername, replyToInstagramComment } from "./instagram.js";
 import { buildReply, type ReplyChannel } from "./reply-bank.js";
 import {
@@ -151,7 +151,7 @@ async function engageYouTube(channel: ReplyChannel, records: PublishedRecord[], 
 
 async function engageInstagram(channel: ReplyChannel, records: PublishedRecord[], st: EngageState, dryRun: boolean): Promise<number> {
   const igUserId = (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER : process.env.IG_USER_ID_PHYSICS)?.trim() || "";
-  const accessToken = process.env.META_ACCESS_TOKEN?.trim() || "";
+  const accessToken = resolveMetaToken(channel);
   if (!igUserId || !accessToken) return 0;
   const creds = { igUserId, accessToken };
   const me = (await getInstagramUsername(creds)).toLowerCase();
