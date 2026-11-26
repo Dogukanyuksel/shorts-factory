@@ -54,6 +54,8 @@ jobs:
           # Kanal başına günlük YouTube yanıt sınırı (her yanıt 50 kota birimi; yükleme kotasını korur)
           YT_DAILY_REPLY_CAP: "25"
           IG_RUN_REPLY_CAP: "25"
+          # Instagram yorum izni (instagram_manage_comments) alınana kadar kapalı
+          IG_ENGAGE: "false"
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
         run: npx tsx src/engage.ts
 

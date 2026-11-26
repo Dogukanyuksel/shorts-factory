@@ -120,6 +120,7 @@ async function engageYouTube(channel: ReplyChannel, records: PublishedRecord[], 
     for (const t of threads) {
       if (!t.text || replied.has(`yt:${t.commentId}`)) continue;
       if (me && (t.authorChannelId === me || t.replyAuthorChannelIds.includes(me))) continue;
+      if (/^\s*vote next (simulation|episode)/i.test(t.text)) continue; // kendi ilk anket yorumumuz
       if (Date.parse(t.publishedAt) < cutoff) continue;
       candidates.push({ id: t.commentId, text: t.text, likes: t.likeCount, at: Date.parse(t.publishedAt) });
     }
@@ -150,6 +151,7 @@ async function engageYouTube(channel: ReplyChannel, records: PublishedRecord[], 
 }
 
 async function engageInstagram(channel: ReplyChannel, records: PublishedRecord[], st: EngageState, dryRun: boolean): Promise<number> {
+  if (process.env.IG_ENGAGE === "false") return 0; // Instagram yanıtları kapalı (yorum izni yok)
   const igUserId = (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER : process.env.IG_USER_ID_PHYSICS)?.trim() || "";
   const accessToken = resolveMetaToken(channel);
   if (!igUserId || !accessToken) return 0;
