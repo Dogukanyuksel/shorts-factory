@@ -59,6 +59,20 @@ export function latestOccurrence(slot: SlotDef, now: Date): Date | null {
   return now.getTime() - best.getTime() <= slot.lookbackMin * 60_000 ? best : null;
 }
 
+/** Herhangi bir slotun `now` sonrasındaki EN YAKIN gerçekleşmesi. */
+export function nextOccurrenceAll(slots: SlotDef[], now: Date): { slot: SlotDef; at: Date } | null {
+  let best: { slot: SlotDef; at: Date } | null = null;
+  for (const slot of slots) {
+    for (const dayOffset of [0, 1]) {
+      for (const [h, m] of slot.times) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + dayOffset, h, m, 0));
+        if (d.getTime() > now.getTime() && (!best || d < best.at)) best = { slot, at: d };
+      }
+    }
+  }
+  return best;
+}
+
 export type RunInfo = {
   created_at: string;
   status: string;
@@ -108,9 +122,8 @@ async function gh<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-async function main() {
+async function checkAll(dryRun: boolean): Promise<string[]> {
   const now = new Date();
-  const dryRun = process.env.DRY_RUN === "true";
   const actions: string[] = [];
 
   for (const slot of SLOTS) {
@@ -132,8 +145,32 @@ async function main() {
     }
   }
 
+  return actions;
+}
+
+/** Sıradaki slota en fazla bu kadar dakika kala bekleyip tam zamanında başlatır (cron'a bağımlılığı kaldırır). */
+const MAX_WAIT_MIN = 125;
+
+async function main() {
+  const dryRun = process.env.DRY_RUN === "true";
+  const actions = await checkAll(dryRun);
   if (actions.length) console.log(`::notice::Zamanlayıcı müdahale etti → ${actions.join(" · ")}`);
   else console.log("✅ [scheduler] Tüm slotlar yolunda.");
+
+  // ZİNCİR: GitHub cron'u gelmese bile bir sonraki slotu kaçırmamak için yakınsa bekle → başlat.
+  // Başlatılan iş bitince bu workflow (workflow_run) yeniden tetiklenir ve bir sonrakini bekler.
+  if (dryRun || process.env.GITHUB_ACTIONS !== "true") return;
+  const next = nextOccurrenceAll(SLOTS, new Date());
+  if (!next) return;
+  const waitMs = next.at.getTime() - Date.now() + 45_000;
+  if (waitMs > MAX_WAIT_MIN * 60_000) {
+    console.log(`[scheduler] Sıradaki slot (${next.slot.key} @ ${next.at.toISOString().slice(11, 16)} UTC) uzak, beklenmiyor.`);
+    return;
+  }
+  console.log(`[scheduler] ⏳ ${Math.round(waitMs / 60000)} dk bekleniyor → ${next.slot.key} @ ${next.at.toISOString().slice(11, 16)} UTC`);
+  await new Promise((r) => setTimeout(r, Math.max(0, waitMs)));
+  const later = await checkAll(false);
+  if (later.length) console.log(`::notice::Zamanlayıcı (bekleme sonrası) → ${later.join(" · ")}`);
 }
 
 const isDirectRun = process.argv[1]?.endsWith("scheduler.ts") || process.argv[1]?.endsWith("scheduler.js");

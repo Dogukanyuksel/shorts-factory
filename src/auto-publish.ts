@@ -21,6 +21,7 @@ import {
   uploadReelToInstagram,
 } from "./instagram.js";
 import { hoursSinceLastPublish, resolveMetaToken, resolveMinGapHours } from "./devops.js";
+import { assertUploadChannel, ChannelMismatchError } from "./channel-guard.js";
 import { runVideoQc } from "./qc.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import {
@@ -249,6 +250,24 @@ async function main() {
           `Kota ${formatTrTime(block.until)} (TR saati) sonra sıfırlanır, sistem kendiliğinden devam eder.`,
       );
       return;
+    }
+  }
+
+  // Kanal kilidi: token yanlış kanala aitse render bile yapmadan dur (yanlış kanala video gitmez)
+  if (!dryRun && ytClient.clientId && ytClient.clientSecret && resolveRefreshToken(channel)) {
+    try {
+      await assertUploadChannel(channel, {
+        clientId: ytClient.clientId,
+        clientSecret: ytClient.clientSecret,
+        refreshToken: resolveRefreshToken(channel),
+      });
+    } catch (err) {
+      if (err instanceof ChannelMismatchError) {
+        // Hata değil bilgilendirme: token düzeltilene kadar bu kanal güvenle bekler (gereksiz retry / 🚨 yok)
+        await writePublishNotice(`🔒 ${err.message}`);
+        return;
+      }
+      throw err;
     }
   }
 

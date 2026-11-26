@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ChannelId as ChannelKind } from "./catalog.js";
 import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
+import { assertUploadChannel, ChannelMismatchError } from "./channel-guard.js";
 import { runVideoQc } from "./qc.js";
 import { renderLongformVideo } from "./render-longform.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
@@ -100,6 +101,24 @@ async function main() {
         `⏸️ ${channel} uzun video atlandı: YouTube kotası dolu (${block.reason}). Kota ${formatTrTime(block.until)} (TR saati) sonra sıfırlanır.`,
       );
       return;
+    }
+  }
+
+  // Kanal kilidi: 30 dk render'dan ÖNCE token'ın doğru kanala ait olduğunu doğrula
+  if (!dryRun && ytClient.clientId && ytClient.clientSecret && resolveRefreshToken(channel)) {
+    try {
+      await assertUploadChannel(channel, {
+        clientId: ytClient.clientId,
+        clientSecret: ytClient.clientSecret,
+        refreshToken: resolveRefreshToken(channel),
+      });
+    } catch (err) {
+      if (err instanceof ChannelMismatchError) {
+        // Hata değil bilgilendirme: token düzeltilene kadar bu kanal güvenle bekler (gereksiz retry / 🚨 yok)
+        await writePublishNotice(`🔒 ${err.message}`);
+        return;
+      }
+      throw err;
     }
   }
 
