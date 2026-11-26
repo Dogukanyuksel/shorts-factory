@@ -118,3 +118,12 @@ export function resolveMinGapHours(env: NodeJS.ProcessEnv = process.env): number
   const n = Number(env.MIN_PUBLISH_GAP_HOURS || 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
+
+/**
+ * Kanal için Meta (Instagram) erişim token'ı: önce kanala özel (META_ACCESS_TOKEN_PHYSICS / _EXPLAINER),
+ * yoksa ortak META_ACCESS_TOKEN. Kanallar ayrı Business portföylerindeyse her biri kendi system-user token'ını kullanır.
+ */
+export function resolveMetaToken(channel: "physics" | "explainer", env: NodeJS.ProcessEnv = process.env): string {
+  const specific = (channel === "explainer" ? env.META_ACCESS_TOKEN_EXPLAINER : env.META_ACCESS_TOKEN_PHYSICS)?.trim();
+  return specific || env.META_ACCESS_TOKEN?.trim() || "";
+}

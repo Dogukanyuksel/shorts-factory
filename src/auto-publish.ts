@@ -20,7 +20,7 @@ import {
   tallyABVotes,
   uploadReelToInstagram,
 } from "./instagram.js";
-import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
+import { hoursSinceLastPublish, resolveMetaToken, resolveMinGapHours } from "./devops.js";
 import { runVideoQc } from "./qc.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import {
@@ -204,7 +204,7 @@ async function main() {
       process.env.IG_USER_ID?.trim() ||
       (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
       "";
-    const metaToken = process.env.META_ACCESS_TOKEN?.trim() || "";
+    const metaToken = resolveMetaToken(channel);
     if (!igUserId || !metaToken) {
       throw new Error("Instagram senkronizasyonu için IG_USER_ID ve META_ACCESS_TOKEN gerekli.");
     }
@@ -260,7 +260,7 @@ async function main() {
     process.env.IG_USER_ID?.trim() ||
     (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
     "";
-  const metaTokenPre = process.env.META_ACCESS_TOKEN?.trim() || "";
+  const metaTokenPre = resolveMetaToken(channel);
   const ytApiKeyPre = process.env.YOUTUBE_API_KEY?.trim() || "";
   const { clientId: ytClientIdPre, clientSecret: ytClientSecretPre } = resolveYouTubeClient(channel);
   const ytRefreshPre = resolveRefreshToken(channel);
@@ -418,7 +418,7 @@ async function main() {
     process.env.IG_USER_ID?.trim() ||
     (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
     "";
-  const metaToken = process.env.META_ACCESS_TOKEN?.trim() || "";
+  const metaToken = resolveMetaToken(channel);
   let instagramMediaId: string | undefined;
 
   if (igUserId && metaToken) {
