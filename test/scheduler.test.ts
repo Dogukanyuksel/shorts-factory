@@ -35,3 +35,12 @@ test("decide: long-form kanalları run başlığıyla ayırt edilir", () => {
   assert.equal(decide(phys, occ, [run("2026-11-26T15:20:00Z", "completed", "success", "Long-Form physics")]).action, "ok");
   assert.equal(decide(phys, occ, [run("2026-11-26T15:20:00Z", "completed", "success", "Long-Form both")]).action, "ok");
 });
+
+test("nextOccurrenceAll: en yakın gelecek slotu bulur (gün geçişi dahil)", async () => {
+  const { nextOccurrenceAll } = await import("../src/scheduler.js");
+  const a = nextOccurrenceAll(SLOTS, new Date("2026-11-26T17:20:00Z"))!;
+  assert.equal(a.at.toISOString(), "2026-11-26T17:37:00.000Z");
+  assert.equal(a.slot.key, "explainer-shorts");
+  const b = nextOccurrenceAll(SLOTS, new Date("2026-11-26T23:40:00Z"))!;
+  assert.equal(b.at.toISOString(), "2026-11-27T00:15:00.000Z");
+});

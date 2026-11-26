@@ -34,7 +34,8 @@ concurrency:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Sıradaki slota kadar (≤125 dk) bekleyip tam zamanında başlatabilmesi için
+    timeout-minutes: 140
     steps:
       - name: Repo indir
         uses: actions/checkout@v4

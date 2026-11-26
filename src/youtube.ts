@@ -319,3 +319,14 @@ export async function addVideoToPlaylist(playlistId: string, videoId: string, to
     snippet: { playlistId, resourceId: { kind: "youtube#video", videoId } },
   });
 }
+
+/** Token'ın bağlı olduğu kanal (kimlik + ad). 1 birim. youtube.force-ssl veya readonly izni gerekir. */
+export async function getMyChannel(token: string): Promise<{ id: string; title: string }> {
+  const json = await ytApi<{ items?: Array<{ id: string; snippet?: { title?: string } }> }>(
+    "GET",
+    "channels?part=snippet&mine=true",
+    token,
+  );
+  const it = json.items?.[0];
+  return { id: it?.id ?? "", title: it?.snippet?.title ?? "" };
+}
