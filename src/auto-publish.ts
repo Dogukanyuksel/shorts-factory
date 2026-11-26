@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
+  PHYSICS_LABELS,
   CURATED_PHYSICS_JOBS,
   EXPLAINER_JOBS,
   getEngagementKit,
@@ -33,7 +34,16 @@ import {
   writePublishNotice,
   YouTubeQuotaError,
 } from "./youtube-quota.js";
-import { fetchYouTubeComments, uploadVideoToYouTube, type PrivacyStatus } from "./youtube.js";
+import {
+  addVideoToPlaylist,
+  ensureYouTubePlaylist,
+  fetchYouTubeComments,
+  postYouTubeTopLevelComment,
+  refreshAccessToken,
+  uploadVideoToYouTube,
+  YouTubeScopeError,
+  type PrivacyStatus,
+} from "./youtube.js";
 
 export type PublishedRecord = {
   id: string;
@@ -122,6 +132,46 @@ function resolveRefreshToken(channel: ChannelId): string {
       ? process.env.YOUTUBE_REFRESH_TOKEN_EXPLAINER?.trim()
       : process.env.YOUTUBE_REFRESH_TOKEN_PHYSICS?.trim();
   return specific || "";
+}
+
+/** Seri oynatma listesi adı: aynı formattaki videolar tek listede → izleyici seriyi izler ve abone olur. */
+export function playlistForJob(job: PublishJob): { title: string; description: string } {
+  if (job.channel === "physics") {
+    const label = PHYSICS_LABELS[job.niche];
+    return {
+      title: `${label} | Kinetic Lab`,
+      description: `Every ${label} simulation from Kinetic Lab in one place. New physics & brain-teaser shorts every day.`,
+    };
+  }
+  return {
+    title: "How It Actually Works | Clear Mechanics",
+    description: "Every animated engineering breakdown from Clear Mechanics. A new machine explained every day.",
+  };
+}
+
+async function postYouTubeGrowthExtras(
+  job: PublishJob,
+  videoId: string,
+  commentText: string,
+  creds: { clientId: string; clientSecret: string; refreshToken: string },
+): Promise<void> {
+  try {
+    const token = await refreshAccessToken(creds);
+    const commentId = await postYouTubeTopLevelComment(videoId, commentText, token);
+    console.log(`💬 [growth] YouTube ilk yorum atıldı: ${commentId}`);
+    const pl = playlistForJob(job);
+    const playlistId = await ensureYouTubePlaylist(pl.title, pl.description, token);
+    if (playlistId) {
+      await addVideoToPlaylist(playlistId, videoId, token);
+      console.log(`📂 [growth] Oynatma listesine eklendi: ${pl.title}`);
+    }
+  } catch (err) {
+    if (err instanceof YouTubeScopeError) {
+      console.warn("[growth] YouTube ilk yorum/oynatma listesi atlandı: token'da yorum izni yok (youtube:auth ile yeniden yetkilendirin).");
+    } else {
+      console.warn("[growth] YouTube ilk yorum/oynatma listesi uyarısı (yayın başarılı):", err instanceof Error ? err.message : err);
+    }
+  }
 }
 
 async function main() {
@@ -350,6 +400,9 @@ async function main() {
   };
   state.published.push(record);
   await saveState(state);
+
+  // Organik büyüme: ilk yorum (görev/anket sorusu) + seri oynatma listesi. Hata yayını ETKİLEMEZ.
+  await postYouTubeGrowthExtras(job, result.videoId, kit.commentPrompt, { clientId, clientSecret, refreshToken });
 
   // İsteğe bağlı: Meta API secret'ları tanımlıysa aynı MP4'ü Instagram Reels'e de yayınla + A/B ilk yorum at
   const igUserId =

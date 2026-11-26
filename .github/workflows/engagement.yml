@@ -1,0 +1,79 @@
+name: Organik Etkileşim — Kendi Videolarımızdaki Yorumlara Yanıt (2 saatte bir)
+
+on:
+  schedule:
+    # Her 2 saatte bir (:23, yoğun :00 dakikasını atlar)
+    - cron: "23 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Sadece göster, yanıt gönderme (test)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: engagement
+  cancel-in-progress: false
+
+jobs:
+  engage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Repo indir
+        uses: actions/checkout@v4
+
+      - name: Node.js 22 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bağımlılıklar
+        run: npm ci --ignore-scripts
+
+      - name: YouTube + Instagram yorumlarına yanıt ver
+        id: engage
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_CLIENT_ID_PHYSICS: ${{ secrets.YOUTUBE_CLIENT_ID_PHYSICS }}
+          YOUTUBE_CLIENT_SECRET_PHYSICS: ${{ secrets.YOUTUBE_CLIENT_SECRET_PHYSICS }}
+          YOUTUBE_CLIENT_ID_EXPLAINER: ${{ secrets.YOUTUBE_CLIENT_ID_EXPLAINER }}
+          YOUTUBE_CLIENT_SECRET_EXPLAINER: ${{ secrets.YOUTUBE_CLIENT_SECRET_EXPLAINER }}
+          YOUTUBE_REFRESH_TOKEN_PHYSICS: ${{ secrets.YOUTUBE_REFRESH_TOKEN_PHYSICS }}
+          YOUTUBE_REFRESH_TOKEN_EXPLAINER: ${{ secrets.YOUTUBE_REFRESH_TOKEN_EXPLAINER }}
+          IG_USER_ID_PHYSICS: ${{ secrets.IG_USER_ID_PHYSICS }}
+          IG_USER_ID_EXPLAINER: ${{ secrets.IG_USER_ID_EXPLAINER }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          # Kanal başına günlük YouTube yanıt sınırı (her yanıt 50 kota birimi; yükleme kotasını korur)
+          YT_DAILY_REPLY_CAP: "25"
+          IG_RUN_REPLY_CAP: "25"
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+        run: npx tsx src/engage.ts
+
+      - name: Etkileşim durumunu güvenli kaydet
+        if: always() && (steps.engage.outcome == 'success' || steps.engage.outcome == 'failure') && inputs.dry_run != true
+        run: |
+          if [ -f state/engagement.json ]; then
+            npx tsx src/safe-git-push.ts state/engagement.json "chore(engage): yorum yanit durumu guncellendi"
+          fi
+          if [ -f state/youtube-quota.json ]; then
+            npx tsx src/safe-git-push.ts state/youtube-quota.json "chore(quota): YouTube kota durumu guncellendi"
+          fi
+
+      - name: Uyarı varsa Telegram'a ilet (günde en fazla 1)
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+        run: |
+          if [ -f out/publish-notice.txt ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            TEXT="ℹ️ <b>Organik Etkileşim</b>"$'\n'"$(sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' out/publish-notice.txt)"
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')" >/dev/null || true
+          fi

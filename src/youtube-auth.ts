@@ -9,7 +9,11 @@ import { createServer } from "node:http";
  */
 const PORT = 4319;
 const REDIRECT_URI = `http://localhost:${PORT}/oauth2callback`;
-const SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+// upload: video yükleme · force-ssl: kendi videolarındaki yorumlara yanıt, ilk yorum, oynatma listeleri
+const SCOPE = [
+  "https://www.googleapis.com/auth/youtube.upload",
+  "https://www.googleapis.com/auth/youtube.force-ssl",
+].join(" ");
 
 function parseArg(name: string, fallback: string): string {
   const idx = process.argv.indexOf(`--${name}`);
