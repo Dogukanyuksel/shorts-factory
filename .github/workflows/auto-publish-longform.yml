@@ -34,7 +34,7 @@ on:
         type: boolean
         default: false
       force:
-        description: "Günlük yayın aralığı korumasını (20 saat) yok say ve yine de yayınla"
+        description: "Günlük yayın aralığı korumasını (12 saat) yok say ve yine de yayınla"
         type: boolean
         default: false
 
@@ -99,7 +99,7 @@ jobs:
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           # Watchdog yeniden denemesi + cron aynı gün 2 uzun video yayınlamasın
-          MIN_PUBLISH_GAP_HOURS: "20"
+          MIN_PUBLISH_GAP_HOURS: "12"
           FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:longform:explainer
 
@@ -195,7 +195,7 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_PHYSICS }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
-          MIN_PUBLISH_GAP_HOURS: "20"
+          MIN_PUBLISH_GAP_HOURS: "12"
           FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:longform:physics
 

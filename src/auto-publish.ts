@@ -162,8 +162,17 @@ async function postYouTubeGrowthExtras(
     const pl = playlistForJob(job);
     const playlistId = await ensureYouTubePlaylist(pl.title, pl.description, token);
     if (playlistId) {
-      await addVideoToPlaylist(playlistId, videoId, token);
-      console.log(`📂 [growth] Oynatma listesine eklendi: ${pl.title}`);
+      // YouTube yeni yüklenen videoyu birkaç saniye "işleniyor" tutabilir → geçici 409/5xx için 3 deneme
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await addVideoToPlaylist(playlistId, videoId, token);
+          console.log(`📂 [growth] Oynatma listesine eklendi: ${pl.title}`);
+          break;
+        } catch (e) {
+          if (attempt === 3 || !/\((409|5\d\d)\)/.test(e instanceof Error ? e.message : "")) throw e;
+          await new Promise((r) => setTimeout(r, 8000 * attempt));
+        }
+      }
     }
   } catch (err) {
     if (err instanceof YouTubeScopeError) {
