@@ -211,6 +211,21 @@
       },
       "publishedAt": "2026-11-26T19:12:31.280Z",
       "instagramMediaId": "18110215049250552"
+    },
+    {
+      "id": "pi-collisions-seed113",
+      "channel": "physics",
+      "title": "These Two Blocks Calculate Pi Just By Colliding #shorts",
+      "videoId": "LjjKurWMeZk",
+      "url": "https://youtube.com/shorts/LjjKurWMeZk",
+      "poll": {
+        "optionAKey": "brachistochrone",
+        "optionBKey": "langtons-ant",
+        "optionA": "Fastest Ramp Race",
+        "optionB": "Langton's Ant"
+      },
+      "publishedAt": "2026-11-26T20:08:25.607Z",
+      "instagramMediaId": "18501643324109372"
     }
   ]
 }
