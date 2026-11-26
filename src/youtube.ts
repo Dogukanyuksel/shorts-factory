@@ -192,3 +192,130 @@ export async function fetchYouTubeComments(
     .map((item) => item.snippet?.topLevelComment?.snippet?.textDisplay?.trim() || "")
     .filter(Boolean);
 }
+
+// ─────────── ETKİLEŞİM (yorum yanıtı, ilk yorum, oynatma listesi) — youtube.force-ssl izni gerekir ───────────
+
+export class YouTubeScopeError extends Error {
+  constructor() {
+    super(
+      "YouTube token'ında yorum/oynatma listesi izni (youtube.force-ssl) yok. " +
+        "`npm run youtube:auth -- --channel <kanal>` ile yeniden yetkilendirip refresh token secret'ını güncelleyin.",
+    );
+    this.name = "YouTubeScopeError";
+  }
+}
+
+async function ytApi<T>(method: "GET" | "POST", path: string, token: string, body?: unknown): Promise<T> {
+  const res = await fetchWithRetry(
+    `https://www.googleapis.com/youtube/v3/${path}`,
+    {
+      method,
+      headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    },
+    { retries: 2, timeoutMs: 20_000 },
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    const quotaReason = detectQuotaReason(res.status, text);
+    if (quotaReason) throw new YouTubeQuotaError(quotaReason, `YouTube kotası doldu (${quotaReason}).`);
+    if (res.status === 403 && /insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficient authentication scopes/i.test(text)) {
+      throw new YouTubeScopeError();
+    }
+    throw new Error(`YouTube API ${method} ${path.split("?")[0]} hatası (${res.status}): ${text.slice(0, 300)}`);
+  }
+  return (text ? JSON.parse(text) : {}) as T;
+}
+
+export type YouTubeCommentThread = {
+  threadId: string;
+  commentId: string;
+  videoId: string;
+  author: string;
+  authorChannelId: string;
+  text: string;
+  publishedAt: string;
+  likeCount: number;
+  replyAuthorChannelIds: string[];
+};
+
+/** Kanalın kendi kimliği (kendi yorumlarımızı ayırt etmek için). 1 birim. */
+export async function getMyChannelId(token: string): Promise<string> {
+  const json = await ytApi<{ items?: Array<{ id: string }> }>("GET", "channels?part=id&mine=true", token);
+  return json.items?.[0]?.id ?? "";
+}
+
+/** Bir videonun en yeni üst düzey yorumları + mevcut yanıt sahipleri. 1 birim. */
+export async function listVideoCommentThreads(videoId: string, token: string, maxResults = 50): Promise<YouTubeCommentThread[]> {
+  const params = new URLSearchParams({ part: "snippet,replies", videoId, maxResults: String(maxResults), order: "time", textFormat: "plainText" });
+  type Item = {
+    id: string;
+    snippet: {
+      topLevelComment: {
+        id: string;
+        snippet: { authorDisplayName?: string; authorChannelId?: { value?: string }; textDisplay?: string; publishedAt?: string; likeCount?: number };
+      };
+    };
+    replies?: { comments?: Array<{ snippet?: { authorChannelId?: { value?: string } } }> };
+  };
+  const json = await ytApi<{ items?: Item[] }>("GET", `commentThreads?${params}`, token);
+  return (json.items || []).map((it) => {
+    const s = it.snippet.topLevelComment.snippet;
+    return {
+      threadId: it.id,
+      commentId: it.snippet.topLevelComment.id,
+      videoId,
+      author: s.authorDisplayName || "",
+      authorChannelId: s.authorChannelId?.value || "",
+      text: (s.textDisplay || "").trim(),
+      publishedAt: s.publishedAt || "",
+      likeCount: s.likeCount || 0,
+      replyAuthorChannelIds: (it.replies?.comments || []).map((c) => c.snippet?.authorChannelId?.value || ""),
+    };
+  });
+}
+
+/** Kendi videomuzdaki bir yoruma yanıt verir. 50 birim. */
+export async function replyToYouTubeComment(parentId: string, text: string, token: string): Promise<string> {
+  const json = await ytApi<{ id?: string }>("POST", "comments?part=snippet", token, {
+    snippet: { parentId, textOriginal: text.slice(0, 1000) },
+  });
+  return json.id || "";
+}
+
+/** Kendi videomuza ilk (üst düzey) yorumu atar. 50 birim. (API sabitlemeye izin vermez.) */
+export async function postYouTubeTopLevelComment(videoId: string, text: string, token: string): Promise<string> {
+  const json = await ytApi<{ id?: string }>("POST", "commentThreads?part=snippet", token, {
+    snippet: { videoId, topLevelComment: { snippet: { textOriginal: text.slice(0, 1000) } } },
+  });
+  return json.id || "";
+}
+
+/** Başlığa göre kanalın oynatma listesini bulur, yoksa herkese açık olarak oluşturur. (liste 1 + oluşturma 50 birim) */
+export async function ensureYouTubePlaylist(title: string, description: string, token: string): Promise<string> {
+  let pageToken = "";
+  for (let i = 0; i < 5; i++) {
+    const params = new URLSearchParams({ part: "snippet", mine: "true", maxResults: "50", ...(pageToken ? { pageToken } : {}) });
+    const json = await ytApi<{ items?: Array<{ id: string; snippet?: { title?: string } }>; nextPageToken?: string }>(
+      "GET",
+      `playlists?${params}`,
+      token,
+    );
+    const hit = (json.items || []).find((p) => p.snippet?.title === title);
+    if (hit) return hit.id;
+    if (!json.nextPageToken) break;
+    pageToken = json.nextPageToken;
+  }
+  const created = await ytApi<{ id?: string }>("POST", "playlists?part=snippet,status", token, {
+    snippet: { title: title.slice(0, 150), description: description.slice(0, 5000), defaultLanguage: "en" },
+    status: { privacyStatus: "public" },
+  });
+  return created.id || "";
+}
+
+/** Videoyu oynatma listesine ekler. 50 birim. */
+export async function addVideoToPlaylist(playlistId: string, videoId: string, token: string): Promise<void> {
+  await ytApi("POST", "playlistItems?part=snippet", token, {
+    snippet: { playlistId, resourceId: { kind: "youtube#video", videoId } },
+  });
+}

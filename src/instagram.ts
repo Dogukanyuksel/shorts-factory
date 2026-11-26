@@ -214,3 +214,59 @@ export function tallyABVotes(
   if (votesA === 0 && votesB === 0) return { votesA, votesB, winner: null };
   return { votesA, votesB, winner: votesB > votesA ? "B" : "A" };
 }
+
+// ─────────── ETKİLEŞİM: kendi Reels'lerimizdeki yorumlara yanıt ───────────
+
+export type InstagramComment = {
+  id: string;
+  username: string;
+  text: string;
+  timestamp: string;
+  replyUsernames: string[];
+};
+
+/** Hesabın kendi kullanıcı adı (kendi yorumlarımızı ayırt etmek için). */
+export async function getInstagramUsername(creds: InstagramCredentials): Promise<string> {
+  const res = await fetchWithRetry(
+    `${GRAPH_BASE}/${encodeURIComponent(creds.igUserId)}?fields=username`,
+    { headers: { Authorization: `Bearer ${creds.accessToken}` } },
+    { retries: 2, timeoutMs: 20_000 },
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Instagram kullanıcı adı okunamadı (${res.status}): ${text.slice(0, 300)}`);
+  return (JSON.parse(text) as { username?: string }).username || "";
+}
+
+/** Bir Reels'in yorumları + her yoruma kimlerin yanıt verdiği. */
+export async function fetchInstagramCommentsDetailed(mediaId: string, creds: InstagramCredentials, limit = 50): Promise<InstagramComment[]> {
+  const url = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?fields=id,text,username,timestamp,replies{username}&limit=${limit}`;
+  const res = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${creds.accessToken}` } }, { retries: 2, timeoutMs: 20_000 });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Instagram yorum okuma hatası (${res.status}): ${text.slice(0, 300)}`);
+  const json = JSON.parse(text) as {
+    data?: Array<{ id?: string; text?: string; username?: string; timestamp?: string; replies?: { data?: Array<{ username?: string }> } }>;
+  };
+  return (json.data || [])
+    .filter((c) => c.id && c.text)
+    .map((c) => ({
+      id: c.id!,
+      username: c.username || "",
+      text: (c.text || "").trim(),
+      timestamp: c.timestamp || "",
+      replyUsernames: (c.replies?.data || []).map((r) => r.username || ""),
+    }));
+}
+
+/** Kendi Reels'imizdeki bir yoruma yanıt verir (instagram_manage_comments izni gerekir). */
+export async function replyToInstagramComment(commentId: string, message: string, creds: InstagramCredentials): Promise<string> {
+  const body = new URLSearchParams({ message: message.slice(0, 1000), access_token: creds.accessToken });
+  const res = await fetch(`${GRAPH_BASE}/${encodeURIComponent(commentId)}/replies`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+    signal: AbortSignal.timeout(20_000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Instagram yanıt hatası (${res.status}): ${text.slice(0, 300)}`);
+  return (JSON.parse(text) as { id?: string }).id || "";
+}

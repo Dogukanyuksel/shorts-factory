@@ -55,3 +55,30 @@ YOUTUBE_CLIENT_ID="yeni-id" YOUTUBE_CLIENT_SECRET="yeni-secret" npm run youtube:
 3. **Profil:** bio'da tek cümlelik vaat ("Daily illusions your brain can't resist"), YouTube ↔ Instagram çapraz link, tutarlı avatar.
 4. **YouTube Studio → Shorts → "Related video":** her short'u o günün 16:9 uzun videosuna bağlayın (izleyiciyi aboneye çevirir; API'de yok).
 5. **Seri mantığı:** aynı formatta 5–10 video arka arkaya → izleyici "devamı" için takip eder. Kuyruk buna göre ayarlandı.
+
+## 4. Organik etkileşim otomasyonu (26 Kasım)
+
+| Otomasyon | Ne yapar | Sıklık |
+|---|---|---|
+| `engagement.yml` → `src/engage.ts` | **Kendi** YouTube ve Instagram videolarımızdaki yorumlara yanıt verir (son 7 gün). En çok beğenilen ve en yeni yorumlar önce; spam, link ve hakarete yanıt yok; Türkçeye Türkçe yanıt; yanıtlar arası 4–10 sn | 2 saatte bir |
+| Yayın sonrası (YouTube) | İlk yorum (görev/anket sorusu) + videoyu seri oynatma listesine ekleme ("Reverse The Spin Illusion \| Kinetic Lab" gibi) | Her yeni short |
+
+- Başka hesapları takip etme, başkalarına yorum atma veya sahte etkileşim **yok**. Hepsi platform kurallarına uygun, resmi API'ler üzerinden.
+- YouTube'da kanal başına günde en fazla **25 yanıt** (`YT_DAILY_REPLY_CAP`). Her yanıt 50 kota birimi harcadığı için bu sınır video yükleme kotasını korur.
+
+### ⚠️ Tek seferlik yapmanız gereken: YouTube'u yeniden yetkilendirme
+Eski token yalnızca video yükleme iznine sahip. Yorum yanıtı, ilk yorum ve oynatma listesi için **her kanalda bir kez**:
+
+```bash
+YOUTUBE_CLIENT_ID="..." YOUTUBE_CLIENT_SECRET="..." npm run youtube:auth -- --channel physics
+```
+
+```bash
+YOUTUBE_CLIENT_ID="..." YOUTUBE_CLIENT_SECRET="..." npm run youtube:auth -- --channel explainer
+```
+
+Çıkan yeni refresh token'ları GitHub → Settings → Secrets → Actions altında
+`YOUTUBE_REFRESH_TOKEN_PHYSICS` ve `YOUTUBE_REFRESH_TOKEN_EXPLAINER` secret'larına yapıştırın.
+Bu yapılana kadar sistem çalışmaya devam eder: Instagram yanıtları gider, YouTube kısmı atlanır ve Telegram'a günde bir uyarı gelir.
+
+Instagram yanıtları için Meta token'ında `instagram_manage_comments` izni olmalı (Reels'e A/B anket yorumu atılabiliyorsa vardır).
