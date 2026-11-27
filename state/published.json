@@ -241,6 +241,21 @@
       },
       "publishedAt": "2026-11-27T04:58:43.412Z",
       "instagramMediaId": "18363803881169502"
+    },
+    {
+      "id": "explainer-light-speed-mars",
+      "channel": "explainer",
+      "title": "How Painfully Slow the Speed of Light Looks in Space #shorts",
+      "videoId": "wopJKYHv9oE",
+      "url": "https://youtube.com/shorts/wopJKYHv9oE",
+      "poll": {
+        "optionAKey": "key-fob-rolling-code",
+        "optionBKey": "tuned-mass-damper",
+        "optionA": "Key Fob Rolling Code",
+        "optionB": "Tuned Mass Damper"
+      },
+      "publishedAt": "2026-11-27T06:47:08.494Z",
+      "instagramMediaId": "18222206281348492"
     }
   ]
 }
