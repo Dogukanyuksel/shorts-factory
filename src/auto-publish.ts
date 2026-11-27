@@ -598,16 +598,16 @@ async function main() {
     try {
       console.log("[auto-publish] Instagram Reels'e yükleniyor...");
       const ytHandle = channel === "explainer" ? "@clearmechanicsshorts" : "@kineticlabshorts";
-      const igYtFunnel = `\n\n🎬 Full 4-min deep dives on YouTube → ${ytHandle} (Link in Bio!)`;
-      const igCaption = buildInstagramCaption(job.title, `${kit.enrichedDescription}${igYtFunnel}`);
+      const igAnchor = `🎬 Full 4-min extreme breakdown on YouTube → ${ytHandle} (Link in Bio!)\n\n`;
+      const igCaption = buildInstagramCaption(job.title, `${igAnchor}${kit.enrichedDescription}`);
       const igCreds = { igUserId, accessToken: metaToken };
       const igRes = await uploadReelToInstagram(mp4Path, igCaption, igCreds);
       instagramMediaId = igRes.mediaId;
       console.log(`✅ [auto-publish] INSTAGRAM REELS YAYINLANDI: mediaId=${igRes.mediaId}`);
       try {
-        const igComment = `${kit.commentPrompt}\n\n🎬 Full 4-min breakdown on YouTube → Search ${ytHandle} (Link in Bio!)`;
+        const igComment = `🔥 Want to see what breaks when we push this 10x further? Full 4-min video is LIVE on YouTube → ${ytHandle} (Link in Bio!)\n\n${kit.commentPrompt}`;
         const commentId = await postInstagramComment(igRes.mediaId, igComment, igCreds);
-        console.log(`💬 [auto-publish] INSTAGRAM A/B + YOUTUBE HUNİ YORUMU ATILDI: ${commentId}`);
+        console.log(`💬 [auto-publish] INSTAGRAM A/B + YOUTUBE ÇAPA YORUMU ATILDI: ${commentId}`);
       } catch (cErr) {
         console.warn("[auto-publish] Instagram otomatik yorum uyarısı:", cErr);
       }

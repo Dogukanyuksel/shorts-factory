@@ -142,12 +142,12 @@ async function main() {
                   ctx.fillStyle = "rgba(220, 38, 38, 0.94)";
                   ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 18 * S); ctx.fill();
                   ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.5 * S; ctx.stroke();
-                  fitText(ctx, "🔔 SUBSCRIBE & TURN ON NOTIFICATIONS", boxW - 26 * S, 19, 12, S, 900);
+                  fitText(ctx, "🔔 SUBSCRIBE @KINETICLABSHORTS", boxW - 26 * S, 19, 12, S, 900);
                   ctx.fillStyle = "#ffffff";
-                  ctx.fillText("🔔 SUBSCRIBE & TURN ON NOTIFICATIONS", W * 0.5, by + 31 * S);
-                  fitText(ctx, "FULL 4-MIN DEEP DIVES ON YOUTUBE →", boxW - 26 * S, 15, 11, S, 800);
+                  ctx.fillText("🔔 SUBSCRIBE @KINETICLABSHORTS", W * 0.5, by + 31 * S);
+                  fitText(ctx, "FULL 4-MIN ENDING ON YOUTUBE (LINK IN BIO) →", boxW - 26 * S, 14, 10, S, 800);
                   ctx.fillStyle = "#fef08a";
-                  ctx.fillText("FULL 4-MIN DEEP DIVES ON YOUTUBE →", W * 0.5, by + 58 * S);
+                  ctx.fillText("FULL 4-MIN ENDING ON YOUTUBE (LINK IN BIO) →", W * 0.5, by + 58 * S);
                 }
                 ctx.restore();
               }
