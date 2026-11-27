@@ -279,6 +279,21 @@
       },
       "publishedAt": "2026-11-27T11:09:48.218Z",
       "instagramMediaId": "18198927346397855"
+    },
+    {
+      "id": "explainer-sun-black-hole",
+      "channel": "explainer",
+      "title": "If the Sun Turned Into a Black Hole, Earth Wouldn't Get Sucked In #shorts",
+      "videoId": "fXhRUADixW8",
+      "url": "https://youtube.com/shorts/fXhRUADixW8",
+      "poll": {
+        "optionAKey": "light-speed-mars",
+        "optionBKey": "key-fob-rolling-code",
+        "optionA": "Light Speed Mars",
+        "optionB": "Key Fob Rolling Code"
+      },
+      "publishedAt": "2026-11-27T11:39:17.409Z",
+      "instagramMediaId": "18157398220551689"
     }
   ],
   "removedVideoIds": [
