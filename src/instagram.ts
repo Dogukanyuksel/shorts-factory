@@ -14,13 +14,41 @@ export type InstagramUploadResult = {
 const GRAPH_VERSION = "v21.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
+/** Instagram'da "…devamı"ndan önce görünen karakter sayısı (yaklaşık). */
+export const IG_PREVIEW_CHARS = 125;
+
 export function buildInstagramCaption(title: string, description: string): string {
   // YouTube'a özel #shorts etiketini temizle, Instagram Reels için temiz İngilizce caption üret
   const cleanTitle = title.replace(/#shorts\b/gi, "").replace(/\s{2,}/g, " ").trim();
   const cleanDesc = description.replace(/#shorts\b/gi, "#reels").trim();
+
+  // İLK 125 KARAKTER KURALI: "…devamı"ndan önce başlık + merak/görev cümlesi görünsün.
+  // Açıklamanın ilk anlamlı cümlesini (hashtag/anket olmayan) başlığın hemen altına al.
+  const lines = cleanDesc.split("\n");
+  const hookIdx = lines.findIndex((l) => l.trim() && !/^\s*(#|vote next|✨)/i.test(l));
+  let hook = "";
+  let rest = cleanDesc;
+  if (hookIdx >= 0) {
+    const line = lines[hookIdx].trim();
+    const budget = IG_PREVIEW_CHARS - cleanTitle.length - 1;
+    // Son tam cümleyi (". ? ! 👇" ile biten) bütçeye sığdır; sığmazsa bu alanı boş bırak
+    const sentences = line.match(/[^.?!👇]+[.?!👇]+|[^.?!👇]+$/gu) || [line];
+    for (const s of sentences) {
+      if ((hook + s).trim().length > budget) break;
+      hook += s;
+    }
+    hook = hook.trim();
+    if (hook) {
+      const remaining = line.slice(line.indexOf(hook) + hook.length).trim();
+      lines[hookIdx] = remaining;
+      rest = lines.join("\n").replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n").trim();
+    }
+  }
+
   // Takipçi kazanımı: açık takip çağrısı (yoksa ekle) — referans viral hesapların ortak kalıbı
   const followCta = /follow for/i.test(cleanDesc) ? "" : "\n\n✨ Follow for a new one every day";
-  const combined = `${cleanTitle}\n\n${cleanDesc}${followCta}`;
+  const head = hook ? `${cleanTitle}\n${hook}` : cleanTitle;
+  const combined = `${head}${rest ? `\n\n${rest}` : ""}${followCta}`;
   return combined.slice(0, 2200);
 }
 
