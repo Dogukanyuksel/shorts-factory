@@ -34,4 +34,5 @@ jobs:
         run: npx tsx src/channel-director.ts
 
       - name: Denetim raporunu (state/director-report.json) kaydet
-        run: npx tsx src/safe-git-push.ts state/director-report.json "chore(director): 12 saatlik kanal denetim raporu"
+        run: |
+          npx tsx src/safe-git-push.ts state/director-report.json "chore(director): 12 saatlik kanal denetim raporu"
