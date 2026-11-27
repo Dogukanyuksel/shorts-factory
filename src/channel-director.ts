@@ -332,6 +332,27 @@ async function main() {
   if (breakoutAlerts.length > 0) {
     await sendTelegramAlert(breakoutAlerts.slice(0, 2).join("\n\n"));
   }
+
+  // BigBoss isteği: Güncellenen strateji özetini (kazananlar + öne alınan format + stok) tek kısa kartta Telegram'a ilet
+  const remNarrExp = NARRATIVE_LONGFORM_SPECS.filter(
+    (s) => s.channel === "explainer" && !state.published.some((p) => p.id === s.id),
+  ).length;
+  const remNarrPhys = NARRATIVE_LONGFORM_SPECS.filter(
+    (s) => s.channel === "physics" && !state.published.some((p) => p.id === s.id),
+  ).length;
+  const topPhys = physics.topPerformers[0];
+  const topExp = explainer.topPerformers[0];
+  const stratMsg = [
+    `🧠 <b>LITTLE BOSS STRATEJİ RAPORU</b>`,
+    `• <b>Kinetic Lab:</b> YT ${(physics.totalYtViews).toLocaleString("tr-TR")} | IG ${(physics.totalIgViews).toLocaleString("tr-TR")} | Huni: ${physics.pendingDerivedShorts} | Derin 16:9 Stok: ${remNarrPhys}`,
+    topPhys ? `  ↳ Lider: ${topPhys.title.slice(0, 48)} (${topPhys.totalViews.toLocaleString("tr-TR")})` : "",
+    `• <b>Clear Mechanics:</b> YT ${(explainer.totalYtViews).toLocaleString("tr-TR")} | IG ${(explainer.totalIgViews).toLocaleString("tr-TR")} | Huni: ${explainer.pendingDerivedShorts} | Derin 16:9 Stok: ${remNarrExp}`,
+    topExp ? `  ↳ Lider: ${topExp.title.slice(0, 48)} (${topExp.totalViews.toLocaleString("tr-TR")})` : "",
+    `• <b>Otomatik Öne Alınan Kazananlar:</b> ${boostedNiches.length > 0 ? boostedNiches.join(", ") : "Veri toplanıyor"}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await sendTelegramAlert(stratMsg);
 }
 
 main().catch((err) => {

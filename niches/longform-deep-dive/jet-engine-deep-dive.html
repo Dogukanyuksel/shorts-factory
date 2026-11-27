@@ -1,0 +1,1633 @@
+<!doctype html>
+<!--
+  Clear Mechanics — Deep Dive #3: How a Jet Engine Sucks In 1 Ton of Air Every Second (Turbofan)
+  Native Dual-Aspect (16:9 Documentary + 9:16 Vertical Safe-Zone), 60fps, Deterministic
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050814;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // --- Deterministic Math Utilities ---
+  const TAU = Math.PI * 2;
+  const clamp = (v, lo, hi) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo);
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = (a, b, t) => {
+    const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1);
+    return x * x * (3 - 2 * x);
+  };
+  const hash = (n) => {
+    const x = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+    return x - Math.floor(x);
+  };
+  const safeR = (r) => Math.max(0.5, Number.isFinite(r) ? r : 0.5);
+
+  // --- State ---
+  let W = 1920, H = 1080, FPS = 60, DUR = 240;
+  let ASPECT = '16:9';
+  let TITLE = 'How a Jet Engine Sucks In 1 Ton of Air Every Second';
+  let BRAND = 'CLEAR MECHANICS';
+  let ACCENT = '#38bdf8';
+  let SHORT_META = null;
+  let BEATS = [];
+  let EVENTS = [];
+
+  const DEFAULT_BEATS = [
+    { id: 'j1-hook-1', actIndex: 0, actKind: 'hook', actTitle: '1. The 1-Ton-Per-Second Vacuum', visualPhase: 'fan-intake-overview', caption: '1.2 TONS OF AIR / SECOND', text: 'Every single second at takeoff, one giant airliner turbofan swallows more than a full metric ton of freezing air.' },
+    { id: 'j1-hook-2', actIndex: 0, actKind: 'hook', actTitle: '1. The 1-Ton-Per-Second Vacuum', visualPhase: 'bypass-ratio-cutaway', caption: '85% NEVER TOUCHES FIRE', text: 'Over eighty-five percent of that air completely bypasses the fire core, acting like a ducted giant propeller.' },
+    { id: 'j1-hook-3', actIndex: 0, actKind: 'hook', actTitle: '1. The 1-Ton-Per-Second Vacuum', visualPhase: 'hot-core-glow', caption: 'HOTTER THAN MELTING POINT', text: 'The fifteen percent that enters the core burns hotter than the melting point of the nickel turbine blades themselves.' },
+    { id: 'j2-bridge', actIndex: 1, actKind: 'mechanism', actTitle: '2. Suck, Squeeze, Bang, Blow', visualPhase: 'compressor-stages', caption: '40:1 PRESSURE SQUEEZE', isBridge: true, text: 'Follow a single air molecule straight through the four core stages.' },
+    { id: 'j2-compressor', actIndex: 1, actKind: 'mechanism', actTitle: '2. Suck, Squeeze, Bang, Blow', visualPhase: 'compressor-stages', caption: '14 SPINNING BLADE STAGES', text: 'Alternating rows of spinning rotors and stationary stators squeeze the air to forty times atmospheric pressure.' },
+    { id: 'j2-combustor', actIndex: 1, actKind: 'mechanism', actTitle: '2. Suck, Squeeze, Bang, Blow', visualPhase: 'combustor-flame', caption: 'CONTINUOUS 1,700°C RING', text: 'Fuel nozzles spray a fine mist into an annular combustion ring that burns continuously like a locked tornado.' },
+    { id: 'j2-turbine-cooling', actIndex: 1, actKind: 'mechanism', actTitle: '2. Suck, Squeeze, Bang, Blow', visualPhase: 'blade-cooling-pores', caption: 'MICROSCOPIC AIR FILM', text: 'Microscopic laser-drilled pores bleed cooler air across each single-crystal blade skin, forming an invisible thermal shield.' },
+    { id: 'j3-bridge', actIndex: 2, actKind: 'failure', actTitle: '3. Compressor Stall & Surge', visualPhase: 'compressor-stall', caption: 'WHEN AIRFLOW REVERSES', isBridge: true, text: 'Watch what happens when airflow disrupts and the engine chokes.' },
+    { id: 'j3-stall', actIndex: 2, actKind: 'failure', actTitle: '3. Compressor Stall & Surge', visualPhase: 'compressor-stall', caption: 'SUPERSONIC BACKFIRE', text: 'Forty atmospheres of hot gas violently blasts backward out the front intake — triggering loud booms and flames.' },
+    { id: 'j3-containment', actIndex: 2, actKind: 'failure', actTitle: '3. Compressor Stall & Surge', visualPhase: 'blade-containment', caption: 'KEVLAR CONTAINMENT RING', text: 'If a titanium fan blade snaps at full thrust, a Kevlar-wrapped containment ring traps the missile-speed shard inside.' },
+    { id: 'j4-bridge', actIndex: 3, actKind: 'comparison', actTitle: '4. Turbofan vs Ramjet vs Rocket', visualPhase: 'propulsion-compare', caption: '3 PROPULSION GIANTS', isBridge: true, text: 'Compare turbofans, Mach 5 ramjets, and space rockets side by side.' },
+    { id: 'j4-compare', actIndex: 3, actKind: 'comparison', actTitle: '4. Turbofan vs Ramjet vs Rocket', visualPhase: 'propulsion-compare', caption: 'EFFICIENCY VS MACH 25', text: 'Turbofans dominate subsonic efficiency, ramjets ditch moving blades above Mach 3, and rockets carry their own oxygen.' },
+    { id: 'j4-outro', actIndex: 3, actKind: 'comparison', actTitle: '4. Turbofan vs Ramjet vs Rocket', visualPhase: 'series-outro', caption: 'SUBSCRIBE FOR NEXT DEEP DIVE', text: 'Subscribe to Clear Mechanics for our next 3D engineering deep dive.' },
+  ];
+
+  // --- Drawing Helpers ---
+  function roundRect(x, y, w, h, r) {
+    const rr = Math.max(0, Math.min(r, w * 0.5, h * 0.5));
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  function fitFont(text, basePx, maxW, weight = '800', family = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif') {
+    let px = Math.max(10, Math.round(basePx));
+    ctx.font = `${weight} ${px}px ${family}`;
+    const mw = ctx.measureText(text).width || 1;
+    if (mw > maxW && maxW > 10) {
+      px = Math.max(10, Math.floor(px * (maxW / mw)));
+      ctx.font = `${weight} ${px}px ${family}`;
+    }
+    return px;
+  }
+
+  function wrapLines(text, maxW, maxLines) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (let i = 0; i < words.length; i++) {
+      const test = cur ? cur + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width <= maxW || !cur) {
+        cur = test;
+      } else {
+        lines.push(cur);
+        cur = words[i];
+        if (lines.length >= maxLines - 1) {
+          cur = words.slice(i).join(' ');
+          break;
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    if (lines.length > maxLines) lines.length = maxLines;
+    if (lines.length > 0) {
+      let last = lines[lines.length - 1];
+      while (last.length > 4 && ctx.measureText(last).width > maxW) {
+        last = last.slice(0, -4).trimEnd() + '…';
+      }
+      lines[lines.length - 1] = last;
+    }
+    return lines;
+  }
+
+  function drawCalloutPill(cx, y, text, S, col = '#38bdf8', bg = 'rgba(15, 23, 42, 0.88)', maxW = 340 * S) {
+    ctx.save();
+    const bw = Math.min(maxW, Math.max(210 * S, text.length * 10.5 * S + 32 * S));
+    const bh = 34 * S;
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = Math.max(1.2, 2 * S);
+    roundRect(cx - bw * 0.5, y - bh * 0.5, bw, bh, 999);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(text, 14.5 * S, bw - 22 * S, '800');
+    ctx.fillText(text, cx, y);
+    ctx.restore();
+  }
+
+  function drawArrow(x1, y1, x2, y2, col, lw, headSize) {
+    const ang = Math.atan2(y2 - y1, x2 - x1);
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.fillStyle = col;
+    ctx.lineWidth = lw;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - Math.cos(ang - 0.45) * headSize, y2 - Math.sin(ang - 0.45) * headSize);
+    ctx.lineTo(x2 - Math.cos(ang + 0.45) * headSize, y2 - Math.sin(ang + 0.45) * headSize);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBlueprintBg(t) {
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#050814');
+    bg.addColorStop(0.55, '#070e1f');
+    bg.addColorStop(1, '#040711');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    const step = Math.max(36, Math.round(Math.min(W, H) * 0.048));
+    const ox = (t * 8) % step;
+    const oy = (t * 2.5) % step;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.045)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = -step + ox; x < W + step; x += step) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = -step + oy; y < H + step; y += step) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.085)';
+    ctx.beginPath();
+    for (let x = -step * 4 + ox; x < W + step * 4; x += step * 4) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = -step * 4 + oy; y < H + step * 4; y += step * 4) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+
+    const sx = ASPECT === '16:9' ? W * 0.34 : W * 0.5;
+    const sy = ASPECT === '16:9' ? H * 0.5 : H * 0.46;
+    const sr = Math.min(W, H) * 0.54;
+    const rad = ctx.createRadialGradient(sx, sy, 10, sx, sy, safeR(sr));
+    rad.addColorStop(0, 'rgba(56, 189, 248, 0.10)');
+    rad.addColorStop(0.55, 'rgba(14, 165, 233, 0.035)');
+    rad.addColorStop(1, 'rgba(5, 8, 20, 0)');
+    ctx.fillStyle = rad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  // --- Core Full Turbofan Cutaway Renderer ---
+  // Supports: overview, bypassHighlight, hotCoreGlow, stallSurge
+  function drawTurbofanCutaway(cx, cy, S, t, opts = {}) {
+    let shakeX = 0, shakeY = 0;
+    if (opts.stallSurge) {
+      const surgePulse = Math.pow(Math.max(0, Math.sin(t * 9.5)), 4);
+      shakeX = (hash(Math.floor(t * 60) * 17.3) - 0.5) * 16 * S * (0.35 + surgePulse);
+      shakeY = (hash(Math.floor(t * 60) * 31.1) - 0.5) * 12 * S * (0.35 + surgePulse);
+    }
+
+    ctx.save();
+    ctx.translate(cx + shakeX, cy + shakeY);
+
+    const engL = -265 * S;
+    const engR = 265 * S;
+    const fanX = -185 * S;
+    const fanR = 138 * S;
+    const coreTopIn = -68 * S;
+    const coreTopMid = -46 * S;
+    const coreTopOut = -58 * S;
+
+    // 1. Exhaust Plume (right side)
+    if (!opts.stallSurge) {
+      const plumeLen = (120 + Math.sin(t * 28) * 12) * S;
+      const pg = ctx.createLinearGradient(engR - 20 * S, 0, engR + plumeLen, 0);
+      pg.addColorStop(0, opts.hotCoreGlow ? 'rgba(255, 245, 190, 0.85)' : 'rgba(251, 146, 60, 0.65)');
+      pg.addColorStop(0.45, 'rgba(239, 68, 68, 0.32)');
+      pg.addColorStop(1, 'rgba(239, 68, 68, 0)');
+      ctx.fillStyle = pg;
+      ctx.beginPath();
+      ctx.moveTo(engR - 18 * S, -42 * S);
+      ctx.lineTo(engR + plumeLen, -16 * S);
+      ctx.lineTo(engR + plumeLen, 16 * S);
+      ctx.lineTo(engR - 18 * S, 42 * S);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 2. Outer Nacelle Cutaway Shell (Top & Bottom Walls)
+    const nacelleGrad = ctx.createLinearGradient(0, -160 * S, 0, 160 * S);
+    nacelleGrad.addColorStop(0, '#475569');
+    nacelleGrad.addColorStop(0.2, '#94a3b8');
+    nacelleGrad.addColorStop(0.5, '#1e293b');
+    nacelleGrad.addColorStop(0.8, '#64748b');
+    nacelleGrad.addColorStop(1, '#334155');
+
+    // Interior cavity backdrop
+    ctx.fillStyle = '#070d1b';
+    ctx.beginPath();
+    ctx.moveTo(engL + 10 * S, -148 * S);
+    ctx.quadraticCurveTo(-80 * S, -162 * S, 95 * S, -134 * S);
+    ctx.lineTo(155 * S, -108 * S);
+    ctx.lineTo(155 * S, 108 * S);
+    ctx.lineTo(95 * S, 134 * S);
+    ctx.quadraticCurveTo(-80 * S, 162 * S, engL + 10 * S, 148 * S);
+    ctx.closePath();
+    ctx.fill();
+
+    // Bypass duct glow (especially emphasized in bypassHighlight)
+    const byAlpha = opts.bypassHighlight ? 0.34 : 0.14;
+    for (const sign of [-1, 1]) {
+      const bg = ctx.createLinearGradient(fanX, 0, 155 * S, 0);
+      bg.addColorStop(0, `rgba(56, 189, 248, ${byAlpha})`);
+      bg.addColorStop(1, `rgba(14, 165, 233, ${byAlpha * 0.45})`);
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.moveTo(fanX, sign * 76 * S);
+      ctx.lineTo(fanX, sign * 144 * S);
+      ctx.quadraticCurveTo(-40 * S, sign * 150 * S, 150 * S, sign * 104 * S);
+      ctx.lineTo(150 * S, sign * 62 * S);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Top & Bottom Nacelle Metallic Walls
+    for (const sign of [-1, 1]) {
+      ctx.fillStyle = nacelleGrad;
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = Math.max(1.2, 2.2 * S);
+      ctx.beginPath();
+      ctx.moveTo(engL, sign * 146 * S);
+      ctx.quadraticCurveTo(-75 * S, sign * 168 * S, 105 * S, sign * 140 * S);
+      ctx.lineTo(160 * S, sign * 112 * S);
+      ctx.lineTo(154 * S, sign * 98 * S);
+      ctx.lineTo(95 * S, sign * 124 * S);
+      ctx.quadraticCurveTo(-75 * S, sign * 148 * S, engL + 12 * S, sign * 134 * S);
+      ctx.quadraticCurveTo(engL - 6 * S, sign * 140 * S, engL, sign * 146 * S);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // 3. Inner Core Engine Casing (Splitter Lip -> Compressor -> Combustor -> Turbine -> Nozzle)
+    for (const sign of [-1, 1]) {
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = opts.hotCoreGlow ? '#fb923c' : '#64748b';
+      ctx.lineWidth = Math.max(1.2, 2.2 * S);
+      ctx.beginPath();
+      ctx.moveTo(-128 * S, sign * 72 * S);
+      ctx.lineTo(-10 * S, sign * 50 * S);
+      ctx.lineTo(82 * S, sign * 58 * S);
+      ctx.lineTo(185 * S, sign * 66 * S);
+      ctx.lineTo(258 * S, sign * 44 * S);
+      ctx.lineTo(258 * S, sign * 34 * S);
+      ctx.lineTo(182 * S, sign * 54 * S);
+      ctx.lineTo(80 * S, sign * 48 * S);
+      ctx.lineTo(-10 * S, sign * 40 * S);
+      ctx.lineTo(-126 * S, sign * 60 * S);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // 4. Core Gas Flow Gradient (Blue Intake -> Amber Compression -> 1,700°C Combustor -> Hot Exhaust)
+    const coreGas = ctx.createLinearGradient(-125 * S, 0, 250 * S, 0);
+    if (opts.stallSurge) {
+      coreGas.addColorStop(0, 'rgba(239, 68, 68, 0.72)');
+      coreGas.addColorStop(0.35, 'rgba(249, 115, 22, 0.85)');
+      coreGas.addColorStop(0.6, 'rgba(254, 240, 138, 0.92)');
+      coreGas.addColorStop(1, 'rgba(185, 28, 28, 0.55)');
+    } else {
+      coreGas.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
+      coreGas.addColorStop(0.38, 'rgba(250, 204, 21, 0.45)');
+      coreGas.addColorStop(0.58, opts.hotCoreGlow ? 'rgba(255, 250, 210, 0.95)' : 'rgba(249, 115, 22, 0.85)');
+      coreGas.addColorStop(0.82, 'rgba(239, 68, 68, 0.72)');
+      coreGas.addColorStop(1, 'rgba(251, 146, 60, 0.45)');
+    }
+    ctx.fillStyle = coreGas;
+    ctx.beginPath();
+    ctx.moveTo(-124 * S, -60 * S);
+    ctx.lineTo(-10 * S, -40 * S);
+    ctx.lineTo(80 * S, -48 * S);
+    ctx.lineTo(182 * S, -54 * S);
+    ctx.lineTo(255 * S, -34 * S);
+    ctx.lineTo(255 * S, 34 * S);
+    ctx.lineTo(182 * S, 54 * S);
+    ctx.lineTo(80 * S, 48 * S);
+    ctx.lineTo(-10 * S, 40 * S);
+    ctx.lineTo(-124 * S, 60 * S);
+    ctx.closePath();
+    ctx.fill();
+
+    // 5. Spinning Multi-Stage Compressor Blades (left of combustor: x = -112 to -12)
+    const compStages = 9;
+    for (let st = 0; st < compStages; st++) {
+      const f = st / (compStages - 1);
+      const bx = lerp(-112, -16, f) * S;
+      const outerH = lerp(56, 38, f) * S;
+      const innerH = lerp(22, 20, f) * S;
+      const phase = t * (opts.stallSurge ? 4.5 : 14) + st * 0.9;
+      const isRotor = st % 2 === 0;
+      const wobble = isRotor ? Math.sin(phase) * 3.5 * S : 0;
+
+      ctx.fillStyle = isRotor ? '#cbd5e1' : '#64748b';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = Math.max(0.8, 1.2 * S);
+      for (const sign of [-1, 1]) {
+        roundRect(bx - 3.2 * S, sign > 0 ? innerH : -outerH, 6.4 * S, outerH - innerH, 2 * S);
+        ctx.fill();
+        ctx.stroke();
+        // Animated blade glint
+        if (isRotor) {
+          ctx.fillStyle = 'rgba(255,255,255,0.45)';
+          ctx.fillRect(bx - 1.5 * S, sign * (innerH + (outerH - innerH) * (0.5 + 0.35 * Math.sin(phase + sign))), 3 * S, 4 * S);
+          ctx.fillStyle = '#cbd5e1';
+        }
+      }
+    }
+
+    // 6. Annular Combustor Flames (x = 4 to 78)
+    for (const sign of [-1, 1]) {
+      const fy = sign * 31 * S;
+      const pulse = 0.86 + 0.14 * Math.sin(t * 24 + sign);
+      const fg = ctx.createRadialGradient(34 * S, fy, 2 * S, 40 * S, fy, safeR(44 * S));
+      fg.addColorStop(0, `rgba(255, 255, 240, ${0.98 * pulse})`);
+      fg.addColorStop(0.35, `rgba(253, 224, 71, ${0.92 * pulse})`);
+      fg.addColorStop(0.7, `rgba(249, 115, 22, ${0.72 * pulse})`);
+      fg.addColorStop(1, 'rgba(220, 38, 38, 0)');
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.ellipse(40 * S, fy, 42 * S, 16 * S, 0, 0, TAU);
+      ctx.fill();
+    }
+
+    // 7. Turbine Stages (x = 92 to 176)
+    const turbStages = 5;
+    for (let st = 0; st < turbStages; st++) {
+      const f = st / (turbStages - 1);
+      const bx = lerp(94, 172, f) * S;
+      const outerH = lerp(44, 52, f) * S;
+      const innerH = 19 * S;
+      const heatCol = st < 2 ? (opts.hotCoreGlow ? '#fef08a' : '#fb923c') : '#94a3b8';
+      ctx.fillStyle = heatCol;
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = Math.max(0.8, 1.3 * S);
+      for (const sign of [-1, 1]) {
+        roundRect(bx - 3.6 * S, sign > 0 ? innerH : -outerH, 7.2 * S, outerH - innerH, 2 * S);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    // 8. Central Dual-Spool Drive Shaft & Exhaust Cone
+    const shaftG = ctx.createLinearGradient(0, -18 * S, 0, 18 * S);
+    shaftG.addColorStop(0, '#94a3b8');
+    shaftG.addColorStop(0.45, '#f8fafc');
+    shaftG.addColorStop(1, '#334155');
+    ctx.fillStyle = shaftG;
+    roundRect(fanX, -15 * S, 365 * S, 30 * S, 6 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = Math.max(1, 1.6 * S);
+    ctx.stroke();
+
+    // Exhaust tail cone
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
+    ctx.moveTo(180 * S, -22 * S);
+    ctx.lineTo(272 * S, 0);
+    ctx.lineTo(180 * S, 22 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 9. Giant Front Titanium Intake Fan + Spinner Cone
+    const fanAngle = t * (opts.stallSurge ? 5.5 : 16);
+    const fanBlades = 14;
+    for (let b = 0; b < fanBlades; b++) {
+      const a = (b / fanBlades) * TAU + fanAngle;
+      const yPos = Math.sin(a) * (fanR - 8 * S);
+      const depth = Math.cos(a);
+      const bladeW = (11 + depth * 5) * S;
+      const alpha = 0.45 + 0.55 * ((depth + 1) * 0.5);
+      ctx.fillStyle = `rgba(203, 213, 225, ${alpha})`;
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = Math.max(0.8, 1.4 * S);
+      ctx.beginPath();
+      ctx.moveTo(fanX - bladeW * 0.6, 0);
+      ctx.quadraticCurveTo(fanX + bladeW * 0.8, yPos * 0.5, fanX - bladeW * 0.2, yPos);
+      ctx.lineTo(fanX + bladeW * 0.4, yPos);
+      ctx.quadraticCurveTo(fanX + bladeW * 1.1, yPos * 0.5, fanX + bladeW * 0.5, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Spinner Nose Cone with Spiral Stripe
+    const spinG = ctx.createLinearGradient(fanX - 58 * S, -34 * S, fanX + 10 * S, 34 * S);
+    spinG.addColorStop(0, '#64748b');
+    spinG.addColorStop(0.5, '#1e293b');
+    spinG.addColorStop(1, '#0f172a');
+    ctx.fillStyle = spinG;
+    ctx.beginPath();
+    ctx.moveTo(fanX + 6 * S, -34 * S);
+    ctx.quadraticCurveTo(fanX - 42 * S, -22 * S, fanX - 64 * S, 0);
+    ctx.quadraticCurveTo(fanX - 42 * S, 22 * S, fanX + 6 * S, 34 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = Math.max(1, 1.8 * S);
+    ctx.stroke();
+
+    // Rotating white spinner stripe
+    const stripeY = Math.sin(fanAngle) * 20 * S;
+    ctx.strokeStyle = '#f8fafc';
+    ctx.lineWidth = Math.max(1.5, 3 * S);
+    ctx.beginPath();
+    ctx.moveTo(fanX - 52 * S, 0);
+    ctx.quadraticCurveTo(fanX - 24 * S, stripeY, fanX + 2 * S, stripeY * 1.15);
+    ctx.stroke();
+
+    // 10. Animated Airflow Arrows (Intake, Bypass, or Violent Reverse Surge!)
+    if (opts.stallSurge) {
+      // VIOLENT REVERSE BACKFIRE BLASTING OUT FRONT INTAKE!
+      const wave = (t * 2.6) % 1;
+      for (let i = 0; i < 6; i++) {
+        const w = (wave + i / 6) % 1;
+        const bx = lerp(-30, -335, w) * S;
+        const spread = (18 + w * 115) * S;
+        const fg = ctx.createRadialGradient(bx, 0, 4 * S, bx, 0, safeR(spread));
+        fg.addColorStop(0, `rgba(255, 250, 205, ${(1 - w) * 0.92})`);
+        fg.addColorStop(0.45, `rgba(249, 115, 22, ${(1 - w) * 0.78})`);
+        fg.addColorStop(1, 'rgba(220, 38, 38, 0)');
+        ctx.fillStyle = fg;
+        ctx.beginPath();
+        ctx.arc(bx, (hash(i * 19.3) - 0.5) * 40 * S, safeR(spread), 0, TAU);
+        ctx.fill();
+      }
+      // Supersonic reverse shockwave arcs in front of intake
+      for (let r = 0; r < 3; r++) {
+        const rw = (t * 2.4 + r * 0.33) % 1;
+        ctx.strokeStyle = `rgba(254, 240, 138, ${(1 - rw) * 0.85})`;
+        ctx.lineWidth = Math.max(2, 4.5 * S * (1 - rw * 0.5));
+        ctx.beginPath();
+        ctx.arc(engL - 15 * S, 0, safeR((28 + rw * 120) * S), Math.PI * 0.68, Math.PI * 1.32);
+        ctx.stroke();
+      }
+      // Red reverse flow arrows
+      for (const sign of [-1, 1]) {
+        const ax = lerp(-20, -290, (t * 1.9 + (sign > 0 ? 0.5 : 0)) % 1) * S;
+        drawArrow(ax + 45 * S, sign * 48 * S, ax, sign * 62 * S, '#ef4444', Math.max(2, 4 * S), 11 * S);
+      }
+    } else {
+      // Smooth intake streamlines (left of fan)
+      for (let i = 0; i < 6; i++) {
+        const lane = (i - 2.5) * 44 * S;
+        const p = (t * 1.6 + i * 0.17) % 1;
+        const x1 = lerp(-340, -205, p) * S;
+        const x2 = x1 + 42 * S;
+        const y1 = lane * (1.18 - p * 0.18);
+        const y2 = lane * (1.18 - Math.min(1, p + 0.25) * 0.18);
+        drawArrow(x1, y1, x2, y2, 'rgba(56, 189, 248, 0.85)', Math.max(1.5, 3 * S), 8 * S);
+      }
+
+      // Bypass duct blue arrows (85% air!)
+      const arrowCount = opts.bypassHighlight ? 4 : 2;
+      for (const sign of [-1, 1]) {
+        for (let k = 0; k < arrowCount; k++) {
+          const p = (t * 1.45 + k / arrowCount) % 1;
+          const x1 = lerp(-155, 135, p) * S;
+          const x2 = x1 + 46 * S;
+          const y1 = sign * lerp(114, 84, p) * S;
+          const y2 = sign * lerp(114, 84, Math.min(1, p + 0.15)) * S;
+          drawArrow(x1, y1, x2, y2, opts.bypassHighlight ? '#38bdf8' : 'rgba(56, 189, 248, 0.65)', Math.max(2, (opts.bypassHighlight ? 4.4 : 2.8) * S), (opts.bypassHighlight ? 11 : 7.5) * S);
+        }
+      }
+    }
+
+    // Special Overlays for Bypass Ratio & Hot Core
+    if (opts.bypassHighlight) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#38bdf8';
+      fitFont('85% COLD BYPASS AIR (MAIN THRUST)', 15 * S, 320 * S, '900');
+      ctx.fillText('85% COLD BYPASS AIR (MAIN THRUST)', 0, -182 * S);
+
+      ctx.fillStyle = '#fb923c';
+      fitFont('15% HOT CORE', 13 * S, 180 * S, '800', 'monospace');
+      ctx.fillText('15% HOT CORE', 42 * S, 0);
+    }
+
+    if (opts.hotCoreGlow) {
+      // Glowing highlight bracket around combustor + HP turbine
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = Math.max(1.6, 2.8 * S);
+      ctx.setLineDash([8 * S, 6 * S]);
+      roundRect(-4 * S, -74 * S, 150 * S, 148 * S, 16 * S);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#fef08a';
+      ctx.textAlign = 'center';
+      fitFont('1,700°C GAS > 1,350°C NICKEL MELTING PT', 14 * S, 360 * S, '900', 'monospace');
+      ctx.fillText('1,700°C GAS > 1,350°C NICKEL MELTING PT', 70 * S, -96 * S);
+    }
+
+    if (opts.callout) {
+      drawCalloutPill(0, -198 * S, opts.callout, S, opts.calloutCol || '#38bdf8', opts.calloutBg || 'rgba(15, 23, 42, 0.90)', 420 * S);
+    }
+
+    ctx.restore();
+  }
+
+  // --- Phase: 14-Stage Shrinking Axial Compressor Close-Up ---
+  function drawCompressorStages(cx, cy, S, t) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    const xL = -255 * S;
+    const xR = 255 * S;
+    const stages = 14;
+
+    // Converging Compressor Channel Casing
+    const chGrad = ctx.createLinearGradient(xL, 0, xR, 0);
+    chGrad.addColorStop(0, 'rgba(56, 189, 248, 0.30)');
+    chGrad.addColorStop(0.5, 'rgba(250, 204, 21, 0.42)');
+    chGrad.addColorStop(1, 'rgba(249, 115, 22, 0.72)');
+    ctx.fillStyle = chGrad;
+    ctx.beginPath();
+    ctx.moveTo(xL, -135 * S);
+    ctx.lineTo(xR, -56 * S);
+    ctx.lineTo(xR, 56 * S);
+    ctx.lineTo(xL, 135 * S);
+    ctx.closePath();
+    ctx.fill();
+
+    // Outer metallic compressor walls
+    for (const sign of [-1, 1]) {
+      ctx.fillStyle = '#334155';
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = Math.max(1.2, 2.2 * S);
+      ctx.beginPath();
+      ctx.moveTo(xL - 8 * S, sign * 155 * S);
+      ctx.lineTo(xR + 8 * S, sign * 74 * S);
+      ctx.lineTo(xR + 8 * S, sign * 56 * S);
+      ctx.lineTo(xL - 8 * S, sign * 135 * S);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Central Rotor Drum
+    const drumG = ctx.createLinearGradient(0, -28 * S, 0, 28 * S);
+    drumG.addColorStop(0, '#64748b');
+    drumG.addColorStop(0.5, '#e2e8f0');
+    drumG.addColorStop(1, '#1e293b');
+    ctx.fillStyle = drumG;
+    roundRect(xL - 10 * S, -26 * S, (xR - xL) + 20 * S, 52 * S, 8 * S);
+    ctx.fill();
+
+    // 14 Alternating Rotor / Stator Stages Shrinking Rightward
+    for (let i = 0; i < stages; i++) {
+      const f = i / (stages - 1);
+      const bx = lerp(xL + 20 * S, xR - 20 * S, f);
+      const wallY = lerp(132, 56, f) * S;
+      const isRotor = i % 2 === 0;
+      const spinShift = isRotor ? Math.sin(t * 16 + i * 0.85) * 4 * S : 0;
+
+      // Blade color warms as air heats from 20°C -> 600°C
+      const rC = Math.round(lerp(148, 251, f));
+      const gC = Math.round(lerp(163, 191, f));
+      const bC = Math.round(lerp(184, 120, f));
+      ctx.fillStyle = isRotor ? `rgb(${rC}, ${gC}, ${bC})` : '#475569';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = Math.max(0.8, 1.4 * S);
+
+      for (const sign of [-1, 1]) {
+        const yInner = 26 * S;
+        const yOuter = wallY - 2 * S;
+        const h = Math.max(10 * S, yOuter - yInner);
+        const yTop = sign > 0 ? yInner : -yOuter;
+        roundRect(bx - 5 * S, yTop, 10 * S, h, 2.5 * S);
+        ctx.fill();
+        ctx.stroke();
+        if (isRotor) {
+          ctx.fillStyle = 'rgba(255,255,255,0.5)';
+          ctx.fillRect(bx - 2 * S, sign * (yInner + h * 0.5) + spinShift, 4 * S, 5 * S);
+          ctx.fillStyle = `rgb(${rC}, ${gC}, ${bC})`;
+        }
+      }
+    }
+
+    // Compressing Air Molecules (getting denser & hotter left -> right)
+    for (let p = 0; p < 38; p++) {
+      const prog = (hash(p * 13.7) + t * 0.42) % 1;
+      const px = lerp(xL, xR, prog);
+      const maxH = lerp(124, 48, prog) * S;
+      const sign = p % 2 === 0 ? 1 : -1;
+      const py = sign * (30 * S + hash(p * 7.3) * Math.max(8 * S, maxH - 32 * S));
+      const col = prog < 0.4 ? '#38bdf8' : prog < 0.75 ? '#facc15' : '#fb923c';
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(px, py, safeR((3.2 - prog * 0.8) * S), 0, TAU);
+      ctx.fill();
+    }
+
+    // Pressure & Temp Labels
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#38bdf8';
+    fitFont('1 BAR · -40°C', 14 * S, 130 * S, '800', 'monospace');
+    ctx.fillText('1 BAR · -40°C', xL + 44 * S, 178 * S);
+
+    ctx.fillStyle = '#fb923c';
+    fitFont('40 BAR · 600°C', 14 * S, 140 * S, '800', 'monospace');
+    ctx.fillText('40 BAR · 600°C', xR - 44 * S, 178 * S);
+
+    drawArrow(xL + 115 * S, 178 * S, xR - 120 * S, 178 * S, '#facc15', Math.max(1.5, 2.8 * S), 9 * S);
+
+    drawCalloutPill(0, -186 * S, '14-STAGE AXIAL COMPRESSOR · 40:1 SQUEEZE', S, '#38bdf8', 'rgba(15, 23, 42, 0.90)', 440 * S);
+    ctx.restore();
+  }
+
+  // --- Phase: Annular Combustor 1,700°C Flame Close-Up ---
+  function drawCombustorFlame(cx, cy, S, t) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // Outer annular casing
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    roundRect(-245 * S, -148 * S, 490 * S, 296 * S, 26 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Inner combustion chamber dark cavity
+    ctx.fillStyle = '#09070d';
+    roundRect(-220 * S, -118 * S, 440 * S, 236 * S, 18 * S);
+    ctx.fill();
+
+    // Perforated Flame Liner Walls (top & bottom)
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(-175 * S, -96 * S, 360 * S, 12 * S);
+    ctx.fillRect(-175 * S, 84 * S, 360 * S, 12 * S);
+
+    // Cooling air dilution jets entering through liner holes
+    for (let h = 0; h < 6; h++) {
+      const hx = lerp(-130, 145, h / 5) * S;
+      for (const sign of [-1, 1]) {
+        ctx.fillStyle = '#050814';
+        ctx.fillRect(hx - 6 * S, sign > 0 ? 84 * S : -96 * S, 12 * S, 12 * S);
+        drawArrow(hx, sign * 112 * S, hx, sign * 70 * S, 'rgba(56, 189, 248, 0.78)', Math.max(1.5, 2.4 * S), 6.5 * S);
+      }
+    }
+
+    // Fuel Injector Nozzle on Left
+    ctx.fillStyle = '#94a3b8';
+    roundRect(-238 * S, -22 * S, 78 * S, 44 * S, 6 * S);
+    ctx.fill();
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.moveTo(-160 * S, -16 * S);
+    ctx.lineTo(-136 * S, -6 * S);
+    ctx.lineTo(-136 * S, 6 * S);
+    ctx.lineTo(-160 * S, 16 * S);
+    ctx.closePath();
+    ctx.fill();
+
+    // Continuous Swirling 1,700°C Flame Tornado
+    for (let i = 0; i < 18; i++) {
+      const p = (hash(i * 11.7) + t * 0.95) % 1;
+      const fx = lerp(-132, 200, p) * S;
+      const swirlY = Math.sin(p * 11 + t * 14 + i) * (24 + p * 30) * S;
+      const fr = safeR((18 + p * 38) * S);
+      const fg = ctx.createRadialGradient(fx, swirlY, 2 * S, fx, swirlY, fr);
+      fg.addColorStop(0, `rgba(255, 255, 240, ${(1 - p * 0.45) * 0.92})`);
+      fg.addColorStop(0.38, `rgba(253, 224, 71, ${(1 - p * 0.35) * 0.85})`);
+      fg.addColorStop(0.72, `rgba(249, 115, 22, ${(1 - p * 0.25) * 0.65})`);
+      fg.addColorStop(1, 'rgba(220, 38, 38, 0)');
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.arc(fx, swirlY, fr, 0, TAU);
+      ctx.fill();
+    }
+
+    // Labels
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#38bdf8';
+    fitFont('COOL DILUTION AIR CUSHION', 13 * S, 240 * S, '800', 'monospace');
+    ctx.fillText('COOL DILUTION AIR CUSHION', 10 * S, -132 * S);
+
+    ctx.fillStyle = '#fef08a';
+    fitFont('1,700°C CONTINUOUS VORTEX', 16 * S, 280 * S, '900');
+    ctx.fillText('1,700°C CONTINUOUS VORTEX', 25 * S, 0);
+
+    drawCalloutPill(0, -184 * S, 'ANNULAR COMBUSTOR · CONTINUOUS BURN', S, '#f97316', 'rgba(67, 20, 7, 0.90)', 420 * S);
+    ctx.restore();
+  }
+
+  // --- Phase: Single-Crystal Turbine Blade Laser-Drilled Cooling Pores ---
+  function drawBladeCoolingPores(cx, cy, S, t) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // Superheated 1,700°C Gas Stream sweeping past blade (left -> right)
+    const gasBg = ctx.createLinearGradient(-260 * S, 0, 260 * S, 0);
+    gasBg.addColorStop(0, 'rgba(249, 115, 22, 0.45)');
+    gasBg.addColorStop(0.5, 'rgba(239, 68, 68, 0.32)');
+    gasBg.addColorStop(1, 'rgba(251, 146, 60, 0.22)');
+    ctx.fillStyle = gasBg;
+    roundRect(-260 * S, -155 * S, 520 * S, 310 * S, 20 * S);
+    ctx.fill();
+
+    // Hot orange plasma streamlines curving around the airfoil
+    for (let i = 0; i < 8; i++) {
+      const yOff = (i - 3.5) * 38 * S;
+      ctx.strokeStyle = 'rgba(253, 186, 116, 0.55)';
+      ctx.lineWidth = Math.max(1.4, 2.4 * S);
+      ctx.setLineDash([14 * S, 10 * S]);
+      ctx.lineDashOffset = -t * 160 * S;
+      ctx.beginPath();
+      ctx.moveTo(-250 * S, yOff);
+      ctx.bezierCurveTo(-90 * S, yOff * 1.15, 60 * S, yOff * 1.18, 250 * S, yOff);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Airfoil Cross-Section (Single-Crystal Nickel Superalloy)
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(-155 * S, 22 * S);
+    ctx.bezierCurveTo(-175 * S, -75 * S, -20 * S, -112 * S, 185 * S, 14 * S);
+    ctx.bezierCurveTo(60 * S, 48 * S, -70 * S, 96 * S, -155 * S, 22 * S);
+    ctx.closePath();
+
+    const bladeG = ctx.createLinearGradient(-160 * S, -90 * S, 180 * S, 70 * S);
+    bladeG.addColorStop(0, '#94a3b8');
+    bladeG.addColorStop(0.5, '#475569');
+    bladeG.addColorStop(1, '#1e293b');
+    ctx.fillStyle = bladeG;
+    ctx.fill();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = Math.max(2, 3.2 * S);
+    ctx.stroke();
+
+    // Internal Hollow Cooling Passages (glowing cool cyan inside blade)
+    const passages = [
+      { x: -95 * S, y: 8 * S, rx: 34 * S, ry: 28 * S },
+      { x: -18 * S, y: -12 * S, rx: 32 * S, ry: 26 * S },
+      { x: 56 * S, y: -2 * S, rx: 26 * S, ry: 18 * S },
+    ];
+    for (const ps of passages) {
+      const pg = ctx.createRadialGradient(ps.x, ps.y, 2 * S, ps.x, ps.y, safeR(ps.rx));
+      pg.addColorStop(0, '#bae6fd');
+      pg.addColorStop(0.6, '#38bdf8');
+      pg.addColorStop(1, '#0369a1');
+      ctx.fillStyle = pg;
+      ctx.beginPath();
+      ctx.ellipse(ps.x, ps.y, ps.rx, ps.ry, -0.15, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = '#e0f2fe';
+      ctx.lineWidth = Math.max(1, 1.6 * S);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Laser-Drilled Microscopic Pores bleeding Protective Cool Air Film along the skin!
+    const pores = [
+      { x: -152 * S, y: -14 * S, dx: -16 * S, dy: -22 * S },
+      { x: -118 * S, y: -52 * S, dx: 26 * S, dy: -20 * S },
+      { x: -55 * S, y: -74 * S, dx: 36 * S, dy: -12 * S },
+      { x: 18 * S, y: -68 * S, dx: 38 * S, dy: 4 * S },
+      { x: 92 * S, y: -42 * S, dx: 36 * S, dy: 14 * S },
+      { x: -115 * S, y: 52 * S, dx: 32 * S, dy: 16 * S },
+      { x: -35 * S, y: 66 * S, dx: 36 * S, dy: 2 * S },
+      { x: 45 * S, y: 48 * S, dx: 36 * S, dy: -8 * S },
+    ];
+
+    // Protective glowing cyan boundary-layer thermal shield
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.72)';
+    ctx.lineWidth = Math.max(5, 11 * S);
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 16 * S;
+    ctx.beginPath();
+    ctx.moveTo(-162 * S, 24 * S);
+    ctx.bezierCurveTo(-184 * S, -84 * S, -18 * S, -124 * S, 196 * S, 14 * S);
+    ctx.bezierCurveTo(60 * S, 58 * S, -75 * S, 108 * S, -162 * S, 24 * S);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    for (let i = 0; i < pores.length; i++) {
+      const pr = pores[i];
+      // Pore hole dot
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(pr.x, pr.y, safeR(3.5 * S), 0, TAU);
+      ctx.fill();
+      // Animated cool air jet particles escaping pore
+      for (let k = 0; k < 3; k++) {
+        const p = (t * 2.1 + i * 0.13 + k * 0.33) % 1;
+        const jx = pr.x + pr.dx * p;
+        const jy = pr.y + pr.dy * p;
+        ctx.fillStyle = `rgba(186, 230, 253, ${(1 - p) * 0.95})`;
+        ctx.beginPath();
+        ctx.arc(jx, jy, safeR((2.8 + p * 2.2) * S), 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    // Temperature Labels
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fef08a';
+    fitFont('1,700°C HOT GAS OUTSIDE', 14 * S, 230 * S, '900', 'monospace');
+    ctx.fillText('1,700°C HOT GAS OUTSIDE', -120 * S, -130 * S);
+
+    ctx.fillStyle = '#38bdf8';
+    fitFont('600°C FILM-COOLING SHIELD', 14 * S, 250 * S, '900', 'monospace');
+    ctx.fillText('600°C FILM-COOLING SHIELD', 80 * S, 130 * S);
+
+    drawCalloutPill(0, -186 * S, 'SINGLE-CRYSTAL BLADE · LASER COOLING PORES', S, '#38bdf8', 'rgba(15, 23, 42, 0.90)', 450 * S);
+    ctx.restore();
+  }
+
+  // --- Phase: Kevlar Blade Containment Impact ---
+  function drawBladeContainment(cx, cy, S, t) {
+    const cyc = (t * 0.55) % 1; // 0..0.38 spinning, 0.38 snap & fly, 0.52 impact Kevlar
+    const snapped = cyc > 0.36;
+    const impactAmt = smooth(0.48, 0.56, cyc) * (1 - smooth(0.68, 0.92, cyc));
+    const shakeX = impactAmt * Math.sin(t * 110) * 10 * S;
+    const shakeY = impactAmt * Math.cos(t * 95) * 8 * S;
+
+    ctx.save();
+    ctx.translate(cx + shakeX, cy + shakeY);
+
+    const caseR = 148 * S;
+    const kevlarR = 166 * S;
+
+    // 1. Multi-layer Woven Yellow Kevlar Containment Ring (flexes at top-right impact point!)
+    ctx.save();
+    ctx.beginPath();
+    for (let k = 0; k <= 72; k++) {
+      const a = (k / 72) * TAU;
+      const distFromImpact = Math.abs(Math.atan2(Math.sin(a + Math.PI * 0.25), Math.cos(a + Math.PI * 0.25)));
+      const bulge = impactAmt * 22 * S * Math.exp(-distFromImpact * distFromImpact * 8);
+      const r = kevlarR + bulge;
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (k === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = '#eab308';
+    ctx.lineWidth = Math.max(8, 18 * S);
+    ctx.stroke();
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = Math.max(2, 3.5 * S);
+    ctx.setLineDash([8 * S, 6 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // Inner Aluminum Fan Case
+    ctx.fillStyle = '#090f1d';
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = Math.max(3, 7 * S);
+    ctx.beginPath();
+    ctx.arc(0, 0, safeR(caseR), 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+
+    // 2. Front-View Spinning Titanium Fan Blades (12 blades, #0 snaps off!)
+    const fanRot = t * 7.5;
+    const totalBlades = 12;
+    for (let b = 0; b < totalBlades; b++) {
+      const a = fanRot + (b / totalBlades) * TAU;
+      if (b === 0 && snapped) continue;
+      ctx.save();
+      ctx.rotate(a);
+      const bg = ctx.createLinearGradient(0, -10 * S, caseR - 8 * S, 10 * S);
+      bg.addColorStop(0, '#64748b');
+      bg.addColorStop(0.5, '#cbd5e1');
+      bg.addColorStop(1, '#475569');
+      ctx.fillStyle = bg;
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = Math.max(1, 1.6 * S);
+      ctx.beginPath();
+      ctx.moveTo(28 * S, -7 * S);
+      ctx.lineTo(caseR - 10 * S, -14 * S);
+      ctx.lineTo(caseR - 8 * S, 12 * S);
+      ctx.lineTo(28 * S, 7 * S);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Center Hub Spinner
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    ctx.beginPath();
+    ctx.arc(0, 0, safeR(32 * S), 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+
+    // 3. Snapped Blade Shard Flying Outward & Trapped by Kevlar!
+    if (snapped) {
+      const fly = smooth(0.36, 0.50, cyc);
+      const impAng = -Math.PI * 0.25;
+      const dist = lerp(55, caseR - 18, fly) * S;
+      const sx = Math.cos(impAng) * dist;
+      const sy = Math.sin(impAng) * dist;
+
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(impAng + fly * 1.4);
+      ctx.fillStyle = '#f87171';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1.5, 2 * S);
+      roundRect(-24 * S, -11 * S, 48 * S, 22 * S, 3 * S);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+
+      // Impact Sparks & Shock Ring at Kevlar Wall
+      if (cyc > 0.47) {
+        const ix = Math.cos(impAng) * caseR;
+        const iy = Math.sin(impAng) * caseR;
+        const sp = smooth(0.47, 0.62, cyc) * (1 - smooth(0.75, 0.98, cyc));
+        for (let i = 0; i < 16; i++) {
+          const sa = impAng + Math.PI + (hash(i * 19.1) - 0.5) * 2.2;
+          const sd = (18 + hash(i * 7.7) * 62) * S * sp;
+          ctx.strokeStyle = i % 2 === 0 ? '#fef08a' : '#f97316';
+          ctx.lineWidth = Math.max(1.5, 3 * S);
+          ctx.beginPath();
+          ctx.moveTo(ix, iy);
+          ctx.lineTo(ix + Math.cos(sa) * sd, iy + Math.sin(sa) * sd);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#facc15';
+        ctx.textAlign = 'left';
+        fitFont('SHARD CONTAINED!', 15 * S, 160 * S, '900');
+        ctx.fillText('SHARD CONTAINED!', ix + 18 * S, iy - 12 * S);
+      }
+    }
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#eab308';
+    fitFont('WOVEN KEVLAR CONTAINMENT RING', 14 * S, 320 * S, '900', 'monospace');
+    ctx.fillText('WOVEN KEVLAR CONTAINMENT RING', 0, kevlarR + 30 * S);
+
+    drawCalloutPill(0, -kevlarR - 30 * S, 'BLADE-OFF TEST · 10,000 RPM CONTAINMENT', S, '#ef4444', 'rgba(69, 10, 10, 0.90)', 430 * S);
+    ctx.restore();
+  }
+
+  // --- Phase: 3-Way Propulsion Comparison (Turbofan vs Ramjet vs Rocket) ---
+  function drawPropulsionCompare(rx, ry, rw, rh, t, isVert) {
+    const gap = Math.min(rw, rh) * 0.032;
+    const cols = isVert ? 1 : 3;
+    const rows = isVert ? 3 : 1;
+    const cw = (rw - gap * (cols - 1)) / cols;
+    const ch = (rh - gap * (rows - 1)) / rows;
+    const S = Math.min(cw / 220, ch / (isVert ? 150 : 340));
+
+    const cards = [
+      { title: 'TURBOFAN', metric: 'MACH 0.85', sub: '85% BYPASS · MAX EFFICIENCY', stat: 'EFFICIENCY: 92%', frac: 0.92, col: '#38bdf8', kind: 'turbofan' },
+      { title: 'RAMJET', metric: 'MACH 3 – 5', sub: 'ZERO MOVING BLADES', stat: 'SPEED: 6,100 KM/H', frac: 0.65, col: '#f59e0b', kind: 'ramjet' },
+      { title: 'ROCKET', metric: 'MACH 25', sub: 'CARRIES OWN OXYGEN', stat: 'VACUUM CAPABLE', frac: 1.0, col: '#f43f5e', kind: 'rocket' },
+    ];
+
+    for (let i = 0; i < 3; i++) {
+      const c = cards[i];
+      const x = rx + (isVert ? 0 : i * (cw + gap));
+      const y = ry + (isVert ? i * (ch + gap) : 0);
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(10, 17, 34, 0.88)';
+      ctx.strokeStyle = c.col;
+      ctx.lineWidth = 1.8;
+      roundRect(x, y, cw, ch, 16 * S);
+      ctx.fill();
+      ctx.stroke();
+
+      // Header
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = c.col;
+      fitFont(c.title, 18 * S, cw * 0.55, '900');
+      ctx.fillText(c.title, x + 16 * S, y + 24 * S);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ffffff';
+      fitFont(c.metric, 15 * S, cw * 0.42, '900', 'monospace');
+      ctx.fillText(c.metric, x + cw - 16 * S, y + 24 * S);
+
+      // Mini animated schematic in center
+      const mx = x + cw * 0.5;
+      const my = y + ch * 0.50;
+      const mW = Math.min(cw * 0.72, 160 * S);
+      const mH = Math.min(ch * 0.36, 72 * S);
+
+      if (c.kind === 'turbofan') {
+        // Mini turbofan with blue bypass & spinning fan
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = Math.max(1.5, 2.4 * S);
+        roundRect(mx - mW * 0.45, my - mH * 0.5, mW * 0.9, mH, mH * 0.25);
+        ctx.stroke();
+        // Spinning fan line
+        const fy = Math.sin(t * 18) * mH * 0.36;
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = Math.max(2, 4 * S);
+        ctx.beginPath();
+        ctx.moveTo(mx - mW * 0.32, my - mH * 0.42);
+        ctx.lineTo(mx - mW * 0.32, my + mH * 0.42);
+        ctx.stroke();
+        // Core flame
+        ctx.fillStyle = 'rgba(249, 115, 22, 0.85)';
+        ctx.beginPath();
+        ctx.ellipse(mx + mW * 0.12, my, mW * 0.2, mH * 0.16, 0, 0, TAU);
+        ctx.fill();
+        drawArrow(mx - mW * 0.52, my - mH * 0.26, mx + mW * 0.48, my - mH * 0.26, '#38bdf8', Math.max(1.2, 2 * S), 6 * S);
+        drawArrow(mx - mW * 0.52, my + mH * 0.26, mx + mW * 0.48, my + mH * 0.26, '#38bdf8', Math.max(1.2, 2 * S), 6 * S);
+      } else if (c.kind === 'ramjet') {
+        // Supersonic shock cone inlet + zero blades + hot afterburner
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = Math.max(1.5, 2.4 * S);
+        ctx.beginPath();
+        ctx.moveTo(mx - mW * 0.48, my - mH * 0.38);
+        ctx.lineTo(mx + mW * 0.42, my - mH * 0.32);
+        ctx.lineTo(mx + mW * 0.42, my + mH * 0.32);
+        ctx.lineTo(mx - mW * 0.48, my + mH * 0.38);
+        ctx.closePath();
+        ctx.stroke();
+        // Shock cone spike
+        ctx.fillStyle = '#cbd5e1';
+        ctx.beginPath();
+        ctx.moveTo(mx - mW * 0.58, my);
+        ctx.lineTo(mx - mW * 0.20, my - mH * 0.22);
+        ctx.lineTo(mx - mW * 0.20, my + mH * 0.22);
+        ctx.closePath();
+        ctx.fill();
+        // Shock diamonds
+        for (let d = 0; d < 3; d++) {
+          const dx = mx + mW * (0.05 + d * 0.18) + Math.sin(t * 24 + d) * 2 * S;
+          ctx.fillStyle = d === 0 ? '#fef08a' : '#f97316';
+          ctx.beginPath();
+          ctx.ellipse(dx, my, mW * 0.08, mH * 0.18, 0, 0, TAU);
+          ctx.fill();
+        }
+      } else {
+        // Rocket: LOX + Fuel tanks + bell nozzle + glowing plume in space
+        ctx.fillStyle = '#38bdf8';
+        roundRect(mx - mW * 0.44, my - mH * 0.32, mW * 0.24, mH * 0.64, 6 * S);
+        ctx.fill();
+        ctx.fillStyle = '#f59e0b';
+        roundRect(mx - mW * 0.16, my - mH * 0.32, mW * 0.24, mH * 0.64, 6 * S);
+        ctx.fill();
+        // Bell nozzle
+        ctx.fillStyle = '#94a3b8';
+        ctx.beginPath();
+        ctx.moveTo(mx + mW * 0.10, my - mH * 0.16);
+        ctx.lineTo(mx + mW * 0.30, my - mH * 0.36);
+        ctx.lineTo(mx + mW * 0.30, my + mH * 0.36);
+        ctx.lineTo(mx + mW * 0.10, my + mH * 0.16);
+        ctx.closePath();
+        ctx.fill();
+        // Plume
+        const pl = mW * (0.28 + 0.06 * Math.sin(t * 32));
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.85)';
+        ctx.beginPath();
+        ctx.moveTo(mx + mW * 0.30, my - mH * 0.28);
+        ctx.lineTo(mx + mW * 0.30 + pl, my);
+        ctx.lineTo(mx + mW * 0.30, my + mH * 0.28);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Bottom progress bar & subtitle
+      const bx = x + 16 * S;
+      const bw = cw - 32 * S;
+      const by = y + ch - 24 * S;
+      const bh = 9 * S;
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+      roundRect(bx, by, bw, bh, 999);
+      ctx.fill();
+      ctx.fillStyle = c.col;
+      roundRect(bx, by, bw * c.frac, bh, 999);
+      ctx.fill();
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'left';
+      fitFont(c.sub, 11 * S, bw, '700', 'monospace');
+      ctx.fillText(c.sub, bx, by - 12 * S);
+      ctx.restore();
+    }
+  }
+
+  // --- Phase: Series Outro ---
+  function drawSeriesOutro(cx, cy, S, t) {
+    ctx.save();
+    const pulse = 0.85 + 0.15 * Math.sin(t * 5);
+    const rad = ctx.createRadialGradient(cx, cy, 10, cx, cy, safeR(230 * S));
+    rad.addColorStop(0, `rgba(56, 189, 248, ${0.24 * pulse})`);
+    rad.addColorStop(1, 'rgba(5, 8, 20, 0)');
+    ctx.fillStyle = rad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, safeR(230 * S), 0, TAU);
+    ctx.fill();
+
+    // Animated miniature skyscraper tuned mass damper preview
+    const sway = Math.sin(t * 2.8) * 18 * S;
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 110 * S);
+    ctx.lineTo(cx + sway, cy - 35 * S);
+    ctx.stroke();
+
+    const ballG = ctx.createRadialGradient(cx + sway - 10 * S, cy - 42 * S, 4 * S, cx + sway, cy - 35 * S, safeR(38 * S));
+    ballG.addColorStop(0, '#fef08a');
+    ballG.addColorStop(0.55, '#f59e0b');
+    ballG.addColorStop(1, '#78350f');
+    ctx.fillStyle = ballG;
+    ctx.beginPath();
+    ctx.arc(cx + sway, cy - 35 * S, safeR(36 * S), 0, TAU);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = ACCENT;
+    fitFont(BRAND, 22 * S, 380 * S, '900');
+    ctx.fillText(BRAND, cx, cy + 56 * S);
+
+    ctx.fillStyle = '#f8fafc';
+    fitFont('NEXT: 660-TON SKYSCRAPER DAMPER', 23 * S, 440 * S, '900');
+    ctx.fillText('NEXT: 660-TON SKYSCRAPER DAMPER', cx, cy + 94 * S);
+
+    const pw = 290 * S;
+    const ph = 46 * S;
+    ctx.fillStyle = '#facc15';
+    roundRect(cx - pw * 0.5, cy + 128 * S, pw, ph, 999);
+    ctx.fill();
+    ctx.fillStyle = '#050814';
+    fitFont('SUBSCRIBE FOR NEXT DEEP DIVE', 16 * S, pw - 24 * S, '900');
+    ctx.fillText('SUBSCRIBE FOR NEXT DEEP DIVE', cx, cy + 128 * S + ph * 0.5);
+    ctx.restore();
+  }
+
+  // --- Telemetry Computation per Visual Phase ---
+  function getTelemetry(phase, t) {
+    switch (phase) {
+      case 'fan-intake-overview':
+        return { flow: '1,240 kg/s', ratio: '10 : 1', temp: '1,620 °C', rpm: '9,800 RPM', f1: 0.92, f2: 0.72, f3: 0.78, f4: 0.85, status: 'TAKEOFF THRUST' };
+      case 'bypass-ratio-cutaway':
+        return { flow: '1,240 kg/s', ratio: '85% BYPASS', temp: '1,580 °C', rpm: '9,600 RPM', f1: 0.92, f2: 0.85, f3: 0.74, f4: 0.82, status: 'HIGH-BYPASS FLOW' };
+      case 'hot-core-glow':
+        return { flow: '185 kg/s', ratio: '40 : 1', temp: '1,740 °C', rpm: '10,400 RPM', f1: 0.55, f2: 0.95, f3: 0.98, f4: 0.96, status: 'ABOVE MELTING PT' };
+      case 'compressor-stages':
+        return { flow: '185 kg/s', ratio: '40 : 1', temp: '610 °C', rpm: '10,200 RPM', f1: 0.70, f2: 0.96, f3: 0.45, f4: 0.92, status: '14-STAGE SQUEEZE' };
+      case 'combustor-flame':
+        return { flow: '190 kg/s', ratio: '40 : 1', temp: '1,720 °C', rpm: '10,400 RPM', f1: 0.72, f2: 0.94, f3: 0.96, f4: 0.95, status: 'CONTINUOUS BURN' };
+      case 'blade-cooling-pores':
+        return { flow: '28 kg/s', ratio: 'FILM SHIELD', temp: '600° / 1700°', rpm: '10,400 RPM', f1: 0.45, f2: 0.88, f3: 0.92, f4: 0.95, status: 'THERMAL BARRIER' };
+      case 'compressor-stall':
+        return { flow: '-420 kg/s', ratio: 'SURGE!', temp: '1,980 °C', rpm: '6,200 RPM', f1: 1.0, f2: 1.0, f3: 1.0, f4: 0.62, status: 'AIRFLOW REVERSAL' };
+      case 'blade-containment':
+        return { flow: '0 kg/s', ratio: 'IMPACT', temp: '1,120 °C', rpm: '10,000 RPM', f1: 0.25, f2: 1.0, f3: 0.70, f4: 1.0, status: 'KEVLAR ARREST' };
+      case 'propulsion-compare':
+        return { flow: 'MACH 0.85–25', ratio: '3 GIANTS', temp: '3,200 °C', rpm: '0–10K RPM', f1: 0.88, f2: 0.78, f3: 0.92, f4: 0.90, status: 'PROPULSION SCALE' };
+      case 'series-outro':
+      default:
+        return { flow: '1,240 kg/s', ratio: '40 : 1', temp: '1,700 °C', rpm: '10,000 RPM', f1: 0.85, f2: 0.85, f3: 0.82, f4: 0.88, status: 'CLEAR MECHANICS' };
+    }
+  }
+
+  // --- Right 30% Glassmorphic Telemetry Card (16:9 Mode) ---
+  function drawRightTelemetryCard(beat, t, tel) {
+    const pad = W * 0.022;
+    const cardX = W * 0.69;
+    const cardY = pad;
+    const cardW = W * 0.288;
+    const cardH = H - pad * 2;
+    const S = H / 1080;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 17, 36, 0.84)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.28)';
+    ctx.lineWidth = 1.6;
+    roundRect(cardX, cardY, cardW, cardH, 22 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    const ix = cardX + 24 * S;
+    const iw = cardW - 48 * S;
+    let y = cardY + 28 * S;
+
+    // Brand header
+    ctx.fillStyle = ACCENT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    fitFont(BRAND, 14 * S, iw * 0.7, '900');
+    ctx.fillText(BRAND, ix, y);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#94a3b8';
+    const ts = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    fitFont(ts, 14 * S, iw * 0.3, '700', 'monospace');
+    ctx.fillText(ts, ix + iw, y);
+
+    y += 28 * S;
+
+    // 4-Act Progress Bar
+    const actGap = 8 * S;
+    const segW = (iw - actGap * 3) / 4;
+    for (let a = 0; a < 4; a++) {
+      const sx = ix + a * (segW + actGap);
+      const active = a === beat.actIndex;
+      const done = a < beat.actIndex;
+      ctx.fillStyle = active ? ACCENT : done ? 'rgba(56, 189, 248, 0.45)' : 'rgba(51, 65, 85, 0.65)';
+      roundRect(sx, y, segW, 7 * S, 999);
+      ctx.fill();
+
+      ctx.fillStyle = active ? '#f8fafc' : '#64748b';
+      ctx.textAlign = 'center';
+      ctx.font = `800 ${Math.round(11 * S)}px Inter, sans-serif`;
+      ctx.fillText(`ACT ${a + 1}`, sx + segW * 0.5, y + 20 * S);
+    }
+
+    y += 46 * S;
+
+    // Active Act Title
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#f8fafc';
+    fitFont(beat.actTitle || 'Jet Engine Deep Dive', 21 * S, iw, '800');
+    ctx.fillText(beat.actTitle || 'Jet Engine Deep Dive', ix, y);
+
+    y += 34 * S;
+
+    // Live Caption Pill
+    const isFailure = beat.actKind === 'failure';
+    const pillCol = isFailure ? '#ef4444' : '#facc15';
+    const pillBg = isFailure ? 'rgba(239, 68, 68, 0.16)' : 'rgba(250, 204, 21, 0.14)';
+    ctx.fillStyle = pillBg;
+    ctx.strokeStyle = pillCol;
+    ctx.lineWidth = 1.6;
+    roundRect(ix, y, iw, 42 * S, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = pillCol;
+    ctx.textAlign = 'center';
+    fitFont(beat.caption || '', 17 * S, iw - 20 * S, '900');
+    ctx.fillText(beat.caption || '', ix + iw * 0.5, y + 21 * S);
+
+    y += 66 * S;
+
+    // Narration Subtitle Box
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    roundRect(ix, y, iw, 200 * S, 14 * S);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const subPx = Math.round(18 * S);
+    ctx.font = `500 ${subPx}px Inter, -apple-system, sans-serif`;
+    const lines = wrapLines(beat.text || '', iw - 28 * S, 6);
+    const lh = Math.round(27 * S);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], ix + 14 * S, y + 16 * S + i * lh);
+    }
+
+    y += 224 * S;
+
+    // Live Telemetry Gauges
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText(`TELEMETRY · ${tel.status}`, ix, y);
+    y += 24 * S;
+
+    const gauges = [
+      { label: 'AIR MASS FLOW', val: tel.flow, frac: tel.f1, col: isFailure ? '#ef4444' : '#38bdf8' },
+      { label: 'PRESSURE / RATIO', val: tel.ratio, frac: tel.f2, col: isFailure ? '#ef4444' : '#facc15' },
+      { label: 'CORE GAS TEMP', val: tel.temp, frac: tel.f3, col: tel.f3 > 0.9 ? '#ef4444' : '#f97316' },
+      { label: 'ROTOR SPEED', val: tel.rpm, frac: tel.f4, col: '#22c55e' },
+    ];
+
+    for (const g of gauges) {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = `700 ${Math.round(12 * S)}px Inter, sans-serif`;
+      ctx.fillText(g.label, ix, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `800 ${Math.round(14 * S)}px monospace`;
+      ctx.fillText(g.val, ix + iw, y);
+
+      const by = y + 14 * S;
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+      roundRect(ix, by, iw, 9 * S, 999);
+      ctx.fill();
+      ctx.fillStyle = g.col;
+      roundRect(ix, by, Math.max(8 * S, iw * clamp(g.frac, 0, 1)), 9 * S, 999);
+      ctx.fill();
+      y += 48 * S;
+    }
+
+    // Episode progress bar
+    const progY = cardY + cardH - 22 * S;
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+    roundRect(ix, progY, iw, 6 * S, 999);
+    ctx.fill();
+    ctx.fillStyle = ACCENT;
+    roundRect(ix, progY, iw * clamp(t / Math.max(1, DUR), 0, 1), 6 * S, 999);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- Narrative Bridge Banner (16:9, first 2.0s of beat.isBridge) ---
+  function drawBridgeBanner(beat, localT) {
+    if (!beat.isBridge || localT < 0 || localT >= 2.0) return;
+    const S = H / 1080;
+    const enter = smooth(0, 0.28, localT);
+    const exit = 1 - smooth(1.65, 2.0, localT);
+    const alpha = clamp(enter * exit, 0, 1);
+    const slideY = lerp(-40 * S, 24 * S, enter);
+    const bw = W * 0.62;
+    const bh = 54 * S;
+    const bx = W * 0.03;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(14, 165, 233, 0.18)';
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2;
+    roundRect(bx, slideY, bw, bh, 14 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = ACCENT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const label = `ACT ${beat.actIndex + 1} · ${beat.actTitle.toUpperCase()}`;
+    fitFont(label, 19 * S, bw - 40 * S, '900');
+    ctx.fillText(label, bx + 22 * S, slideY + bh * 0.5);
+    ctx.restore();
+  }
+
+  // --- 9:16 Native Vertical Safe-Zone Overlay ---
+  function drawVerticalOverlay(beat, t, tel) {
+    // Safe zone: x in [W*0.07, W*0.88], y in [H*0.12, H*0.78]
+    const safeL = W * 0.07;
+    const safeRBound = W * 0.88;
+    const safeW = safeRBound - safeL;
+    const safeCx = (safeL + safeRBound) * 0.5;
+    const S = W / 1080;
+
+    ctx.save();
+    const partLabel = (SHORT_META && SHORT_META.partLabel) || `${BRAND} · ACT ${beat.actIndex + 1}`;
+    const topY = H * 0.125;
+    const pillH = 38 * S;
+    const pillW = Math.min(safeW * 0.88, Math.max(260 * S, safeW * 0.72));
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.16)';
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2 * S;
+    roundRect(safeCx - pillW * 0.5, topY, pillW, pillH, 999);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#e0f2fe';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(partLabel, 21 * S, pillW - 26 * S, '800');
+    ctx.fillText(partLabel, safeCx, topY + pillH * 0.5);
+
+    const hookText = (SHORT_META && SHORT_META.hook) || beat.actTitle.toUpperCase();
+    const hookY = topY + pillH + 34 * S;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(5, 8, 20, 0.9)';
+    ctx.shadowBlur = 12 * S;
+    fitFont(hookText, 50 * S, safeW - 12 * S, '900');
+    ctx.fillText(hookText, safeCx, hookY);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#94a3b8';
+    const strip = `${tel.flow}  ·  ${tel.temp}  ·  ${tel.rpm}`;
+    fitFont(strip, 20 * S, safeW, '700', 'monospace');
+    ctx.fillText(strip, safeCx, hookY + 42 * S);
+
+    // Bottom caption pill (above H*0.78)
+    const capPillH = 66 * S;
+    const capPillY = H * 0.78 - capPillH - 12 * S;
+    const isCyan = beat.actIndex % 2 === 1;
+    ctx.fillStyle = isCyan ? '#38bdf8' : '#facc15';
+    roundRect(safeL, capPillY, safeW, capPillH, 16 * S);
+    ctx.fill();
+
+    ctx.fillStyle = '#050814';
+    fitFont(beat.caption || '', 34 * S, safeW - 32 * S, '900');
+    ctx.fillText(beat.caption || '', safeCx, capPillY + capPillH * 0.5);
+
+    // Last 1.2s CTA Subscribe banner
+    const timeRem = DUR - t;
+    if (timeRem <= 1.2 && SHORT_META && SHORT_META.ctaText) {
+      const pop = smooth(0, 0.22, 1.2 - timeRem);
+      const ctaH = 74 * S;
+      const ctaY = capPillY - ctaH - 16 * S;
+      ctx.save();
+      ctx.globalAlpha = pop;
+      ctx.fillStyle = '#ef4444';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3 * S;
+      roundRect(safeL, ctaY, safeW, ctaH, 18 * S);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      fitFont(SHORT_META.ctaText, 30 * S, safeW - 32 * S, '900');
+      ctx.fillText(SHORT_META.ctaText, safeCx, ctaY + ctaH * 0.5);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // --- Beat Lookup ---
+  function findBeat(t) {
+    if (!BEATS.length) {
+      return {
+        id: 'default', actIndex: 0, actKind: 'hook', actTitle: 'Jet Engine Deep Dive',
+        visualPhase: 'fan-intake-overview', caption: 'CLEAR MECHANICS', text: '', start: 0, end: DUR,
+      };
+    }
+    for (let i = 0; i < BEATS.length; i++) {
+      if (t >= BEATS[i].start && t < BEATS[i].end) return BEATS[i];
+    }
+    return t < BEATS[0].start ? BEATS[0] : BEATS[BEATS.length - 1];
+  }
+
+  // --- Main Frame Renderer ---
+  function renderFrame(frameIdx) {
+    const t = frameIdx / Math.max(1, FPS);
+    const beat = findBeat(t);
+    const localT = Math.max(0, t - beat.start);
+    const phase = beat.visualPhase || 'fan-intake-overview';
+
+    drawBlueprintBg(t);
+
+    const isVert = ASPECT === '9:16';
+    const stageX = isVert ? W * 0.07 : W * 0.03;
+    const stageY = isVert ? H * 0.24 : H * 0.08;
+    const stageW = isVert ? W * 0.81 : W * 0.64;
+    const stageH = isVert ? H * 0.46 : H * 0.84;
+    const stageCx = stageX + stageW * 0.5;
+    const stageCy = stageY + stageH * 0.5;
+    const stageS = Math.min(stageW / 660, stageH / 460);
+
+    if (phase === 'fan-intake-overview') {
+      drawTurbofanCutaway(stageCx, stageCy, stageS, t, {
+        callout: '1.2 TONS/SEC · HIGH-BYPASS TURBOFAN',
+        calloutCol: '#38bdf8',
+      });
+    } else if (phase === 'bypass-ratio-cutaway') {
+      drawTurbofanCutaway(stageCx, stageCy, stageS, t, {
+        bypassHighlight: true,
+        callout: '85% BYPASS AIR vs 15% HOT CORE',
+        calloutCol: '#38bdf8',
+      });
+    } else if (phase === 'hot-core-glow') {
+      drawTurbofanCutaway(stageCx - 24 * stageS, stageCy, stageS * 1.12, t, {
+        hotCoreGlow: true,
+        callout: 'CORE BURNS HOTTER THAN MELTING POINT',
+        calloutCol: '#f97316',
+        calloutBg: 'rgba(67, 20, 7, 0.90)',
+      });
+    } else if (phase === 'compressor-stages') {
+      drawCompressorStages(stageCx, stageCy, stageS * 1.05, t);
+    } else if (phase === 'combustor-flame') {
+      drawCombustorFlame(stageCx, stageCy, stageS * 1.05, t);
+    } else if (phase === 'blade-cooling-pores') {
+      drawBladeCoolingPores(stageCx, stageCy, stageS * 1.05, t);
+    } else if (phase === 'compressor-stall') {
+      drawTurbofanCutaway(stageCx + 24 * stageS, stageCy, stageS, t, {
+        stallSurge: true,
+        callout: 'COMPRESSOR SURGE · 40 ATM BACKFIRE!',
+        calloutCol: '#ef4444',
+        calloutBg: 'rgba(69, 10, 10, 0.92)',
+      });
+    } else if (phase === 'blade-containment') {
+      drawBladeContainment(stageCx, stageCy, stageS * 1.02, t);
+    } else if (phase === 'propulsion-compare') {
+      drawPropulsionCompare(stageX, stageY + (isVert ? 0 : H * 0.08), stageW, stageH - (isVert ? 0 : H * 0.16), t, isVert);
+    } else if (phase === 'series-outro') {
+      drawSeriesOutro(stageCx, stageCy, stageS * 1.18, t);
+    } else {
+      drawTurbofanCutaway(stageCx, stageCy, stageS, t);
+    }
+
+    const tel = getTelemetry(phase, t);
+
+    if (isVert) {
+      drawVerticalOverlay(beat, t, tel);
+    } else {
+      drawRightTelemetryCard(beat, t, tel);
+      drawBridgeBanner(beat, localT);
+    }
+  }
+
+  // --- Deterministic Audio Events ---
+  function buildEvents() {
+    const evs = [];
+    for (let i = 0; i < BEATS.length; i++) {
+      const b = BEATS[i];
+      const t0 = clamp(b.start + 0.08, 0.05, Math.max(0.1, DUR - 0.1));
+      if (b.visualPhase === 'compressor-stall' || b.visualPhase === 'blade-containment' || b.visualPhase === 'combustor-flame') {
+        evs.push({ t: t0, type: 'break', pitchIndex: 2 + (i % 5), intensity: 0.95 });
+        if (b.end - b.start > 3.0) {
+          evs.push({ t: clamp(b.start + 1.6, 0.1, DUR - 0.1), type: 'break', pitchIndex: 4, intensity: 0.85 });
+        }
+      } else if (b.visualPhase === 'series-outro') {
+        evs.push({ t: t0, type: 'win', pitchIndex: 10, intensity: 0.95 });
+      } else if (b.isBridge) {
+        evs.push({ t: t0, type: 'win', pitchIndex: 6 + b.actIndex, intensity: 0.72 });
+      } else {
+        evs.push({ t: t0, type: 'bounce', pitchIndex: 2 + (i % 7), intensity: 0.62 });
+      }
+    }
+    evs.sort((a, b) => a.t - b.t);
+    return evs;
+  }
+
+  // --- Exact Window API Contract ---
+  window.init = (cfg = {}) => {
+    W = Math.max(160, Math.round(cfg.width || 1920));
+    H = Math.max(160, Math.round(cfg.height || 1080));
+    FPS = Math.max(1, Number(cfg.fps) || 60);
+    ASPECT = cfg.aspect === '9:16' || H > W ? '9:16' : '16:9';
+    DUR = Math.max(1, Number(cfg.duration) || 240);
+    TITLE = cfg.title || TITLE;
+    BRAND = cfg.brand || BRAND;
+    ACCENT = cfg.accent || '#38bdf8';
+    SHORT_META = cfg.shortMeta || null;
+
+    if (Array.isArray(cfg.beats) && cfg.beats.length > 0) {
+      BEATS = cfg.beats.map((b, idx) => ({
+        id: b.id || `b-${idx}`,
+        actIndex: Number.isFinite(b.actIndex) ? b.actIndex : 0,
+        actKind: b.actKind || 'hook',
+        actTitle: b.actTitle || '',
+        visualPhase: b.visualPhase || 'fan-intake-overview',
+        caption: b.caption || '',
+        text: b.text || '',
+        start: Number.isFinite(b.start) ? b.start : (idx * DUR) / cfg.beats.length,
+        end: Number.isFinite(b.end) ? b.end : ((idx + 1) * DUR) / cfg.beats.length,
+        isBridge: Boolean(b.isBridge),
+      }));
+    } else {
+      const seg = DUR / DEFAULT_BEATS.length;
+      BEATS = DEFAULT_BEATS.map((b, idx) => ({ ...b, start: idx * seg, end: (idx + 1) * seg }));
+    }
+
+    cv.width = W;
+    cv.height = H;
+    EVENTS = buildEvents();
+  };
+
+  window.renderBatch = (startFrame, count) => {
+    const out = [];
+    const n = Math.max(0, Math.floor(count || 0));
+    const s = Math.max(0, Math.floor(startFrame || 0));
+    for (let i = 0; i < n; i++) {
+      renderFrame(s + i);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.9);
+      out.push(dataUrl.replace(/^data:[^,]+,/, ''));
+    }
+    return out;
+  };
+
+  window.getEvents = () => EVENTS;
+  window.ready = true;
+})();
+</script>
