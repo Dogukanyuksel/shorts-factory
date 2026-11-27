@@ -25,7 +25,10 @@ export type PhysicsNiche =
   | "crusher-split"
   | "black-hole-eat"
   | "gravity-funnel"
-  | "spiral-escape";
+  | "spiral-escape"
+  | "pendulum-chaos-100"
+  | "chladni-sand"
+  | "gear-gauntlet-1000";
 
 export type PhysicsJob = {
   id: string;
@@ -61,6 +64,9 @@ export type PublishJob = PhysicsJob | ExplainerJob;
 export const PHYSICS_ROTATION: PhysicsNiche[] = [
   "physics-ring",
   "duel-balls",
+  "pendulum-chaos-100",
+  "chladni-sand",
+  "gear-gauntlet-1000",
   "crusher-split",
   "black-hole-eat",
   "gravity-funnel",
@@ -120,6 +126,51 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Even with nearly identical starting speeds, sensitive dependence on initial conditions sends these two simulated spheres on completely different paths. Watch who takes the final point.\n\n#shorts #chaos #physics #simulation",
     tags: ["chaos theory", "physics duel", "ball simulation", "shorts", "science"],
+    categoryId: "28",
+  },
+  {
+    id: "pendulum-chaos-100-seed122",
+    channel: "physics",
+    niche: "pendulum-chaos-100",
+    seed: 122,
+    seconds: 24,
+    hook: "100 PENDULUMS · 0.001° APART",
+    narration:
+      "We released one hundred double pendulums just one thousandth of a degree apart. For five seconds they look identical — then the butterfly effect rips them into pure rainbow chaos.",
+    title: "100 Double Pendulums Dropped 0.001° Apart: Pure Chaos #shorts",
+    description:
+      "A 60fps simulation of 100 double pendulums starting within 0.001 degrees of each other. Watch the exact second deterministic physics explodes into a rainbow chaos wave.\n\n#shorts #chaos #physics #butterflyeffect",
+    tags: ["double pendulum", "butterfly effect", "chaos theory", "physics simulation", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "chladni-sand-seed123",
+    channel: "physics",
+    niche: "chladni-sand",
+    seed: 123,
+    seconds: 24,
+    hook: "SOUND TURNS SAND INTO GEOMETRY",
+    narration:
+      "When a metal plate vibrates at exact resonant frequencies, sand flees the moving zones and locks onto silent nodal lines — revealing hidden mathematical symmetry in sound.",
+    title: "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts",
+    description:
+      "Chladni acoustic resonance from 432 Hz to 4,096 Hz: watch thousands of golden grains snap into standing-wave nodal geometry as the frequency climbs.\n\n#shorts #chladni #sound #physics",
+    tags: ["chladni plate", "cymatics", "sound frequency", "physics", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "gear-gauntlet-1000-seed124",
+    channel: "physics",
+    niche: "gear-gauntlet-1000",
+    seed: 124,
+    seconds: 24,
+    hook: "1,000 BALLS VS SPINNING GEARS",
+    narration:
+      "One thousand neon spheres drop into a gauntlet of counter-rotating gears. Watch the survivor counter plunge as only a handful thread every narrow tooth to reach the vault.",
+    title: "1,000 Balls vs Spinning Gear Gauntlet: How Many Survive? #shorts",
+    description:
+      "Drop 1,000 spheres through three tiers of counter-rotating gears and narrow funnels. Guess how many make it into the golden vault before the timer hits zero.\n\n#shorts #physics #simulation #satisfying",
+    tags: ["1000 balls", "gear simulation", "physics gauntlet", "satisfying", "shorts"],
     categoryId: "28",
   },
   {
@@ -529,6 +580,56 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
  * Günde 2 video = 15 gün kesintisiz, günde 1 video = 1 ay kesintisiz özgün YPP içeriği.
  */
 export const EXPLAINER_JOBS: ExplainerJob[] = [
+  {
+    id: "explainer-four-stroke-3d",
+    channel: "explainer",
+    episode: "four-stroke-3d",
+    title: "How a 4-Stroke Engine Actually Works (3D Cutaway) #shorts",
+    description:
+      "Intake, Compression, Power, Exhaust — watch how a single copper piston, two overhead valves, and one spark turn liquid fuel into thousands of RPM inside a 4-stroke engine.\n\n#shorts #engine #howitworks #engineering",
+    tags: ["4 stroke engine", "how engines work", "car mechanics", "engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-fibonacci-gears",
+    channel: "explainer",
+    episode: "fibonacci-gears",
+    title: "How Do Non-Round Fibonacci Gears Spin Without Jamming? #shorts",
+    description:
+      "These logarithmic golden-ratio gears aren't even circular — yet their radii always sum to the exact shaft distance D, turning smooth constant rotation into a pulsing speed wave.\n\n#shorts #gears #math #engineering",
+    tags: ["fibonacci gears", "non circular gears", "math in motion", "engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-potential-vs-kinetic",
+    channel: "explainer",
+    episode: "potential-vs-kinetic",
+    title: "Potential vs Kinetic Energy Visualized in Real Time #shorts",
+    description:
+      "Watch gravitational potential energy (mgh) and kinetic energy (1/2 mv²) trade places every single swing while total mechanical energy E stays rock solid.\n\n#shorts #physics #energy #science",
+    tags: ["potential energy", "kinetic energy", "conservation of energy", "physics", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-extreme-gear-ratio",
+    channel: "explainer",
+    episode: "extreme-gear-ratio",
+    title: "How Many Cranks to Spin the Last Gear Just Once? #shorts",
+    description:
+      "Six cascaded compound gears, each turning 5 times slower than the last. That multiplies into a 15,625 to 1 reduction — watch how little the final golden gear moves per crank.\n\n#shorts #gears #mechanics #math",
+    tags: ["gear ratio", "mechanical advantage", "compound gears", "engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-engine-4way-battle",
+    channel: "explainer",
+    episode: "engine-4way-battle",
+    title: "4-Way Engine Battle: 2-Stroke vs 4-Stroke vs Rotary vs EV #shorts",
+    description:
+      "Four completely different ways to turn energy into motion, side by side in real time: 2-Stroke, 4-Stroke, Wankel Rotary, and Brushless Electric. Which engineering design wins?\n\n#shorts #engines #ev #engineering",
+    tags: ["engine comparison", "wankel rotary", "electric motor", "4 stroke", "shorts"],
+    categoryId: "27",
+  },
   {
     id: "explainer-pin-tumbler-lock",
     channel: "explainer",
@@ -1141,6 +1242,33 @@ const INFINITE_ANGLES: Record<
     titlePrefix: "Rainbow Spiral Gate Smash",
     topic: "Archimedean spirals and centripetal acceleration",
   },
+  "pendulum-chaos-100": {
+    hooks: ["100 PENDULUMS · 0.001° APART", "THE BUTTERFLY EFFECT LIVE", "WATCH CHAOS EXPLODE"],
+    narrations: [
+      "One hundred double pendulums start less than a thousandth of a degree apart — then explode into a rainbow chaos wave.",
+      "Watch the exact moment deterministic physics loses all predictability in real time.",
+    ],
+    titlePrefix: "100 Double Pendulums Butterfly Effect",
+    topic: "chaos theory and sensitive dependence on initial conditions",
+  },
+  "chladni-sand": {
+    hooks: ["SOUND TURNS SAND TO GEOMETRY", "432 HZ TO 4096 HZ CYMATICS", "HIDDEN SOUND PATTERNS"],
+    narrations: [
+      "Acoustic vibrations bounce thousands of golden sand grains onto silent nodal lines, sculpting pure geometry from sound.",
+      "Watch standing wave frequencies morph sand across five resonant eigenmodes.",
+    ],
+    titlePrefix: "Chladni Sound Resonance Patterns",
+    topic: "cymatics and Chladni acoustic standing-wave eigenmodes",
+  },
+  "gear-gauntlet-1000": {
+    hooks: ["1,000 BALLS VS SPINNING GEARS", "HOW MANY SURVIVE?", "SPINNING GEAR GAUNTLET"],
+    narrations: [
+      "One thousand glowing spheres pour into counter-rotating mechanical gears — watch how many survive to the golden vault.",
+      "Count the survivors as spinning gear teeth scatter a thousand falling marbles.",
+    ],
+    titlePrefix: "1,000 Balls vs Spinning Gears",
+    topic: "rigid-body gear collisions and statistical survival",
+  },
 };
 
 /**
@@ -1223,6 +1351,9 @@ export const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "black-hole-eat": "Growing Black Hole",
   "gravity-funnel": "3D Gravity Funnel",
   "spiral-escape": "Rainbow Spiral",
+  "pendulum-chaos-100": "100 Pendulums Chaos",
+  "chladni-sand": "Chladni Sound Sand",
+  "gear-gauntlet-1000": "1,000 Balls vs Gears",
 };
 
 const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
@@ -1251,6 +1382,9 @@ const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
   "black-hole-eat": "WILL EVEN ONE ORBIT SURVIVE?",
   "gravity-funnel": "WAIT FOR THE WORMHOLE THROAT",
   "spiral-escape": "WAIT FOR THE CORE EXPLOSION",
+  "pendulum-chaos-100": "SPOT THE EXACT SECOND IT SPLITS",
+  "chladni-sand": "WAIT FOR 4,096 HZ GEOMETRY",
+  "gear-gauntlet-1000": "GUESS HOW MANY REACH THE VAULT",
 };
 
 function formatEpisodeLabel(slug: string): string {

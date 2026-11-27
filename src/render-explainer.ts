@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import { applyIntroSubBass, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
+import { applyIntroSubBass, synthesizeBackgroundMusicPcm, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
 import { synthesizeVoice } from "./voice.js";
 
 const require = createRequire(import.meta.url);
@@ -213,15 +213,22 @@ async function main() {
       () => (globalThis as unknown as { getEvents: () => SoundEvent[] }).getEvents(),
     );
     const sfxStereo = synthesizeEventsPcm(events, totalSec, SAMPLE_RATE);
+    let epSeed = 17;
+    for (let k = 0; k < episode.length; k++) epSeed = (epSeed * 31 + episode.charCodeAt(k)) | 0;
+    const bgmStereo = synthesizeBackgroundMusicPcm(totalSec, Math.abs(epSeed) + 1, SAMPLE_RATE);
 
-    // Seslendirme (mono→stereo) + mekanik SFX karışımı
+    // Seslendirme (mono→stereo) + mekanik SFX + hafif telifsiz arka plan synth müziği
     const mixed = new Int16Array(Math.max(totalSamples, sfxStereo.length / 2) * 2);
     for (let i = 0; i < totalSamples; i++) {
       const v = voiceMono[i] / 32768;
       const sl = (sfxStereo[i * 2] ?? 0) / 32768;
       const sr = (sfxStereo[i * 2 + 1] ?? 0) / 32768;
-      mixed[i * 2] = Math.round(Math.tanh(v * 0.95 + sl * 0.42) * 32000);
-      mixed[i * 2 + 1] = Math.round(Math.tanh(v * 0.95 + sr * 0.42) * 32000);
+      const ml = (bgmStereo[i * 2] ?? 0) / 32768;
+      const mr = (bgmStereo[i * 2 + 1] ?? 0) / 32768;
+      // Anlatım sırasında müziği hafifçe kıs, aralarda sinematik atmosfer korunsun
+      const duck = Math.abs(v) > 0.015 ? 0.14 : 0.24;
+      mixed[i * 2] = Math.round(Math.tanh(v * 0.94 + sl * 0.40 + ml * duck) * 32000);
+      mixed[i * 2 + 1] = Math.round(Math.tanh(v * 0.94 + sr * 0.40 + mr * duck) * 32000);
     }
     applyIntroSubBass(mixed, SAMPLE_RATE, 0.30);
     const mixPath = join(tmpDir, "mix.pcm");

@@ -1,0 +1,564 @@
+<!doctype html>
+<!-- Pendulum Chaos 100: 100 Double Pendulums Released 0.001° Apart — Butterfly Effect Chaos Fan -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = '100 PENDULUMS: 0.001° APART';
+let rng = 1;
+let simTime = 0;
+let climaxTime = 21.12;
+let climaxTriggered = false;
+
+const COUNT = 100;
+const TRAIL_LEN = 22;
+const THRESHOLDS = [1, 10, 45, 90, 180, 360];
+
+let pendulums = [];
+let sparks = [];
+let waves = [];
+let events = [];
+let nextThreshIdx = 0;
+let currentSpreadDeg = 0.001;
+let maxSpreadDeg = 0.001;
+let prevLeaderSign = 1;
+let lastSwingSoundT = -1;
+let shake = 0;
+let flashAlpha = 0;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+function spawnSparks(x, y, col, n, S, speedScale) {
+  const spMul = speedScale || 1;
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const spd = (90 + rand() * 340) * S * spMul;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd,
+      life: 0.45 + rand() * 0.55,
+      maxLife: 1.0,
+      size: (2.2 + rand() * 3.8) * S,
+      col
+    });
+  }
+}
+
+// Double pendulum equations of motion (m1 = m2 = 1, L1 = L2 = 1)
+function deriv(th1, w1, th2, w2, g) {
+  const d = th1 - th2;
+  const s = Math.sin(d);
+  const c = Math.cos(d);
+  const den = 3 - Math.cos(2 * d); // strictly in [2, 4], never singular
+  const a1 = (-3 * g * Math.sin(th1) - g * Math.sin(th1 - 2 * th2) - 2 * s * (w2 * w2 + w1 * w1 * c)) / den;
+  const a2 = (2 * s * (2 * w1 * w1 + 2 * g * Math.cos(th1) + w2 * w2 * c)) / den;
+  return [w1, a1, w2, a2];
+}
+
+function rk4Step(p, dt, g) {
+  const th1 = p.th1, w1 = p.w1, th2 = p.th2, w2 = p.w2;
+  const k1 = deriv(th1, w1, th2, w2, g);
+  const k2 = deriv(th1 + 0.5 * dt * k1[0], w1 + 0.5 * dt * k1[1], th2 + 0.5 * dt * k1[2], w2 + 0.5 * dt * k1[3], g);
+  const k3 = deriv(th1 + 0.5 * dt * k2[0], w1 + 0.5 * dt * k2[1], th2 + 0.5 * dt * k2[2], w2 + 0.5 * dt * k2[3], g);
+  const k4 = deriv(th1 + dt * k3[0], w1 + dt * k3[1], th2 + dt * k3[2], w2 + dt * k3[3], g);
+
+  p.th1 = th1 + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
+  p.w1  = w1  + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
+  p.th2 = th2 + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]);
+  p.w2  = w2  + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3]);
+
+  // Safety guard against any extreme floating-point drift
+  if (!Number.isFinite(p.th1)) p.th1 = 0;
+  if (!Number.isFinite(p.w1))  p.w1 = 0;
+  if (!Number.isFinite(p.th2)) p.th2 = 0;
+  if (!Number.isFinite(p.w2))  p.w2 = 0;
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || '100 PENDULUMS: 0.001° APART';
+  cv.width = W;
+  cv.height = H;
+
+  rng = ((cfg.seed || 1) * 2654435761 + 1013904223) >>> 0;
+  simTime = 0;
+  climaxTime = DUR * 0.88;
+  climaxTriggered = false;
+  nextThreshIdx = 0;
+  currentSpreadDeg = 0.001;
+  maxSpreadDeg = 0.001;
+  prevLeaderSign = 1;
+  lastSwingSoundT = -1;
+  shake = 0;
+  flashAlpha = 0;
+
+  sparks = [];
+  waves = [];
+  events = [];
+  pendulums = [];
+
+  const S = W / 720;
+  const cx = W * 0.5;
+  const pivotY = H * 0.455;
+  const rodLen = 166 * S;
+
+  // High-energy starting posture: stays razor-sharp unified for ~5s, explodes into rainbow fan at ~7-10s
+  const baseTh1 = 2.42;
+  const baseTh2 = 2.42;
+  // Total initial span of 1e-4 rad across 100 pendulums (~0.001° step feel, crisp 5s coherence)
+  const totalSpanRad = 1e-4;
+
+  for (let i = 0; i < COUNT; i++) {
+    const frac = i / (COUNT - 1);
+    const offset = (frac - 0.5) * totalSpanRad;
+    const th1 = baseTh1 + offset;
+    const th2 = baseTh2 + offset * 0.5;
+    const x1 = cx + Math.sin(th1) * rodLen;
+    const y1 = pivotY + Math.cos(th1) * rodLen;
+    const x2 = x1 + Math.sin(th2) * rodLen;
+    const y2 = y1 + Math.cos(th2) * rodLen;
+    const hue = (185 + frac * 315) % 360;
+
+    const trailX = new Float32Array(TRAIL_LEN);
+    const trailY = new Float32Array(TRAIL_LEN);
+    trailX.fill(x2);
+    trailY.fill(y2);
+
+    pendulums.push({
+      th1, w1: 0,
+      th2, w2: 0,
+      hue,
+      x1, y1, x2, y2,
+      trailX, trailY,
+      trailHead: 0
+    });
+  }
+};
+
+function stepPhysics(dt) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const pivotY = H * 0.455;
+  const rodLen = 166 * S;
+  const g = 11.4; // tuned so chaotic butterfly fan blooms right in 7-10s window
+
+  const subSteps = 8;
+  const sdt = dt / subSteps;
+
+  simTime += dt;
+
+  let minTh2 = Infinity, maxTh2 = -Infinity;
+
+  for (let i = 0; i < COUNT; i++) {
+    const p = pendulums[i];
+    for (let s = 0; s < subSteps; s++) {
+      rk4Step(p, sdt, g);
+    }
+    p.x1 = cx + Math.sin(p.th1) * rodLen;
+    p.y1 = pivotY + Math.cos(p.th1) * rodLen;
+    p.x2 = p.x1 + Math.sin(p.th2) * rodLen;
+    p.y2 = p.y1 + Math.cos(p.th2) * rodLen;
+
+    p.trailHead = (p.trailHead + 1) % TRAIL_LEN;
+    p.trailX[p.trailHead] = p.x2;
+    p.trailY[p.trailHead] = p.y2;
+
+    if (p.th2 < minTh2) minTh2 = p.th2;
+    if (p.th2 > maxTh2) maxTh2 = p.th2;
+  }
+
+  // Compute angular spread in degrees (bounded to 360° for display)
+  const rawSpreadDeg = Math.max(0.001, (maxTh2 - minTh2) * (180 / Math.PI));
+  currentSpreadDeg = Math.min(360, rawSpreadDeg);
+  if (currentSpreadDeg > maxSpreadDeg) maxSpreadDeg = currentSpreadDeg;
+
+  // Rhythmic swing bounce during early synchronized phase
+  const leader = pendulums[50];
+  const sign = Math.sin(leader.th1) >= 0 ? 1 : -1;
+  if (simTime > 0.15 && sign !== prevLeaderSign) {
+    prevLeaderSign = sign;
+    if (simTime - lastSwingSoundT > 0.35 && maxSpreadDeg < 90) {
+      lastSwingSoundT = simTime;
+      events.push({
+        t: simTime,
+        type: 'bounce',
+        pitchIndex: Math.min(14, Math.floor(simTime * 0.8) % 10),
+        intensity: 0.42
+      });
+    }
+  }
+
+  // Threshold divergence events: 1°, 10°, 45°, 90°, 180°, 360°
+  while (nextThreshIdx < THRESHOLDS.length && maxSpreadDeg >= THRESHOLDS[nextThreshIdx]) {
+    const deg = THRESHOLDS[nextThreshIdx];
+    const isMajor = deg >= 45;
+    events.push({
+      t: simTime,
+      type: isMajor ? 'break' : 'bounce',
+      pitchIndex: 3 + nextThreshIdx * 2,
+      intensity: Math.min(1.0, 0.55 + nextThreshIdx * 0.08)
+    });
+    const col = deg >= 180 ? '#facc15' : (deg >= 45 ? '#e879f9' : '#22d3ee');
+    waves.push({ x: cx, y: pivotY, r: 22 * S, maxR: (260 + nextThreshIdx * 42) * S, alpha: 0.9, col });
+    spawnSparks(leader.x2, leader.y2, col, 16, S, 1.15);
+    shake = Math.min(18 * S, (5 + nextThreshIdx * 2.2) * S);
+    flashAlpha = 0.28;
+    nextThreshIdx++;
+  }
+
+  // Climax trigger at ~88% of DUR
+  if (!climaxTriggered && simTime >= climaxTime) {
+    climaxTriggered = true;
+    maxSpreadDeg = 360;
+    currentSpreadDeg = 360;
+    shake = 22 * S;
+    flashAlpha = 0.45;
+    waves.push({ x: cx, y: pivotY, r: 24 * S, maxR: 520 * S, alpha: 1.0, col: '#facc15' });
+    waves.push({ x: cx, y: pivotY, r: 12 * S, maxR: 400 * S, alpha: 0.9, col: '#22d3ee' });
+    for (let k = 0; k < 8; k++) {
+      const p = pendulums[Math.floor((k / 8) * COUNT)];
+      spawnSparks(p.x2, p.y2, `hsl(${p.hue}, 96%, 62%)`, 12, S, 1.35);
+    }
+    events.push({ t: simTime, type: 'win', pitchIndex: 14, intensity: 1.0 });
+  }
+
+  // Update FX
+  shake *= Math.pow(0.05, dt);
+  flashAlpha = Math.max(0, flashAlpha - dt * 1.8);
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    sp.vy += 320 * S * dt;
+    sp.x += sp.vx * dt;
+    sp.y += sp.vy * dt;
+    sp.life -= dt * 1.25;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+  for (let i = waves.length - 1; i >= 0; i--) {
+    const w = waves[i];
+    w.r += (w.maxR - w.r) * Math.min(1, dt * 6.5);
+    w.alpha -= dt * 1.4;
+    if (w.alpha <= 0) waves.splice(i, 1);
+  }
+}
+
+function drawHook(text, S) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const maxW = W * 0.82;
+  let fontSize = Math.round(38 * S);
+  ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  while (ctx.measureText(text).width > maxW && fontSize > Math.round(22 * S)) {
+    fontSize -= 2;
+    ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  }
+  ctx.shadowColor = 'rgba(34,211,238,0.6)';
+  ctx.shadowBlur = 18 * S;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, W * 0.5, H * 0.102, maxW);
+  ctx.restore();
+}
+
+function formatSpread(deg) {
+  if (deg < 0.01) return '0.001°';
+  if (deg < 1) return deg.toFixed(3) + '°';
+  if (deg < 10) return deg.toFixed(2) + '°';
+  if (deg < 100) return deg.toFixed(1) + '°';
+  return Math.round(deg) + '°';
+}
+
+function drawFrame() {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const pivotY = H * 0.455;
+  const rodLen = 166 * S;
+  const chaosRatio = Math.min(1, Math.log10(Math.max(0.001, maxSpreadDeg) / 0.001) / Math.log10(360000));
+
+  // Background
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Radial ambient nebula
+  const bgGrad = ctx.createRadialGradient(cx, pivotY, 12 * S, cx, pivotY, 460 * S);
+  bgGrad.addColorStop(0, climaxTriggered ? 'rgba(250,204,21,0.14)' : `rgba(56,189,248,${0.08 + chaosRatio * 0.07})`);
+  bgGrad.addColorStop(0.55, 'rgba(30,27,75,0.16)');
+  bgGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle polar measurement rings around pivot
+  ctx.save();
+  ctx.strokeStyle = 'rgba(148,163,184,0.08)';
+  ctx.lineWidth = 1.2 * S;
+  for (let rMul = 1; rMul <= 2; rMul++) {
+    ctx.beginPath();
+    ctx.arc(cx, pivotY, rodLen * rMul, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Degree tick marks on outer ring
+  const outerR = rodLen * 2;
+  for (let a = 0; a < 36; a++) {
+    const ang = (a / 36) * Math.PI * 2;
+    const inner = a % 3 === 0 ? outerR - 10 * S : outerR - 5 * S;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(ang) * inner, pivotY + Math.sin(ang) * inner);
+    ctx.lineTo(cx + Math.cos(ang) * outerR, pivotY + Math.sin(ang) * outerR);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Camera shake
+  ctx.save();
+  if (shake > 0.2) {
+    ctx.translate((rand() - 0.5) * 2 * shake, (rand() - 0.5) * 2 * shake);
+  }
+
+  // Shockwave rings
+  for (const w of waves) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, w.alpha);
+    ctx.strokeStyle = w.col;
+    ctx.lineWidth = 3.5 * S;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Additive glowing comet trails for all 100 tips
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const unified = maxSpreadDeg < 2.0;
+
+  for (let i = 0; i < COUNT; i++) {
+    const p = pendulums[i];
+    const head = p.trailHead;
+    // Draw trail in 3 fading segments for crisp comet look
+    for (let seg = 0; seg < 3; seg++) {
+      const startAge = seg * 7;
+      const endAge = Math.min(TRAIL_LEN - 1, (seg + 1) * 7);
+      const alpha = unified ? (0.045 - seg * 0.013) : (0.28 - seg * 0.085);
+      ctx.strokeStyle = unified
+        ? `rgba(186,230,253,${alpha})`
+        : `hsla(${p.hue}, 98%, 62%, ${alpha})`;
+      ctx.lineWidth = (3.4 - seg * 0.9) * S;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let age = startAge; age <= endAge; age++) {
+        const idx = (head - age + TRAIL_LEN) % TRAIL_LEN;
+        const tx = p.trailX[idx];
+        const ty = p.trailY[idx];
+        if (age === startAge) ctx.moveTo(tx, ty);
+        else ctx.lineTo(tx, ty);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // Draw pendulum rods (100 layered neon arms)
+  const rodAlpha = unified ? 0.055 : 0.24;
+  ctx.lineWidth = (unified ? 2.6 : 1.7) * S;
+  for (let i = 0; i < COUNT; i++) {
+    const p = pendulums[i];
+    ctx.strokeStyle = unified
+      ? `rgba(224,242,254,${rodAlpha})`
+      : `hsla(${p.hue}, 96%, 60%, ${rodAlpha})`;
+    ctx.beginPath();
+    ctx.moveTo(cx, pivotY);
+    ctx.lineTo(p.x1, p.y1);
+    ctx.lineTo(p.x2, p.y2);
+    ctx.stroke();
+  }
+
+  // Draw glowing tip orbs
+  for (let i = 0; i < COUNT; i++) {
+    const p = pendulums[i];
+    const orbR = (unified ? 5.5 : 4.6) * S;
+    ctx.fillStyle = unified
+      ? 'rgba(224,242,254,0.08)'
+      : `hsla(${p.hue}, 100%, 66%, 0.72)`;
+    ctx.beginPath();
+    ctx.arc(p.x2, p.y2, orbR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // If still tightly unified, draw a razor-sharp glowing white/cyan core over the leader
+  if (unified) {
+    const p = pendulums[50];
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3.2 * S;
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = 18 * S;
+    ctx.beginPath();
+    ctx.moveTo(cx, pivotY);
+    ctx.lineTo(p.x1, p.y1);
+    ctx.lineTo(p.x2, p.y2);
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(p.x2, p.y2, 7.5 * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore(); // end lighter composite
+
+  // Center Pivot Hub
+  ctx.save();
+  ctx.fillStyle = '#0f172a';
+  ctx.strokeStyle = climaxTriggered ? '#facc15' : '#38bdf8';
+  ctx.lineWidth = 3.5 * S;
+  ctx.shadowColor = climaxTriggered ? '#facc15' : '#22d3ee';
+  ctx.shadowBlur = 16 * S;
+  ctx.beginPath();
+  ctx.arc(cx, pivotY, 12 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(cx, pivotY, 4.5 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Sparks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
+    ctx.fillStyle = sp.col;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore(); // end camera shake
+
+  // Subtle threshold flash overlay
+  if (flashAlpha > 0.01) {
+    ctx.fillStyle = `rgba(255,255,255,${flashAlpha * 0.25})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Top Safe-Zone HUD
+  drawHook(HOOK, S);
+
+  // Two sleek telemetry pills under HOOK
+  const pillY = H * 0.158;
+  const pillH = 44 * S;
+  const pillW = W * 0.39;
+  const gap = 16 * S;
+
+  // Left Pill: PENDULUMS: 100
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.82)';
+  ctx.strokeStyle = 'rgba(56,189,248,0.55)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.roundRect(cx - pillW - gap * 0.5, pillY - pillH * 0.5, pillW, pillH, 14 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${Math.round(21 * S)}px monospace`;
+  ctx.fillStyle = '#e0f2fe';
+  ctx.fillText('PENDULUMS: 100', cx - pillW * 0.5 - gap * 0.5, pillY, pillW - 14 * S);
+
+  // Right Pill: SPREAD
+  ctx.fillStyle = 'rgba(15,23,42,0.82)';
+  ctx.strokeStyle = maxSpreadDeg >= 90 ? 'rgba(250,204,21,0.75)' : 'rgba(232,121,249,0.55)';
+  ctx.beginPath();
+  ctx.roundRect(cx + gap * 0.5, pillY - pillH * 0.5, pillW, pillH, 14 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = maxSpreadDeg >= 90 ? '#fde047' : '#f0abfc';
+  ctx.fillText(`SPREAD: ${formatSpread(maxSpreadDeg)}`, cx + pillW * 0.5 + gap * 0.5, pillY, pillW - 14 * S);
+  ctx.restore();
+
+  // Bottom Chaos Divergence Meter (Safe-Zone above 88% H)
+  const hudY = H * 0.805;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const statusText = climaxTriggered
+    ? 'TOTAL CHAOS: 360°'
+    : (maxSpreadDeg < 1 ? 'SYNCED • 0.001°' : `DIVERGING • ${formatSpread(maxSpreadDeg)}`);
+  ctx.font = `900 ${Math.round(42 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.shadowColor = climaxTriggered ? '#facc15' : '#22d3ee';
+  ctx.shadowBlur = 18 * S;
+  ctx.fillStyle = climaxTriggered ? '#fde047' : '#ffffff';
+  ctx.fillText(statusText, cx, hudY, W * 0.84);
+  ctx.shadowBlur = 0;
+
+  const barW = W * 0.68;
+  const barH = 14 * S;
+  const barX = cx - barW * 0.5;
+  const barY = hudY + 42 * S;
+  ctx.fillStyle = 'rgba(30,41,59,0.85)';
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, barH, 7 * S);
+  ctx.fill();
+
+  const barGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  barGrad.addColorStop(0, '#22d3ee');
+  barGrad.addColorStop(0.5, '#e879f9');
+  barGrad.addColorStop(1, '#facc15');
+  ctx.fillStyle = barGrad;
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, Math.max(10 * S, barW * chaosRatio), barH, 7 * S);
+  ctx.fill();
+
+  ctx.font = `700 ${Math.round(18 * S)}px monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('0.001°  →  BUTTERFLY EFFECT  →  360°', cx, barY + 32 * S, W * 0.82);
+  ctx.restore();
+
+  // Climax Banner at ~88% of DUR
+  if (climaxTriggered) {
+    const finAge = Math.min(1, (simTime - climaxTime) / 0.32);
+    const scale = 0.85 + 0.15 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(cx, H * 0.455);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.90)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.42, -66 * S, W * 0.84, 132 * S, 26 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 24 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('TOTAL CHAOS! 🦋', 0, -10 * S, W * 0.78);
+    ctx.font = `800 ${Math.round(21 * S)}px monospace`;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('0.001° INITIAL GAP  →  360° FAN', 0, 34 * S, W * 0.78);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    stepPhysics(1 / FPS);
+    drawFrame();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

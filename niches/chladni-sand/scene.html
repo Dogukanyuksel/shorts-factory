@@ -1,0 +1,603 @@
+<!doctype html>
+<!-- Chladni Sand Plate: Acoustic Resonance Sacred Geometry (432 Hz -> 4,096 Hz) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'SOUND CREATES SACRED GEOMETRY';
+let rng = 1;
+let simTime = 0;
+let climaxTime = 21.12;
+let climaxTriggered = false;
+
+const PARTICLE_COUNT = 2600;
+const MODES = [
+  { m: 1, n: 2, hz: 432,  startFrac: 0.00, col: '#22d3ee' },
+  { m: 2, n: 3, hz: 864,  startFrac: 0.18, col: '#38bdf8' },
+  { m: 3, n: 5, hz: 1440, startFrac: 0.38, col: '#a855f7' },
+  { m: 4, n: 7, hz: 2592, startFrac: 0.58, col: '#f59e0b' },
+  { m: 5, n: 8, hz: 4096, startFrac: 0.78, col: '#fde047' }
+];
+
+// Flat typed arrays for fast, zero-GC deterministic simulation of 2,600 sand particles
+let px, py, pvx, pvy, pSize, pTone, pSettled;
+let modeIdx = 0;
+let modeAge = 0;
+let displayHz = 432;
+let scatterEnergy = 0;
+let lockShimmerSent = false;
+let waves = [];
+let sparks = [];
+let events = [];
+let plateVib = 0;
+let freqPop = 0;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+// Chladni plate nodal equation on u, v in [0, 1]
+// Nodal lines satisfy F(u, v) = cos(m*pi*u)*cos(n*pi*v) - cos(n*pi*u)*cos(m*pi*v) = 0
+function chladniValueAndGrad(u, v, m, n) {
+  const PI = Math.PI;
+  const mpu = m * PI * u;
+  const npv = n * PI * v;
+  const npu = n * PI * u;
+  const mpv = m * PI * v;
+
+  const cmU = Math.cos(mpu), smU = Math.sin(mpu);
+  const cnV = Math.cos(npv), snV = Math.sin(npv);
+  const cnU = Math.cos(npu), snU = Math.sin(npu);
+  const cmV = Math.cos(mpv), smV = Math.sin(mpv);
+
+  const val = cmU * cnV - cnU * cmV;
+  const dFdu = -m * PI * smU * cnV + n * PI * snU * cmV;
+  const dFdv = -n * PI * cmU * snV + m * PI * cnU * smV;
+  return { val, dFdu, dFdv };
+}
+
+function spawnAcousticSparks(cx, cy, plateHalf, col, count, S) {
+  for (let i = 0; i < count; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = (0.15 + rand() * 0.85) * plateHalf;
+    const spd = (60 + rand() * 190) * S;
+    sparks.push({
+      x: cx + Math.cos(a) * r,
+      y: cy + Math.sin(a) * r,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd,
+      life: 0.4 + rand() * 0.45,
+      maxLife: 0.85,
+      size: (1.8 + rand() * 2.8) * S,
+      col
+    });
+  }
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'SOUND CREATES SACRED GEOMETRY';
+  cv.width = W;
+  cv.height = H;
+
+  rng = ((cfg.seed || 1) * 2654435761 + 1013904223) >>> 0;
+  simTime = 0;
+  climaxTime = DUR * 0.88;
+  climaxTriggered = false;
+  modeIdx = 0;
+  modeAge = 0;
+  displayHz = MODES[0].hz;
+  scatterEnergy = 1.0;
+  lockShimmerSent = false;
+  plateVib = 1.0;
+  freqPop = 1.0;
+
+  waves = [];
+  sparks = [];
+  events = [];
+
+  px = new Float32Array(PARTICLE_COUNT);
+  py = new Float32Array(PARTICLE_COUNT);
+  pvx = new Float32Array(PARTICLE_COUNT);
+  pvy = new Float32Array(PARTICLE_COUNT);
+  pSize = new Float32Array(PARTICLE_COUNT);
+  pTone = new Float32Array(PARTICLE_COUNT);
+  pSettled = new Float32Array(PARTICLE_COUNT);
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    px[i] = 0.04 + rand() * 0.92;
+    py[i] = 0.04 + rand() * 0.92;
+    pvx[i] = (rand() - 0.5) * 0.15;
+    pvy[i] = (rand() - 0.5) * 0.15;
+    pSize[i] = 1.65 + rand() * 1.75;
+    pTone[i] = rand(); // blends between #fde047 and #f59e0b
+    pSettled[i] = 0;
+  }
+
+  const S = W / 720;
+  waves.push({ x: W * 0.5, y: H * 0.48, r: 16 * S, maxR: 340 * S, alpha: 0.85, col: MODES[0].col });
+  events.push({ t: 0.05, type: 'bounce', pitchIndex: 2, intensity: 0.65 });
+};
+
+function triggerModeTransition(newIdx) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.48;
+  const plateHalf = 270 * S;
+
+  modeIdx = newIdx;
+  modeAge = 0;
+  scatterEnergy = 1.0;
+  plateVib = 1.0;
+  freqPop = 1.0;
+  lockShimmerSent = false;
+
+  const mode = MODES[modeIdx];
+  waves.push({ x: cx, y: cy, r: 14 * S, maxR: 380 * S, alpha: 0.95, col: mode.col });
+  waves.push({ x: cx, y: cy, r: 8 * S, maxR: 260 * S, alpha: 0.8, col: '#fde047' });
+  spawnAcousticSparks(cx, cy, plateHalf, mode.col, 24, S);
+
+  // Give grains an acoustic scatter kick so transitions feel crisp & physical
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const a = rand() * Math.PI * 2;
+    const kick = 0.14 + rand() * 0.32;
+    pvx[i] += Math.cos(a) * kick;
+    pvy[i] += Math.sin(a) * kick;
+  }
+
+  events.push({
+    t: simTime,
+    type: 'break',
+    pitchIndex: 2 + modeIdx * 3,
+    intensity: Math.min(1.0, 0.62 + modeIdx * 0.08)
+  });
+}
+
+function stepPhysics(dt) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.48;
+  const plateHalf = 270 * S;
+
+  simTime += dt;
+  modeAge += dt;
+
+  // Check scheduled mode jumps
+  const frac = simTime / climaxTime;
+  let targetIdx = 0;
+  for (let i = MODES.length - 1; i >= 0; i--) {
+    if (frac >= MODES[i].startFrac) {
+      targetIdx = i;
+      break;
+    }
+  }
+  if (targetIdx > modeIdx) {
+    triggerModeTransition(targetIdx);
+  }
+
+  // Trigger golden resonance climax at ~88% of DUR
+  if (!climaxTriggered && simTime >= climaxTime) {
+    climaxTriggered = true;
+    plateVib = 0.6;
+    freqPop = 1.25;
+    waves.push({ x: cx, y: cy, r: 20 * S, maxR: 480 * S, alpha: 1.0, col: '#fde047' });
+    waves.push({ x: cx, y: cy, r: 10 * S, maxR: 360 * S, alpha: 0.9, col: '#22d3ee' });
+    spawnAcousticSparks(cx, cy, plateHalf, '#fde047', 44, S);
+    events.push({ t: simTime, type: 'win', pitchIndex: 14, intensity: 1.0 });
+  }
+
+  const mode = MODES[modeIdx];
+  // Smooth frequency readout sweep
+  displayHz += (mode.hz - displayHz) * Math.min(1, dt * 8.5);
+  if (climaxTriggered) displayHz = 4096;
+
+  // Decay scatter burst
+  scatterEnergy = Math.max(0, scatterEnergy - dt * 1.9);
+  plateVib = Math.max(0, plateVib - dt * 1.4);
+  freqPop = Math.max(0, freqPop - dt * 3.5);
+
+  // Emit a crystalline harmonic bounce once grains settle into each mode
+  if (!lockShimmerSent && !climaxTriggered && modeAge > 1.45) {
+    lockShimmerSent = true;
+    events.push({
+      t: simTime,
+      type: 'bounce',
+      pitchIndex: 4 + modeIdx * 3,
+      intensity: 0.48
+    });
+  }
+
+  // 2 sub-steps for crisp convergence onto nodal lines
+  const subSteps = 2;
+  const sdt = dt / subSteps;
+  const m = mode.m;
+  const n = mode.n;
+  const settlePhase = climaxTriggered ? 1.0 : Math.min(1, Math.max(0, (modeAge - 0.18) / 1.4));
+  const pullStrength = climaxTriggered ? 0.46 : (0.14 + settlePhase * 0.28);
+  const vibStrength = climaxTriggered ? 0.015 : (0.12 + scatterEnergy * 0.34);
+
+  for (let s = 0; s < subSteps; s++) {
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      let u = px[i];
+      let v = py[i];
+      let vx = pvx[i];
+      let vy = pvy[i];
+
+      const { val, dFdu, dFdv } = chladniValueAndGrad(u, v, m, n);
+      const absVal = Math.abs(val);
+
+      // Gradient descent toward nodal line F(u,v) = 0
+      const gLen = Math.hypot(dFdu, dFdv) + 1e-4;
+      const gx = (val * dFdu) / gLen;
+      const gy = (val * dFdv) / gLen;
+
+      // Stochastic acoustic bounce proportional to local antinode amplitude |F|
+      const jitter = (absVal * 0.85 + scatterEnergy * 0.55) * vibStrength;
+      const jx = (rand() - 0.5) * 2 * jitter;
+      const jy = (rand() - 0.5) * 2 * jitter;
+
+      vx = (vx - gx * pullStrength * 4.2 * sdt + jx * 9.5 * sdt) * 0.84;
+      vy = (vy - gy * pullStrength * 4.2 * sdt + jy * 9.5 * sdt) * 0.84;
+
+      // Clamp velocity
+      const spd = Math.hypot(vx, vy);
+      if (spd > 1.6) {
+        vx = (vx / spd) * 1.6;
+        vy = (vy / spd) * 1.6;
+      }
+
+      u += vx * sdt;
+      v += vy * sdt;
+
+      // Soft reflection off plate edges [0.025, 0.975]
+      if (u < 0.025) { u = 0.025; vx = Math.abs(vx) * 0.6; }
+      else if (u > 0.975) { u = 0.975; vx = -Math.abs(vx) * 0.6; }
+      if (v < 0.025) { v = 0.025; vy = Math.abs(vy) * 0.6; }
+      else if (v > 0.975) { v = 0.975; vy = -Math.abs(vy) * 0.6; }
+
+      px[i] = u;
+      py[i] = v;
+      pvx[i] = vx;
+      pvy[i] = vy;
+      pSettled[i] = Math.max(0, Math.min(1, 1 - absVal * 3.8));
+    }
+  }
+
+  // Update FX
+  for (let i = waves.length - 1; i >= 0; i--) {
+    const w = waves[i];
+    w.r += (w.maxR - w.r) * Math.min(1, dt * 6.5);
+    w.alpha -= dt * 1.5;
+    if (w.alpha <= 0) waves.splice(i, 1);
+  }
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    sp.x += sp.vx * dt;
+    sp.y += sp.vy * dt;
+    sp.vx *= 0.96;
+    sp.vy *= 0.96;
+    sp.life -= dt * 1.4;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+}
+
+function drawHook(text, S) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const maxW = W * 0.82;
+  let fontSize = Math.round(38 * S);
+  ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  while (ctx.measureText(text).width > maxW && fontSize > Math.round(22 * S)) {
+    fontSize -= 2;
+    ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  }
+  ctx.shadowColor = 'rgba(250,204,21,0.55)';
+  ctx.shadowBlur = 18 * S;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, W * 0.5, H * 0.102, maxW);
+  ctx.restore();
+}
+
+function drawCornerClamp(x, y, rot, S, glowCol) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  // Heavy anodized bracket
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = glowCol;
+  ctx.lineWidth = 2.6 * S;
+  ctx.shadowColor = glowCol;
+  ctx.shadowBlur = 14 * S;
+  ctx.beginPath();
+  ctx.roundRect(-22 * S, -22 * S, 44 * S, 44 * S, 10 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Inner metallic hex bolt
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.arc(0, 0, 10 * S, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Glowing LED core
+  ctx.fillStyle = glowCol;
+  ctx.beginPath();
+  ctx.arc(0, 0, 4.5 * S, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawFrame() {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.48;
+  const plateSize = 540 * S;
+  const plateHalf = plateSize * 0.5;
+  const plateX = cx - plateHalf;
+  const plateY = cy - plateHalf;
+  const mode = MODES[modeIdx];
+
+  // Background
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Radial acoustic resonance glow behind plate
+  const bgGrad = ctx.createRadialGradient(cx, cy, 40 * S, cx, cy, 460 * S);
+  bgGrad.addColorStop(0, climaxTriggered ? 'rgba(250,204,21,0.20)' : 'rgba(34,211,238,0.12)');
+  bgGrad.addColorStop(0.6, 'rgba(15,23,42,0.22)');
+  bgGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle vibration offset during mode jumps
+  const vibAmp = plateVib * 3.5 * S;
+  const jx = vibAmp > 0.1 ? Math.sin(simTime * 110) * vibAmp : 0;
+  const jy = vibAmp > 0.1 ? Math.cos(simTime * 124) * vibAmp : 0;
+
+  ctx.save();
+  ctx.translate(jx, jy);
+
+  // Outer drop shadow & metallic plate frame
+  ctx.save();
+  ctx.shadowColor = climaxTriggered ? 'rgba(250,204,21,0.45)' : 'rgba(34,211,238,0.32)';
+  ctx.shadowBlur = 28 * S;
+  ctx.fillStyle = '#0b1120';
+  ctx.beginPath();
+  ctx.roundRect(plateX - 10 * S, plateY - 10 * S, plateSize + 20 * S, plateSize + 20 * S, 20 * S);
+  ctx.fill();
+  ctx.restore();
+
+  // Dark brushed-metal resonant plate surface
+  const metalGrad = ctx.createLinearGradient(plateX, plateY, plateX + plateSize, plateY + plateSize);
+  metalGrad.addColorStop(0, '#131b2e');
+  metalGrad.addColorStop(0.35, '#0c1322');
+  metalGrad.addColorStop(0.55, '#172033');
+  metalGrad.addColorStop(1, '#090e1a');
+  ctx.fillStyle = metalGrad;
+  ctx.beginPath();
+  ctx.roundRect(plateX, plateY, plateSize, plateSize, 14 * S);
+  ctx.fill();
+
+  // Clip interior for brushed metal grain & acoustic rings
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(plateX, plateY, plateSize, plateSize, 14 * S);
+  ctx.clip();
+
+  // Subtle horizontal brushed-metal lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.028)';
+  ctx.lineWidth = 1 * S;
+  for (let y = plateY; y < plateY + plateSize; y += 6 * S) {
+    ctx.beginPath();
+    ctx.moveTo(plateX, y);
+    ctx.lineTo(plateX + plateSize, y);
+    ctx.stroke();
+  }
+
+  // Subtle center transducer ring & crosshair
+  ctx.strokeStyle = 'rgba(56,189,248,0.08)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 42 * S, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(plateX, cy); ctx.lineTo(plateX + plateSize, cy);
+  ctx.moveTo(cx, plateY); ctx.lineTo(cx, plateY + plateSize);
+  ctx.stroke();
+
+  // Acoustic wave rings on the plate
+  for (const w of waves) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, w.alpha);
+    ctx.strokeStyle = w.col;
+    ctx.lineWidth = 3.5 * S;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 2,600 shimmering golden sand grains (#fde047 / #f59e0b)
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const gx = plateX + px[i] * plateSize;
+    const gy = plateY + py[i] * plateSize;
+    const settled = pSettled[i];
+    const sz = pSize[i] * S * (0.9 + settled * 0.25);
+
+    if (settled > 0.72) {
+      ctx.fillStyle = pTone[i] > 0.35 ? '#fde047' : '#fef08a';
+    } else if (settled > 0.35) {
+      ctx.fillStyle = '#f59e0b';
+    } else {
+      ctx.fillStyle = 'rgba(245,158,11,0.72)';
+    }
+    ctx.fillRect(gx - sz * 0.5, gy - sz * 0.5, sz, sz);
+  }
+
+  // Subtle additive golden sparkle pass on locked grains
+  if (climaxTriggered || modeAge > 1.2) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const shimmerAlpha = climaxTriggered ? 0.38 : Math.min(0.24, (modeAge - 1.2) * 0.14);
+    ctx.fillStyle = `rgba(253,224,71,${shimmerAlpha})`;
+    for (let i = 0; i < PARTICLE_COUNT; i += 4) {
+      if (pSettled[i] > 0.82) {
+        const gx = plateX + px[i] * plateSize;
+        const gy = plateY + py[i] * plateSize;
+        const sz = 4.2 * S;
+        ctx.fillRect(gx - sz * 0.5, gy - sz * 0.5, sz, sz);
+      }
+    }
+    ctx.restore();
+  }
+
+  ctx.restore(); // end plate clip
+
+  // Metallic plate border bevel
+  ctx.strokeStyle = climaxTriggered ? '#fde047' : 'rgba(56,189,248,0.55)';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.roundRect(plateX, plateY, plateSize, plateSize, 14 * S);
+  ctx.stroke();
+
+  // 4 Glowing Cyan/Gold Corner Clamps
+  const cOff = 6 * S;
+  drawCornerClamp(plateX + cOff, plateY + cOff, 0, S, climaxTriggered ? '#fde047' : '#22d3ee');
+  drawCornerClamp(plateX + plateSize - cOff, plateY + cOff, Math.PI * 0.5, S, '#facc15');
+  drawCornerClamp(plateX + cOff, plateY + plateSize - cOff, -Math.PI * 0.5, S, '#facc15');
+  drawCornerClamp(plateX + plateSize - cOff, plateY + plateSize - cOff, Math.PI, S, climaxTriggered ? '#fde047' : '#22d3ee');
+
+  // Sparks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
+    ctx.fillStyle = sp.col;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore(); // end vibration transform
+
+  // Top Safe-Zone HUD
+  drawHook(HOOK, S);
+
+  // Frequency Readout & Eigenmode Badge above plate
+  const freqY = H * 0.185;
+  ctx.save();
+  ctx.translate(cx, freqY);
+  const popScale = 1 + freqPop * 0.14;
+  ctx.scale(popScale, popScale);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const hzText = `${Math.round(displayHz).toLocaleString()} Hz`;
+  ctx.font = `900 ${Math.round(62 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.shadowColor = climaxTriggered ? '#fde047' : mode.col;
+  ctx.shadowBlur = 24 * S;
+  ctx.fillStyle = climaxTriggered ? '#fde047' : '#ffffff';
+  ctx.fillText(hzText, 0, 0, W * 0.8);
+  ctx.shadowBlur = 0;
+
+  ctx.font = `800 ${Math.round(22 * S)}px monospace`;
+  ctx.fillStyle = mode.col;
+  ctx.fillText(`EIGENMODE (m=${mode.m}, n=${mode.n})`, 0, 44 * S, W * 0.8);
+  ctx.restore();
+
+  // Bottom Acoustic Standing-Wave Oscilloscope & Frequency Stepper (Safe-Zone)
+  const oscY = H * 0.775;
+  const oscW = W * 0.74;
+  const oscX = cx - oscW * 0.5;
+  ctx.save();
+  ctx.strokeStyle = climaxTriggered ? '#fde047' : mode.col;
+  ctx.lineWidth = 3 * S;
+  ctx.shadowColor = climaxTriggered ? '#fde047' : mode.col;
+  ctx.shadowBlur = 12 * S;
+  ctx.beginPath();
+  const waveFreq = (mode.m + mode.n) * 1.4;
+  const waveAmp = (16 + plateVib * 14) * S;
+  for (let i = 0; i <= 80; i++) {
+    const t = i / 80;
+    const x = oscX + t * oscW;
+    const env = Math.sin(t * Math.PI);
+    const y = oscY + Math.sin(t * Math.PI * waveFreq + simTime * 14) * waveAmp * env;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // 5-Step Frequency Pills
+  const stepY = H * 0.835;
+  const stepW = (W * 0.82) / MODES.length;
+  const startX = cx - (W * 0.82) * 0.5;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < MODES.length; i++) {
+    const mx = startX + stepW * (i + 0.5);
+    const active = i === modeIdx;
+    const passed = i < modeIdx || climaxTriggered;
+    ctx.fillStyle = active ? 'rgba(250,204,21,0.22)' : (passed ? 'rgba(34,211,238,0.14)' : 'rgba(15,23,42,0.75)');
+    ctx.strokeStyle = active ? '#fde047' : (passed ? '#22d3ee' : 'rgba(148,163,184,0.3)');
+    ctx.lineWidth = (active ? 2.5 : 1.5) * S;
+    ctx.beginPath();
+    ctx.roundRect(mx - stepW * 0.44, stepY - 18 * S, stepW * 0.88, 36 * S, 10 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = `800 ${Math.round(17 * S)}px monospace`;
+    ctx.fillStyle = active ? '#fde047' : (passed ? '#e0f2fe' : '#64748b');
+    ctx.fillText(`${MODES[i].hz}`, mx, stepY);
+  }
+  ctx.restore();
+
+  // Climax Banner at ~88% of DUR
+  if (climaxTriggered) {
+    const finAge = Math.min(1, (simTime - climaxTime) / 0.32);
+    const scale = 0.85 + 0.15 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.90)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.42, -66 * S, W * 0.84, 132 * S, 26 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 26 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('4096 HZ LOCKED! ✨', 0, -10 * S, W * 0.78);
+    ctx.font = `800 ${Math.round(21 * S)}px monospace`;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('SACRED HARMONIC MODE (5, 8)', 0, 34 * S, W * 0.78);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    stepPhysics(1 / FPS);
+    drawFrame();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

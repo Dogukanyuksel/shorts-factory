@@ -1,0 +1,549 @@
+<!doctype html>
+<!--
+  Clear Mechanics — Engine 4-Way Battle (2-Stroke | 4-Stroke | Wankel Rotary | Electric Motor, 60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#060912;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Four completely different machines. One goal: turn energy into unstoppable rotation.', caption: '4-WAY ENGINE BATTLE' },
+  { id: 'twostroke', text: 'First, the two-stroke. No valves, just side ports — firing every single turn for raw punch, at 28% efficiency.', caption: '2-STROKE: ~28%' },
+  { id: 'fourstroke', text: 'Next, the four-stroke. Precision valves split intake and exhaust, boosting efficiency to 35%.', caption: '4-STROKE: ~35%' },
+  { id: 'wankel', text: 'The Wankel rotary ditches pistons completely, spinning a triangular rotor at screaming RPM — around 30%.', caption: 'WANKEL: ~30%' },
+  { id: 'electric', text: 'Now look at the electric motor. Zero explosions — just a rotating magnetic field hitting 92% efficiency!', caption: 'ELECTRIC: ~92%!' },
+  { id: 'verdict', text: 'Combustion engines lose most energy as heat. Pure electromagnetism wins the efficiency crown.', caption: 'WINNER: ELECTRIC!' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const l2 = getLine('twostroke', 1);
+  const l4 = getLine('fourstroke', 2);
+  const lW = getLine('wankel', 3);
+  const lE = getLine('electric', 4);
+  const lV = getLine('verdict', 5);
+
+  EVENTS = [
+    { t: l2.start + 0.15, type: 'bounce', pitchIndex: 2, intensity: 0.65 },
+    { t: l4.start + 0.15, type: 'bounce', pitchIndex: 4, intensity: 0.65 },
+    { t: lW.start + 0.15, type: 'bounce', pitchIndex: 6, intensity: 0.7 },
+    { t: lE.start + 0.15, type: 'break', pitchIndex: 9, intensity: 0.85 },
+    { t: lV.start + 0.2, type: 'win', pitchIndex: 12, intensity: 1.0 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+// === QUADRANT 1: 2-STROKE ENGINE (ports + spark EVERY revolution) ===
+function drawTwoStroke(cx, cy, qW, qH, t, S) {
+  const theta = t * 5.2; // rapid 2-stroke revving
+  const deg = ((theta * 180) / Math.PI % 360 + 360) % 360;
+  const boreW = 68 * S;
+  const wallT = 10 * S;
+  const deckY = cy - 72 * S;
+  const crankY = cy + 56 * S;
+  const crankR = 23 * S;
+  const rodL = 62 * S;
+  const pistonH = 34 * S;
+
+  const pinX = cx + Math.sin(theta) * crankR;
+  const pinY = crankY - Math.cos(theta) * crankR;
+  const dx = pinX - cx;
+  const wristY = pinY - Math.sqrt(Math.max(1, rodL * rodL - dx * dx));
+  const pistonTop = wristY - pistonH * 0.55;
+  const chamberH = Math.max(6 * S, pistonTop - deckY);
+
+  // Crankcase + Cylinder block
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(cx, crankY, 40 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillRect(cx - boreW * 0.5 - wallT, deckY - 8 * S, boreW + wallT * 2, crankY - deckY - 10 * S);
+  ctx.strokeRect(cx - boreW * 0.5 - wallT, deckY - 8 * S, boreW + wallT * 2, crankY - deckY - 10 * S);
+
+  // Inner bore & crankcase cavity
+  ctx.fillStyle = '#090e1a';
+  ctx.beginPath(); ctx.arc(cx, crankY, 32 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.fillRect(cx - boreW * 0.5, deckY, boreW, crankY - deckY - 8 * S);
+
+  // Transfer port (left) & Exhaust port (right)
+  const portY = deckY + 46 * S;
+  ctx.fillStyle = '#0ea5e9';
+  ctx.fillRect(cx - boreW * 0.5 - wallT - 12 * S, portY + 4 * S, wallT + 14 * S, 14 * S);
+  ctx.fillStyle = '#f97316';
+  ctx.fillRect(cx + boreW * 0.5 - 2 * S, portY - 4 * S, wallT + 16 * S, 16 * S);
+
+  // Combustion flash EVERY revolution (0°..140°) & scavenging mist near BDC (140°..230°)
+  const isPower = deg < 145;
+  const isScavenge = deg >= 145 && deg < 235;
+  if (isPower) {
+    const k = 1 - deg / 145;
+    const fg = ctx.createRadialGradient(cx, deckY + chamberH * 0.4, 2 * S, cx, deckY + chamberH * 0.5, boreW * 0.7);
+    fg.addColorStop(0, `rgba(255,255,220,${(0.95 * k).toFixed(2)})`);
+    fg.addColorStop(0.5, `rgba(249,115,22,${(0.85 * k).toFixed(2)})`);
+    fg.addColorStop(1, 'rgba(185,28,28,0.1)');
+    ctx.fillStyle = fg;
+    ctx.fillRect(cx - boreW * 0.5 + 1, deckY, boreW - 2, chamberH);
+  } else if (isScavenge) {
+    ctx.fillStyle = 'rgba(56,189,248,0.34)';
+    ctx.fillRect(cx - boreW * 0.5 + 1, deckY, boreW - 2, chamberH);
+  } else {
+    ctx.fillStyle = 'rgba(125,211,252,0.22)';
+    ctx.fillRect(cx - boreW * 0.5 + 1, deckY, boreW - 2, chamberH);
+  }
+
+  // Spark plug at top center
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillRect(cx - 4 * S, deckY - 18 * S, 8 * S, 18 * S);
+  if (deg < 28 || deg > 344) {
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 14 * S;
+    ctx.beginPath(); ctx.arc(cx, deckY + 4 * S, 8 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Crankshaft & connecting rod
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 6 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(cx, crankY); ctx.lineTo(pinX, pinY); ctx.stroke();
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 5 * S;
+  ctx.beginPath(); ctx.moveTo(pinX, pinY); ctx.lineTo(cx, wristY); ctx.stroke();
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath(); ctx.arc(cx, crankY, 7 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(pinX, pinY, 5 * S, 0, Math.PI * 2); ctx.fill();
+
+  // Piston
+  const pg = ctx.createLinearGradient(cx - boreW * 0.5, 0, cx + boreW * 0.5, 0);
+  pg.addColorStop(0, '#9a3412'); pg.addColorStop(0.45, '#fdba74'); pg.addColorStop(1, '#7c2d12');
+  ctx.fillStyle = pg;
+  ctx.beginPath(); ctx.roundRect(cx - boreW * 0.5 + 2 * S, pistonTop, boreW - 4 * S, pistonH, 4 * S); ctx.fill();
+}
+
+// === QUADRANT 2: 4-STROKE ENGINE (dual overhead valves + 2-rev cycle) ===
+function drawFourStroke(cx, cy, qW, qH, t, S) {
+  const theta = t * 4.4;
+  const cycleDeg = (((theta * 180) / Math.PI) % 720 + 720) % 720;
+  const phase = Math.floor(cycleDeg / 180) % 4;
+  const pProg = (cycleDeg % 180) / 180;
+
+  const boreW = 68 * S;
+  const wallT = 10 * S;
+  const deckY = cy - 66 * S;
+  const crankY = cy + 58 * S;
+  const crankR = 22 * S;
+  const rodL = 60 * S;
+  const pistonH = 32 * S;
+
+  const pinX = cx + Math.sin(theta) * crankR;
+  const pinY = crankY - Math.cos(theta) * crankR;
+  const dx = pinX - cx;
+  const wristY = pinY - Math.sqrt(Math.max(1, rodL * rodL - dx * dx));
+  const pistonTop = wristY - pistonH * 0.55;
+  const chamberH = Math.max(6 * S, pistonTop - deckY);
+
+  // Housing
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(cx, crankY, 39 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillRect(cx - boreW * 0.5 - wallT, deckY - 22 * S, boreW + wallT * 2, crankY - deckY + 4 * S);
+  ctx.strokeRect(cx - boreW * 0.5 - wallT, deckY - 22 * S, boreW + wallT * 2, crankY - deckY + 4 * S);
+
+  ctx.fillStyle = '#090e1a';
+  ctx.beginPath(); ctx.arc(cx, crankY, 31 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.fillRect(cx - boreW * 0.5, deckY, boreW, crankY - deckY - 8 * S);
+
+  // Chamber color per stroke
+  if (phase === 0) {
+    ctx.fillStyle = `rgba(56,189,248,${(0.38 * pProg + 0.1).toFixed(2)})`;
+  } else if (phase === 1) {
+    ctx.fillStyle = `rgba(125,211,252,${(0.25 + 0.45 * pProg).toFixed(2)})`;
+  } else if (phase === 2) {
+    const k = 1 - pProg * 0.6;
+    ctx.fillStyle = `rgba(251,146,60,${(0.88 * k).toFixed(2)})`;
+  } else {
+    ctx.fillStyle = `rgba(148,163,184,${(0.42 * (1 - pProg * 0.4)).toFixed(2)})`;
+  }
+  ctx.fillRect(cx - boreW * 0.5 + 1, deckY, boreW - 2, chamberH);
+
+  // Dual overhead valves (Intake left, Exhaust right)
+  const inDrop = phase === 0 ? Math.sin(pProg * Math.PI) * 11 * S : 0;
+  const exDrop = phase === 3 ? Math.sin(pProg * Math.PI) * 11 * S : 0;
+  const drawMiniValve = (vx, drop, col) => {
+    ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.moveTo(vx, deckY - 20 * S + drop); ctx.lineTo(vx, deckY + 2 * S + drop); ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.fillRect(vx - 11 * S, deckY + drop, 22 * S, 4 * S);
+  };
+  drawMiniValve(cx - 18 * S, inDrop, '#60a5fa');
+  drawMiniValve(cx + 18 * S, exDrop, '#fb923c');
+
+  // Spark plug (fires only at TDC of Power = 360°)
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(cx - 3.5 * S, deckY - 24 * S, 7 * S, 24 * S);
+  if (Math.abs(cycleDeg - 365) < 25) {
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 16 * S;
+    ctx.beginPath(); ctx.arc(cx, deckY + 4 * S, 9 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Crank & rod
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 6 * S; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(cx, crankY); ctx.lineTo(pinX, pinY); ctx.stroke();
+  ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 5 * S;
+  ctx.beginPath(); ctx.moveTo(pinX, pinY); ctx.lineTo(cx, wristY); ctx.stroke();
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath(); ctx.arc(cx, crankY, 7 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(pinX, pinY, 5 * S, 0, Math.PI * 2); ctx.fill();
+
+  // Piston
+  const pg = ctx.createLinearGradient(cx - boreW * 0.5, 0, cx + boreW * 0.5, 0);
+  pg.addColorStop(0, '#1e40af'); pg.addColorStop(0.45, '#93c5fd'); pg.addColorStop(1, '#1e3a8a');
+  ctx.fillStyle = pg;
+  ctx.beginPath(); ctx.roundRect(cx - boreW * 0.5 + 2 * S, pistonTop, boreW - 4 * S, pistonH, 4 * S); ctx.fill();
+}
+
+// === QUADRANT 3: WANKEL ROTARY (Reuleaux triangle rotor inside epitrochoid housing) ===
+function drawWankel(cx, cy, qW, qH, t, S) {
+  const e = 13 * S;      // eccentricity
+  const R = 64 * S;      // rotor center-to-apex radius
+  const phi = t * 1.65;  // rotor rotation angle (eccentric shaft spins at 3*phi)
+
+  // Epitrochoid housing outer & inner walls
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Outer metallic shell
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 2.4 * S;
+  ctx.beginPath();
+  for (let i = 0; i <= 120; i++) {
+    const a = (i / 120) * Math.PI * 2;
+    const x = e * Math.cos(3 * a) + (R + 13 * S) * Math.cos(a);
+    const y = e * Math.sin(3 * a) + (R + 13 * S) * Math.sin(a);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Inner epitrochoid chamber
+  ctx.fillStyle = '#090e1a';
+  ctx.strokeStyle = '#ec4899';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  for (let i = 0; i <= 120; i++) {
+    const a = (i / 120) * Math.PI * 2;
+    const x = e * Math.cos(3 * a) + (R + 2 * S) * Math.cos(a);
+    const y = e * Math.sin(3 * a) + (R + 2 * S) * Math.sin(a);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Intake (top-left blue) & Ignition/Power (right-bottom orange flash) chamber glows
+  ctx.fillStyle = 'rgba(56,189,248,0.28)';
+  ctx.beginPath(); ctx.arc(-44 * S, -22 * S, 24 * S, 0, Math.PI * 2); ctx.fill();
+  const sparkPulse = Math.pow(0.5 + 0.5 * Math.sin(phi * 3), 4);
+  ctx.fillStyle = `rgba(251,146,60,${(0.25 + 0.65 * sparkPulse).toFixed(2)})`;
+  ctx.beginPath(); ctx.arc(48 * S, 8 * S, 22 * S, 0, Math.PI * 2); ctx.fill();
+
+  // Spark plugs on right waist
+  if (sparkPulse > 0.6) {
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 12 * S;
+    ctx.beginPath(); ctx.arc(R - 4 * S, 0, 6 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Spinning Reuleaux Triangle Rotor orbiting at (e*cos(3*phi), e*sin(3*phi))
+  const rx = e * Math.cos(3 * phi);
+  const ry = e * Math.sin(3 * phi);
+  ctx.save();
+  ctx.translate(rx, ry);
+  ctx.rotate(phi);
+
+  const verts = [0, 1, 2].map((k) => {
+    const a = (k * Math.PI * 2) / 3;
+    return { x: Math.cos(a) * R, y: Math.sin(a) * R };
+  });
+
+  const rg = ctx.createRadialGradient(-10 * S, -10 * S, 4 * S, 0, 0, R);
+  rg.addColorStop(0, '#f472b6');
+  rg.addColorStop(0.55, '#db2777');
+  rg.addColorStop(1, '#831843');
+  ctx.fillStyle = rg;
+  ctx.strokeStyle = '#fbcfe8';
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.moveTo(verts[0].x, verts[0].y);
+  for (let k = 0; k < 3; k++) {
+    const v1 = verts[k], v2 = verts[(k + 1) % 3];
+    // Bulged Reuleaux flank
+    const mx = (v1.x + v2.x) * 0.5 * 1.42;
+    const my = (v1.y + v2.y) * 0.5 * 1.42;
+    ctx.quadraticCurveTo(mx, my, v2.x, v2.y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Inner rotor bearing gear
+  ctx.fillStyle = '#0f172a';
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(0, 0, 20 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Fixed center shaft
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath(); ctx.arc(0, 0, 8 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// === QUADRANT 4: BRUSHLESS 3-PHASE ELECTRIC MOTOR ===
+function drawElectricMotor(cx, cy, qW, qH, t, S) {
+  const omega = t * 6.8; // ultra-smooth high-RPM rotation
+  const outerR = 78 * S;
+  const statorR = 54 * S;
+  const rotorR = 36 * S;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Outer stator housing ring
+  const sg = ctx.createRadialGradient(-18 * S, -18 * S, 10 * S, 0, 0, outerR);
+  sg.addColorStop(0, '#334155');
+  sg.addColorStop(0.7, '#1e293b');
+  sg.addColorStop(1, '#0f172a');
+  ctx.fillStyle = sg;
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = 2.4 * S;
+  ctx.beginPath(); ctx.arc(0, 0, outerR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Inner air-gap cavity
+  ctx.fillStyle = '#070b14';
+  ctx.beginPath(); ctx.arc(0, 0, statorR + 10 * S, 0, Math.PI * 2); ctx.fill();
+
+  // 6 Copper Stator Poles pulsing in 3-phase rotating magnetic field
+  for (let i = 0; i < 6; i++) {
+    const ang = (i * Math.PI * 2) / 6;
+    const phaseVal = Math.cos(omega - ang); // rotating field strength [-1, +1]
+    const px = Math.cos(ang) * statorR;
+    const py = Math.sin(ang) * statorR;
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(ang);
+
+    // Copper coil glow proportional to instantaneous current
+    const magGlow = Math.abs(phaseVal);
+    ctx.shadowColor = phaseVal >= 0 ? '#34d399' : '#38bdf8';
+    ctx.shadowBlur = (6 + magGlow * 14) * S;
+    ctx.fillStyle = phaseVal >= 0
+      ? `rgba(16,185,129,${(0.35 + 0.65 * magGlow).toFixed(2)})`
+      : `rgba(56,189,248,${(0.35 + 0.65 * magGlow).toFixed(2)})`;
+    ctx.strokeStyle = '#fb923c'; // copper wire outline
+    ctx.lineWidth = 2.4 * S;
+    ctx.beginPath(); ctx.roundRect(-13 * S, -11 * S, 24 * S, 22 * S, 5 * S); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Rotating magnetic field lines (dashed glowing flux loops)
+  ctx.save();
+  ctx.rotate(omega);
+  ctx.strokeStyle = 'rgba(52,211,153,0.48)';
+  ctx.lineWidth = 2 * S;
+  ctx.setLineDash([5 * S, 5 * S]);
+  ctx.beginPath(); ctx.ellipse(0, 0, rotorR + 14 * S, rotorR + 6 * S, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Spinning Permanent-Magnet Rotor (N = Emerald/Red, S = Cyan/Blue)
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = 16 * S;
+  ctx.fillStyle = '#10b981';
+  ctx.beginPath(); ctx.arc(0, 0, rotorR, -Math.PI * 0.5, Math.PI * 0.5); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#0ea5e9';
+  ctx.beginPath(); ctx.arc(0, 0, rotorR, Math.PI * 0.5, Math.PI * 1.5); ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 2.4 * S;
+  ctx.beginPath(); ctx.arc(0, 0, rotorR, 0, Math.PI * 2); ctx.stroke();
+
+  // N / S pole letters
+  ctx.font = `900 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#052e16';
+  ctx.fillText('N', 16 * S, 0);
+  ctx.fillStyle = '#082f49';
+  ctx.fillText('S', -16 * S, 0);
+
+  // Center drive shaft
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath(); ctx.arc(0, 0, 9 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const cx = W * 0.47;
+  const safeLeft = W * 0.08;
+  const safeRight = W * 0.86;
+  const safeW = safeRight - safeLeft;
+
+  // Deep carbon backdrop
+  ctx.fillStyle = '#060912';
+  ctx.fillRect(0, 0, W, H);
+
+  const l2 = getLine('twostroke', 1);
+  const l4 = getLine('fourstroke', 2);
+  const lW = getLine('wankel', 3);
+  const lE = getLine('electric', 4);
+  const lV = getLine('verdict', 5);
+
+  // Determine active spotlight quadrant
+  let activeQuad = -1;
+  if (t >= l2.start && t < l4.start) activeQuad = 0;
+  else if (t >= l4.start && t < lW.start) activeQuad = 1;
+  else if (t >= lW.start && t < lE.start) activeQuad = 2;
+  else if (t >= lE.start) activeQuad = 3;
+  const isVerdict = t >= lV.start;
+
+  // === TOP TITLE (y = H*0.155 >= H*0.14) ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('4-WAY ENGINE EFFICIENCY BATTLE', 29 * S, safeW, '900');
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillText('4-WAY ENGINE EFFICIENCY BATTLE', cx, H * 0.155);
+  ctx.restore();
+
+  // === 2x2 SPLIT-SCREEN GRID inside x: [W*0.08, W*0.86], y: [H*0.184, H*0.768] ===
+  const gap = 14 * S;
+  const gridTop = H * 0.184;
+  const gridBot = H * 0.768;
+  const qW = (safeW - gap) * 0.5;
+  const qH = (gridBot - gridTop - gap) * 0.5;
+
+  const quads = [
+    { col: 0, row: 0, title: '2-STROKE',      eff: '~28%', accent: '#f97316', draw: drawTwoStroke },
+    { col: 1, row: 0, title: '4-STROKE',      eff: '~35%', accent: '#38bdf8', draw: drawFourStroke },
+    { col: 0, row: 1, title: 'WANKEL ROTARY', eff: '~30%', accent: '#ec4899', draw: drawWankel },
+    { col: 1, row: 1, title: 'ELECTRIC MOTOR',eff: '~92%', accent: '#10b981', draw: drawElectricMotor },
+  ];
+
+  for (let i = 0; i < 4; i++) {
+    const q = quads[i];
+    const qx = safeLeft + q.col * (qW + gap);
+    const qy = gridTop + q.row * (qH + gap);
+    const qcx = qx + qW * 0.5;
+    const qcy = qy + qH * 0.51;
+    const isSpot = activeQuad === i;
+    const isWinner = isVerdict && i === 3;
+
+    // Quadrant card panel
+    ctx.save();
+    ctx.fillStyle = isSpot ? 'rgba(15,23,42,0.95)' : 'rgba(11,16,30,0.86)';
+    ctx.strokeStyle = isSpot ? q.accent : 'rgba(148,163,184,0.22)';
+    ctx.lineWidth = (isSpot ? 3.5 : 1.6) * S;
+    if (isSpot) {
+      ctx.shadowColor = q.accent;
+      ctx.shadowBlur = (isWinner ? 28 : 16) * S;
+    }
+    ctx.beginPath();
+    ctx.roundRect(qx, qy, qW, qH, 18 * S);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Clip to quadrant card for crisp cutaway animation
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(qx + 2 * S, qy + 2 * S, qW - 4 * S, qH - 4 * S, 16 * S);
+    ctx.clip();
+    q.draw(qcx, qcy, qW, qH, t, S);
+    ctx.restore();
+
+    // Quadrant Title Header
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(q.title, 20 * S, qW - 22 * S, '900');
+    ctx.fillStyle = isSpot ? q.accent : '#e2e8f0';
+    ctx.fillText(q.title, qcx, qy + 24 * S);
+
+    // Live Efficiency Badge Pill at bottom of quadrant
+    const bW = Math.min(qW - 28 * S, 150 * S);
+    const bH = 34 * S;
+    const bY = qy + qH - 28 * S;
+    ctx.fillStyle = isWinner ? '#10b981' : 'rgba(6,9,18,0.88)';
+    ctx.strokeStyle = q.accent;
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath();
+    ctx.roundRect(qcx - bW * 0.5, bY - bH * 0.5, bW, bH, 17 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    const badgeTxt = isWinner ? `★ ${q.eff} WIN` : `EFF: ${q.eff}`;
+    fitFont(badgeTxt, 17 * S, bW - 14 * S, '900', 'ui-monospace, SFMono-Regular, monospace');
+    ctx.fillStyle = isWinner ? '#022c22' : q.accent;
+    ctx.fillText(badgeTxt, qcx, bY + 1 * S);
+
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

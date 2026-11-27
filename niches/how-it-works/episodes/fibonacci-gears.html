@@ -1,0 +1,425 @@
+<!doctype html>
+<!--
+  Clear Mechanics — Fibonacci Gears (Non-Circular Golden Ratio Spiral Gears, 60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#05070B;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const PHI = (1 + Math.sqrt(5)) / 2; // 1.61803398875
+const LN_PHI = Math.log(PHI);
+
+const SCRIPT = [
+  { id: 'hook', text: 'Can two lopsided spiral gears spin together without ever jamming?', caption: 'FIBONACCI GEARS' },
+  { id: 'spiral', text: 'Each gear follows the golden ratio spiral — growing wider by phi as it turns.', caption: 'GOLDEN RATIO φ' },
+  { id: 'distance', text: 'Watch the glowing contact point. As one radius shrinks, the other grows by the exact same amount.', caption: 'r₁ + r₂ = CONSTANT' },
+  { id: 'teeth', text: 'Because their arc lengths match at every angle, every single tooth locks in smoothly.', caption: 'ZERO SLIP MESH' },
+  { id: 'ratio', text: 'Drive the top gear at steady speed, and the bottom gear pulses from 0.62x to 1.62x speed!', caption: '0.62x → 1.62x' },
+  { id: 'use', text: 'Engineers use non-circular gears like this in textile looms, printing presses, and robotic arms.', caption: 'MATH IN MOTION' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+let GEAR_DATA = null;
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+// Closed smooth golden-ratio pitch curve: r1(theta) = a * phi^(0.5 * cos(theta))
+// Gives exact max/min radius ratio = phi = 1.618034 and speed ratio 0.618x .. 1.618x!
+function r1Norm(theta) {
+  // Smooth golden-ratio logarithmic spiral lobe (with slight spiral skew for authentic Fibonacci silhouette)
+  const wave = Math.cos(theta) + 0.14 * Math.sin(2 * theta);
+  return Math.pow(PHI, 0.5 * wave);
+}
+
+function buildConjugateGears() {
+  const N = 720;
+  const dth = (Math.PI * 2) / N;
+  const r1Raw = new Float64Array(N + 1);
+  let rMin = Infinity, rMax = -Infinity;
+  for (let i = 0; i <= N; i++) {
+    const th = i * dth;
+    const r = r1Norm(th);
+    r1Raw[i] = r;
+    if (r < rMin) rMin = r;
+    if (r > rMax) rMax = r;
+  }
+
+  // Solve for center distance D_norm such that integral_0^{2pi} r1(u) / (D - r1(u)) du = 2*pi
+  let lo = rMax + 0.05, hi = rMax * 6.0;
+  for (let iter = 0; iter < 50; iter++) {
+    const mid = 0.5 * (lo + hi);
+    let integ = 0;
+    for (let i = 0; i < N; i++) {
+      const rMid = 0.5 * (r1Raw[i] + r1Raw[i + 1]);
+      integ += (rMid / (mid - rMid)) * dth;
+    }
+    if (integ > Math.PI * 2) lo = mid; else hi = mid;
+  }
+  const D = 0.5 * (lo + hi);
+
+  // Build exact angle mapping th1 -> th2, radii r2(th2), and equal arc-length parameterization
+  const th1Arr = new Float64Array(N + 1);
+  const th2Arr = new Float64Array(N + 1);
+  const r2Arr = new Float64Array(N + 1);
+  const sArr = new Float64Array(N + 1);
+
+  th2Arr[0] = 0;
+  sArr[0] = 0;
+  for (let i = 0; i <= N; i++) {
+    th1Arr[i] = i * dth;
+    r2Arr[i] = D - r1Raw[i];
+    if (i > 0) {
+      const r1m = 0.5 * (r1Raw[i - 1] + r1Raw[i]);
+      const r2m = D - r1m;
+      th2Arr[i] = th2Arr[i - 1] + (r1m / r2m) * dth;
+      const dr1 = (r1Raw[i] - r1Raw[i - 1]) / dth;
+      sArr[i] = sArr[i - 1] + Math.hypot(r1m, dr1) * dth;
+    }
+  }
+  // Normalize th2Arr end to exact 2*PI to prevent floating drift
+  const th2Scale = (Math.PI * 2) / th2Arr[N];
+  for (let i = 0; i <= N; i++) th2Arr[i] *= th2Scale;
+
+  const totalS = sArr[N];
+  const teeth = 28;
+
+  // Helper to sample (theta, r, normalAngle) by arc-length fraction u in [0, 1)
+  function sampleByArc(u, isGear2) {
+    const targetS = (((u % 1) + 1) % 1) * totalS;
+    let loI = 0, hiI = N;
+    while (loI + 1 < hiI) {
+      const m = (loI + hiI) >> 1;
+      if (sArr[m] <= targetS) loI = m; else hiI = m;
+    }
+    const frac = (targetS - sArr[loI]) / Math.max(1e-9, sArr[hiI] - sArr[loI]);
+    const th = isGear2 ? lerp(th2Arr[loI], th2Arr[hiI], frac) : lerp(th1Arr[loI], th1Arr[hiI], frac);
+    const r = isGear2 ? lerp(r2Arr[loI], r2Arr[hiI], frac) : lerp(r1Raw[loI], r1Raw[hiI], frac);
+    return { th, r };
+  }
+
+  // Precompute dense polygon vertices (in normalized units) for both gears with involute-like trapezoidal teeth
+  function buildGearPoly(isGear2) {
+    const pts = [];
+    const subPerTooth = 8;
+    const totalSteps = teeth * subPerTooth;
+    const addendum = 0.068;
+    const dedendum = 0.078;
+    const phaseShift = isGear2 ? 0.5 : 0.0; // Half-tooth offset so teeth mesh cleanly!
+    for (let k = 0; k < totalSteps; k++) {
+      const toothPos = ((k / subPerTooth) + phaseShift) % 1;
+      // Smooth trapezoidal tooth profile
+      let dr = 0;
+      if (toothPos < 0.14) dr = -dedendum;
+      else if (toothPos < 0.28) dr = lerp(-dedendum, addendum, (toothPos - 0.14) / 0.14);
+      else if (toothPos < 0.52) dr = addendum;
+      else if (toothPos < 0.66) dr = lerp(addendum, -dedendum, (toothPos - 0.52) / 0.14);
+      else dr = -dedendum;
+
+      const u = k / totalSteps;
+      const p0 = sampleByArc(u, isGear2);
+      const pPrev = sampleByArc(u - 0.001, isGear2);
+      const pNext = sampleByArc(u + 0.001, isGear2);
+      // Local outward normal on pitch curve
+      const x0 = p0.r * Math.cos(p0.th), y0 = p0.r * Math.sin(p0.th);
+      const tx = pNext.r * Math.cos(pNext.th) - pPrev.r * Math.cos(pPrev.th);
+      const ty = pNext.r * Math.sin(pNext.th) - pPrev.r * Math.sin(pPrev.th);
+      const tLen = Math.hypot(tx, ty) || 1;
+      // Outward normal for CCW curve is (ty, -tx) / tLen
+      const nx = ty / tLen, ny = -tx / tLen;
+      pts.push({ x: x0 + nx * dr, y: y0 + ny * dr });
+    }
+    return pts;
+  }
+
+  return {
+    N, D, th1Arr, th2Arr, r1Raw, r2Arr,
+    poly1: buildGearPoly(false),
+    poly2: buildGearPoly(true),
+  };
+}
+
+function lookupState(th1) {
+  const G = GEAR_DATA;
+  const twoPi = Math.PI * 2;
+  const turns = Math.floor(th1 / twoPi);
+  const mod = th1 - turns * twoPi;
+  const idxF = (mod / twoPi) * G.N;
+  const i0 = clamp(Math.floor(idxF), 0, G.N - 1);
+  const frac = idxF - i0;
+  const th2 = turns * twoPi + lerp(G.th2Arr[i0], G.th2Arr[i0 + 1], frac);
+  const r1 = lerp(G.r1Raw[i0], G.r1Raw[i0 + 1], frac);
+  const r2 = G.D - r1;
+  return { th2, r1, r2, ratio: r1 / r2 };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  GEAR_DATA = buildConjugateGears();
+
+  const lSp = getLine('spiral', 1);
+  const lDi = getLine('distance', 2);
+  const lTe = getLine('teeth', 3);
+  const lRa = getLine('ratio', 4);
+  const lUs = getLine('use', 5);
+
+  EVENTS = [
+    { t: lSp.start + 0.2, type: 'bounce', pitchIndex: 3, intensity: 0.55 },
+    { t: lDi.start + 0.2, type: 'bounce', pitchIndex: 5, intensity: 0.65 },
+    { t: lTe.start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.7 },
+    { t: lRa.start + 0.2, type: 'bounce', pitchIndex: 9, intensity: 0.8 },
+    { t: lUs.start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.9 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '700', family = 'Georgia, "Times New Roman", serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(11, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function drawGearBody(cx, cy, rotAngle, poly, scalePx, colorMain, colorLight, colorDark, flipY, S) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (flipY) ctx.scale(1, -1);
+  ctx.rotate(rotAngle);
+
+  // Subtle ambient glow
+  ctx.shadowColor = colorLight;
+  ctx.shadowBlur = 18 * S;
+
+  const grad = ctx.createRadialGradient(-18 * S, -18 * S, 8 * S, 0, 0, 1.35 * scalePx);
+  grad.addColorStop(0, colorLight);
+  grad.addColorStop(0.55, colorMain);
+  grad.addColorStop(1, colorDark);
+
+  ctx.fillStyle = grad;
+  ctx.strokeStyle = colorLight;
+  ctx.lineWidth = 2.0 * S;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < poly.length; i++) {
+    const px = poly[i].x * scalePx;
+    const py = poly[i].y * scalePx;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.stroke();
+
+  // Golden-ratio spiral decorative rib inside gear face
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 2.4 * S;
+  ctx.beginPath();
+  for (let a = 0; a <= Math.PI * 2; a += 0.12) {
+    const rr = r1Norm(a) * scalePx * 0.62;
+    const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+    if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  // Weight-relief cutouts
+  for (let k = 0; k < 5; k++) {
+    const a = (k * Math.PI * 2) / 5 + 0.3;
+    const rr = r1Norm(a) * scalePx * 0.48;
+    ctx.fillStyle = '#05070B';
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, Math.max(8 * S, rr * 0.24), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Center metallic hub
+  const hubG = ctx.createRadialGradient(-4 * S, -4 * S, 2 * S, 0, 0, 22 * S);
+  hubG.addColorStop(0, '#f1f5f9');
+  hubG.addColorStop(0.55, '#64748b');
+  hubG.addColorStop(1, '#1e293b');
+  ctx.fillStyle = hubG;
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(0, 0, 21 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#05070B';
+  ctx.beginPath(); ctx.arc(0, 0, 8 * S, 0, Math.PI * 2); ctx.fill();
+
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const cx = W * 0.47;
+  const safeMaxW = W * 0.76;
+
+  // Pure #05070B dark scientific canvas
+  ctx.fillStyle = '#05070B';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle scientific blueprint grid
+  ctx.strokeStyle = 'rgba(148,163,184,0.045)';
+  ctx.lineWidth = 1 * S;
+  for (let x = 0; x < W; x += 45 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 45 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const lDi = getLine('distance', 2);
+  const lRa = getLine('ratio', 4);
+  const highlightDist = smooth(lDi.start, lDi.start + 0.45, t);
+  const highlightRatio = smooth(lRa.start, lRa.start + 0.45, t);
+
+  // Constant angular velocity on top gear (smooth ramp at start)
+  const omega1 = 0.88; // rad/s
+  const th1 = t * omega1;
+  const st = lookupState(th1);
+  const th2 = st.th2;
+
+  // Vertical track geometry
+  const scalePx = 114 * S;
+  const Dpx = GEAR_DATA.D * scalePx;
+  const midY = H * 0.468;
+  const topY = midY - Dpx * 0.5;
+  const botY = midY + Dpx * 0.5;
+
+  // Sleek dark vertical mounting track
+  const railW = 34 * S;
+  const railGrad = ctx.createLinearGradient(cx - railW * 0.5, 0, cx + railW * 0.5, 0);
+  railGrad.addColorStop(0, '#0f172a');
+  railGrad.addColorStop(0.35, '#334155');
+  railGrad.addColorStop(0.5, '#1e293b');
+  railGrad.addColorStop(0.75, '#475569');
+  railGrad.addColorStop(1, '#0f172a');
+  ctx.fillStyle = railGrad;
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.roundRect(cx - railW * 0.5, topY - 46 * S, railW, Dpx + 92 * S, 17 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  // Recessed center slot on track
+  ctx.fillStyle = '#05070B';
+  ctx.beginPath();
+  ctx.roundRect(cx - 5 * S, topY - 26 * S, 10 * S, Dpx + 52 * S, 5 * S);
+  ctx.fill();
+
+  // Orient both gears so their contact point lies on the vertical line between (cx, topY) and (cx, botY):
+  // Top gear contact direction is +Y (angle = +PI/2). We want polar angle th1 of gear 1 to point at +PI/2 -> rotate by (+PI/2 - th1).
+  // Bottom gear contact direction is -Y (angle = -PI/2). With flipY=true, polar angle th2 maps to -th2, so rotate by (-PI/2 + th2) before flip -> actually:
+  // If flipY = true: local (x, y) -> (x, -y). Before flip, rotate by (PI/2 - th2): local angle th2 goes to PI/2 -> after flipY goes to -PI/2 (straight UP to meet top gear!).
+  // Check tangent velocity at contact:
+  // Top gear rotates by (+PI/2 - th1): as th1 increases, top gear rotates CCW on screen (wait: in canvas +Y is down, so angle decreasing = CCW, bottom point moves LEFT).
+  // Bottom gear with flipY rotates by (+PI/2 - th2): before flip angle decreases -> after flip angle INCREASES (CW on screen), so top point of bottom gear moves RIGHT? Wait:
+  // Let's check exact canvas coordinates of a point at polar angle `a` on Gear 1:
+  // G1 screen angle = (PI/2 - th1) + a. At a = th1, screen angle = PI/2 (straight down, x = cx, y = topY + r1).
+  // As th1 increases by +dth1, a fixed point on G1 has screen angle decreasing by -dth1: dx = -r1 * sin(PI/2) * (-dth1) = +r1 * dth1 (moves RIGHT!).
+  // Now check G2 with flipY=true and rotation (+PI/2 - th2):
+  // Local (cos a, sin a) rotated by (+PI/2 - th2) gives (cos(PI/2 - th2 + a), sin(PI/2 - th2 + a)).
+  // After flipY: (cos(PI/2 - th2 + a), -sin(PI/2 - th2 + a)).
+  // At a = th2: (cos(PI/2), -sin(PI/2)) = (0, -1) -> straight UP, x = cx, y = botY - r2!
+  // As th2 increases by +dth2, x = cos(PI/2 - dth2) = +sin(dth2) -> dx = +r2 * dth2 (ALSO moves RIGHT!!).
+  // Since r1 * dth1 = r2 * dth2, BOTH gear surfaces move RIGHT at the EXACT same linear speed! ZERO SLIP!
+  drawGearBody(cx, topY, Math.PI * 0.5 - th1, GEAR_DATA.poly1, scalePx, '#0d9488', '#2dd4bf', '#115e59', false, S);
+  drawGearBody(cx, botY, Math.PI * 0.5 - th2, GEAR_DATA.poly2, scalePx, '#ea580c', '#fb923c', '#9a3412', true, S);
+
+  // Live contact point & glowing radius vectors r1, r2
+  const contactY = topY + st.r1 * scalePx;
+  ctx.save();
+  // r1 vector (teal)
+  ctx.strokeStyle = '#5eead4';
+  ctx.lineWidth = (2.8 + highlightDist * 1.6) * S;
+  ctx.beginPath(); ctx.moveTo(cx, topY); ctx.lineTo(cx, contactY); ctx.stroke();
+  // r2 vector (orange)
+  ctx.strokeStyle = '#fdba74';
+  ctx.beginPath(); ctx.moveTo(cx, botY); ctx.lineTo(cx, contactY); ctx.stroke();
+
+  // Contact point luminous node
+  ctx.shadowColor = '#facc15';
+  ctx.shadowBlur = 18 * S;
+  ctx.fillStyle = '#fef08a';
+  ctx.beginPath(); ctx.arc(cx, contactY, (6.5 + highlightDist * 2.5) * S, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // r1 & r2 callout labels next to vectors
+  ctx.font = `italic 700 ${Math.round(22 * S)}px Georgia, serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#5eead4';
+  ctx.fillText('r₁', cx + 14 * S, (topY + contactY) * 0.5);
+  ctx.fillStyle = '#fdba74';
+  ctx.fillText('r₂', cx + 14 * S, (botY + contactY) * 0.5);
+  ctx.restore();
+
+  // === SAFE-ZONE TYPOGRAPHY ABOVE & BELOW ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Top title & formula (y: H*0.162 & H*0.204, strictly inside y >= H*0.14)
+  fitFont('FIBONACCI GEARS', 36 * S, safeMaxW, '700', 'Georgia, "Times New Roman", serif');
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillText('FIBONACCI GEARS', cx, H * 0.162);
+
+  fitFont('r(θ) = a · φ^(2θ/π)', 26 * S, safeMaxW, 'italic 600', 'Georgia, "Times New Roman", serif');
+  ctx.fillStyle = '#2dd4bf';
+  ctx.fillText('r(θ) = a · φ^(2θ/π)', cx, H * 0.204);
+
+  // Bottom equations (y: H*0.706, strictly <= H*0.78)
+  fitFont('r₁(θ₁) + r₂(θ₂) = D     ω₂/ω₁ = r₁/r₂', 23 * S, safeMaxW, 'italic 600', 'Georgia, "Times New Roman", serif');
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText('r₁(θ₁) + r₂(θ₂) = D     ω₂/ω₁ = r₁/r₂', cx, H * 0.706);
+
+  // Live instantaneous speed-ratio pill (y: H*0.752 <= H*0.78)
+  const pillW = Math.min(safeMaxW, 410 * S);
+  const pillH = 48 * S;
+  const pillY = H * 0.752;
+  ctx.fillStyle = 'rgba(15,23,42,0.88)';
+  ctx.strokeStyle = highlightRatio > 0.2 ? '#fb923c' : '#2dd4bf';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.roundRect(cx - pillW * 0.5, pillY - pillH * 0.5, pillW, pillH, 24 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  const ratioStr = `SPEED RATIO: ${st.ratio.toFixed(2)}x`;
+  fitFont(ratioStr, 25 * S, pillW - 32 * S, '800', 'ui-monospace, SFMono-Regular, monospace');
+  ctx.fillStyle = st.ratio >= 1.0 ? '#fb923c' : '#2dd4bf';
+  ctx.fillText(ratioStr, cx, pillY + 1 * S);
+
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

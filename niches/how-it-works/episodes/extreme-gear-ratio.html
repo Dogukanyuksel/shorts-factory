@@ -1,0 +1,391 @@
+<!doctype html>
+<!--
+  Clear Mechanics — Extreme Gear Ratio (6 Cascaded 5:1 Compound Gears = 15,625:1, 60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#040714;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'How many times must you spin this handle to turn the last gear just once?', caption: '15,625 CRANKS?!' },
+  { id: 'ratio', text: 'Each compound gear has a five-to-one reduction, cutting speed by five times at every step.', caption: '5:1 EVERY STAGE' },
+  { id: 'realtime', text: 'At normal speed, you crank the handle fast — yet the golden gear barely moves 0.058 degrees.', caption: 'BARELY 0.058°!' },
+  { id: 'math', text: 'Stack six stages together and the ratios multiply: five to the sixth power equals 15,625 to one.', caption: '5⁶ = 15,625 : 1' },
+  { id: 'hyper', text: 'Let\'s fast-forward at hyper-speed! Watch the handle blur as thousands of turns pile up.', caption: 'HYPER SPEED!' },
+  { id: 'finish', text: 'After 15,625 cranks, the final golden gear finally completes one unstoppable turn.', caption: '360° COMPLETE!' },
+];
+
+const TOTAL_RATIO = 15625; // 5^6
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lRatio = getLine('ratio', 1);
+  const lMath = getLine('math', 3);
+  const lHyper = getLine('hyper', 4);
+  const lFin = getLine('finish', 5);
+
+  EVENTS = [
+    { t: lRatio.start + 0.2, type: 'bounce', pitchIndex: 2, intensity: 0.55 },
+    { t: lMath.start + 0.2, type: 'bounce', pitchIndex: 5, intensity: 0.65 },
+    { t: lHyper.start + 0.1, type: 'break', pitchIndex: 8, intensity: 0.85 },
+    { t: lHyper.start + 0.8, type: 'bounce', pitchIndex: 10, intensity: 0.75 },
+    { t: lFin.start + 0.25, type: 'win', pitchIndex: 12, intensity: 1.0 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(11, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+// Compute handle turns at time t:
+// Real-time slow cranking (~2.5 turns total -> 0.058 deg on last gear) until 'hyper',
+// then hyper-acceleration up to exactly 15,625 turns (360.0 deg) in 'finish'!
+function computeHandleTurns(t) {
+  const lMath = getLine('math', 3);
+  const lHyper = getLine('hyper', 4);
+  const lFin = getLine('finish', 5);
+
+  const slowEnd = lHyper.start;
+  const finishPeak = Math.min(DUR - 0.55, lFin.start + (lFin.end - lFin.start) * 0.55);
+
+  if (t <= slowEnd) {
+    // Steady real-time cranking: reaches ~2.52 turns by end of 'realtime' (~0.058 deg on last gear!)
+    const baseRate = 2.52 / Math.max(1, lMath.start);
+    return t * baseRate;
+  }
+  const baseTurns = slowEnd * (2.52 / Math.max(1, lMath.start));
+  if (t >= finishPeak) return TOTAL_RATIO;
+  const u = clamp((t - slowEnd) / Math.max(0.5, finishPeak - slowEnd), 0, 1);
+  // Dramatic smooth ease-in-out cubic/quartic surge to 15,625
+  const eased = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+  return lerp(baseTurns, TOTAL_RATIO, eased);
+}
+
+function drawNeonGear(cx, cy, outerR, teeth, angle, color, innerPinionR, S, blurSpin) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+
+  ctx.shadowColor = color;
+  ctx.shadowBlur = (16 + blurSpin * 16) * S;
+
+  // Outer gear toothed ring
+  const rootR = outerR * 0.84;
+  const tipR = outerR;
+  ctx.fillStyle = 'rgba(10,16,38,0.86)';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.4 * S;
+  ctx.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a0 = (i / teeth) * Math.PI * 2;
+    const a1 = ((i + 0.22) / teeth) * Math.PI * 2;
+    const a2 = ((i + 0.48) / teeth) * Math.PI * 2;
+    const a3 = ((i + 0.70) / teeth) * Math.PI * 2;
+    if (i === 0) ctx.moveTo(Math.cos(a0) * rootR, Math.sin(a0) * rootR);
+    else ctx.lineTo(Math.cos(a0) * rootR, Math.sin(a0) * rootR);
+    ctx.lineTo(Math.cos(a1) * tipR, Math.sin(a1) * tipR);
+    ctx.lineTo(Math.cos(a2) * tipR, Math.sin(a2) * tipR);
+    ctx.lineTo(Math.cos(a3) * rootR, Math.sin(a3) * rootR);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Motion blur halo when spinning at hyper-speed
+  if (blurSpin > 0.15) {
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = clamp(blurSpin * 0.5, 0, 0.55);
+    ctx.lineWidth = 6 * S;
+    ctx.beginPath(); ctx.arc(0, 0, outerR * 0.94, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Spokes inside gear
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 3 * S;
+  for (let s = 0; s < 5; s++) {
+    const sa = (s * Math.PI * 2) / 5;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(sa) * innerPinionR, Math.sin(sa) * innerPinionR);
+    ctx.lineTo(Math.cos(sa) * rootR * 0.88, Math.sin(sa) * rootR * 0.88);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Inner compound pinion (drives the next stage!)
+  if (innerPinionR > 0) {
+    const pTeeth = 8;
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    for (let i = 0; i < pTeeth; i++) {
+      const a0 = (i / pTeeth) * Math.PI * 2;
+      const a1 = ((i + 0.35) / pTeeth) * Math.PI * 2;
+      const a2 = ((i + 0.65) / pTeeth) * Math.PI * 2;
+      const rIn = innerPinionR * 0.76;
+      if (i === 0) ctx.moveTo(Math.cos(a0) * rIn, Math.sin(a0) * rIn);
+      else ctx.lineTo(Math.cos(a0) * rIn, Math.sin(a0) * rIn);
+      ctx.lineTo(Math.cos(a1) * innerPinionR, Math.sin(a1) * innerPinionR);
+      ctx.lineTo(Math.cos(a2) * innerPinionR, Math.sin(a2) * innerPinionR);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Axle hub
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(0, 0, 5.5 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const cx = W * 0.47;
+  const safeMaxW = W * 0.76;
+
+  // Deep navy-black starry canvas
+  const bg = ctx.createRadialGradient(cx, H * 0.48, 40 * S, cx, H * 0.48, H * 0.68);
+  bg.addColorStop(0, '#0d1533');
+  bg.addColorStop(0.55, '#060a1c');
+  bg.addColorStop(1, '#02040a');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Deterministic twinkling stars
+  for (let i = 0; i < 75; i++) {
+    const sx = hash(i * 17 + 1) * W;
+    const sy = hash(i * 31 + 7) * H;
+    const alpha = 0.18 + 0.52 * Math.abs(Math.sin(t * 1.8 + i * 2.3));
+    ctx.fillStyle = `rgba(226,232,240,${alpha.toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(sx, sy, (1.0 + (i % 3) * 0.65) * S, 0, Math.PI * 2); ctx.fill();
+  }
+
+  const lHyper = getLine('hyper', 4);
+  const lFin = getLine('finish', 5);
+  const turns = computeHandleTurns(t);
+  const dtStep = 1 / Math.max(1, FPS);
+  const turnsPrev = computeHandleTurns(Math.max(0, t - dtStep));
+  const speedRPS = (turns - turnsPrev) / dtStep;
+  const lastGearDeg = (turns / TOTAL_RATIO) * 360;
+  const isComplete = lastGearDeg >= 359.9;
+
+  // === TOP HOOK & LIVE DUAL COUNTERS (inside y: [H*0.14, H*0.28]) ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  fitFont('HOW MANY CRANKS FOR ONE TURN?', 30 * S, safeMaxW, '900');
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillText('HOW MANY CRANKS FOR ONE TURN?', cx, H * 0.158);
+
+  // Glowing dual counter HUD box
+  const hudW = Math.min(safeMaxW, 535 * S);
+  const hudH = 84 * S;
+  const hudY = H * 0.228;
+  ctx.fillStyle = 'rgba(10,16,36,0.85)';
+  ctx.strokeStyle = isComplete ? '#facc15' : 'rgba(56,189,248,0.45)';
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.roundRect(cx - hudW * 0.5, hudY - hudH * 0.5, hudW, hudH, 16 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  const turnsStr = turns < 100
+    ? `HANDLE TURNS: ${turns.toFixed(1)}`
+    : `HANDLE TURNS: ${Math.round(turns).toLocaleString('en-US')}`;
+  fitFont(turnsStr, 25 * S, hudW - 28 * S, '800', 'ui-monospace, SFMono-Regular, monospace');
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillText(turnsStr, cx, hudY - 18 * S);
+
+  const degStr = lastGearDeg < 1
+    ? `LAST GEAR: ${lastGearDeg.toFixed(3)}°`
+    : `LAST GEAR: ${lastGearDeg.toFixed(1)}°`;
+  fitFont(degStr, 25 * S, hudW - 28 * S, '800', 'ui-monospace, SFMono-Regular, monospace');
+  ctx.fillStyle = '#facc15';
+  ctx.fillText(degStr, cx, hudY + 19 * S);
+  ctx.restore();
+
+  // === 6 CASCADED NEON COMPOUND GEARS (Bottom-Left -> Top-Right diagonal) ===
+  const stages = [
+    { color: '#06b6d4', ratioLabel: '1:1',    r: 58 * S, pinion: 20 * S, teeth: 20 },
+    { color: '#3b82f6', ratioLabel: '5:1',    r: 62 * S, pinion: 20 * S, teeth: 22 },
+    { color: '#8b5cf6', ratioLabel: '25:1',   r: 64 * S, pinion: 20 * S, teeth: 22 },
+    { color: '#ec4899', ratioLabel: '125:1',  r: 66 * S, pinion: 20 * S, teeth: 22 },
+    { color: '#f97316', ratioLabel: '625:1',  r: 68 * S, pinion: 20 * S, teeth: 24 },
+    { color: '#facc15', ratioLabel: '15,625:1', r: 78 * S, pinion: 0,    teeth: 26 },
+  ];
+
+  // Diagonal coordinates strictly inside safe horizontal zone [W*0.08, W*0.86]
+  const startX = W * 0.21, startY = H * 0.662;
+  const endX = W * 0.72, endY = H * 0.362;
+
+  const positions = [];
+  for (let i = 0; i < 6; i++) {
+    const f = i / 5;
+    // Slight subtle S-curve so neighboring gears mesh cleanly
+    const px = lerp(startX, endX, f) + Math.sin(f * Math.PI) * 18 * S * (i % 2 === 0 ? -1 : 1);
+    const py = lerp(startY, endY, f);
+    positions.push({ x: px, y: py });
+  }
+
+  // Glowing power-flow spine connecting axles
+  ctx.save();
+  ctx.strokeStyle = 'rgba(148,163,184,0.22)';
+  ctx.lineWidth = 4 * S;
+  ctx.setLineDash([6 * S, 6 * S]);
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    if (i === 0) ctx.moveTo(positions[i].x, positions[i].y);
+    else ctx.lineTo(positions[i].x, positions[i].y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Draw all 6 gears from stage 0 to 5
+  for (let i = 0; i < 6; i++) {
+    const st = stages[i];
+    const pos = positions[i];
+    const stageDiv = Math.pow(5, i);
+    const dir = i % 2 === 0 ? 1 : -1;
+    // Visual angle (mod 2*PI so fast gears stay crisp without precision loss)
+    const stageTurns = turns / stageDiv;
+    const ang = ((stageTurns % 1) * Math.PI * 2) * dir;
+    const stageSpeed = speedRPS / stageDiv;
+    const blurSpin = clamp((stageSpeed - 3) / 18, 0, 1);
+
+    drawNeonGear(pos.x, pos.y, st.r, st.teeth, ang, st.color, st.pinion, S, blurSpin);
+
+    // Stage ratio tag
+    ctx.save();
+    ctx.font = `800 ${Math.round(14 * S)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const tagOffY = i % 2 === 0 ? st.r + 16 * S : -(st.r + 16 * S);
+    ctx.fillStyle = st.color;
+    ctx.fillText(st.ratioLabel, pos.x, pos.y + tagOffY);
+    ctx.restore();
+  }
+
+  // Animated Hand Crank Handle on Stage 1 (bottom-left cyan gear)
+  const g0 = positions[0];
+  const handleAng = ((turns % 1) * Math.PI * 2);
+  const crankArm = 54 * S;
+  const knobX = g0.x + Math.cos(handleAng) * crankArm;
+  const knobY = g0.y + Math.sin(handleAng) * crankArm;
+  ctx.save();
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 7 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(g0.x, g0.y); ctx.lineTo(knobX, knobY); ctx.stroke();
+  ctx.fillStyle = '#22d3ee';
+  ctx.shadowColor = '#06b6d4';
+  ctx.shadowBlur = 14 * S;
+  ctx.beginPath(); ctx.arc(knobX, knobY, 12 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(knobX, knobY, 5 * S, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Golden Progress Arc & Pointer Arrow on Stage 6 (top-right golden gear)
+  const g5 = positions[5];
+  const progRad = (lastGearDeg * Math.PI) / 180;
+  ctx.save();
+  // Progress halo around final gear
+  ctx.strokeStyle = 'rgba(250,204,21,0.22)';
+  ctx.lineWidth = 5 * S;
+  ctx.beginPath(); ctx.arc(g5.x, g5.y, 92 * S, 0, Math.PI * 2); ctx.stroke();
+
+  if (progRad > 0.002) {
+    ctx.strokeStyle = '#facc15';
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 18 * S;
+    ctx.lineWidth = 6 * S;
+    ctx.beginPath(); ctx.arc(g5.x, g5.y, 92 * S, -Math.PI * 0.5, -Math.PI * 0.5 + progRad); ctx.stroke();
+  }
+
+  // Crisp pointer needle on golden gear
+  const pAng = -Math.PI * 0.5 - progRad; // matches stage 5 dir = -1
+  ctx.strokeStyle = '#fef08a';
+  ctx.lineWidth = 4 * S;
+  ctx.beginPath();
+  ctx.moveTo(g5.x, g5.y);
+  ctx.lineTo(g5.x + Math.cos(pAng) * 66 * S, g5.y + Math.sin(pAng) * 66 * S);
+  ctx.stroke();
+
+  // Dramatic completion burst ring when 360° completes!
+  if (isComplete) {
+    const pulse = 0.5 + 0.5 * Math.sin(t * 10);
+    ctx.strokeStyle = `rgba(250,204,21,${(0.45 + 0.45 * pulse).toFixed(2)})`;
+    ctx.lineWidth = 4 * S;
+    ctx.beginPath(); ctx.arc(g5.x, g5.y, (104 + pulse * 10) * S, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.restore();
+
+  // === BOTTOM FORMULA PILL (y = H*0.752 <= H*0.78) ===
+  const pillW = Math.min(safeMaxW, 430 * S);
+  const pillH = 48 * S;
+  const pillY = H * 0.752;
+  ctx.save();
+  ctx.fillStyle = isComplete ? '#facc15' : 'rgba(15,23,42,0.88)';
+  ctx.strokeStyle = isComplete ? '#fef08a' : '#facc15';
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.roundRect(cx - pillW * 0.5, pillY - pillH * 0.5, pillW, pillH, 24 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  const pillText = isComplete ? '360° COMPLETE — 15,625:1!' : 'RATIO: 5⁶ = 15,625 : 1';
+  fitFont(pillText, 24 * S, pillW - 32 * S, '900', 'ui-monospace, SFMono-Regular, monospace');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = isComplete ? '#0a0a0a' : '#facc15';
+  ctx.fillText(pillText, cx, pillY + 1 * S);
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

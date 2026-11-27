@@ -1,0 +1,822 @@
+<!doctype html>
+<!-- Gear Gauntlet 1000: 1,000 Neon Balls vs Spinning Mechanical Gear Gauntlet (Survival Counter) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = '1,000 BALLS VS GEAR GAUNTLET';
+let rng = 1;
+let simTime = 0;
+let gateOpenTime = 20.4;
+let climaxTime = 21.12;
+let gateOpen = false;
+let climaxTriggered = false;
+
+const LOGICAL_TOTAL = 1000;
+const MAX_BALLS = 320;
+
+let balls = [];
+let gears = [];
+let walls = [];
+let sparks = [];
+let waves = [];
+let fireworks = [];
+let events = [];
+
+let spawnedCount = 0;
+let eliminatedCount = 0;
+let vaultedCount = 0;
+let displaySurvivors = LOGICAL_TOTAL;
+let counterPop = 0;
+let shake = 0;
+let lastBounceSoundT = -1;
+let lastBreakSoundT = -1;
+let fireworkTimer = 0;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+function spawnSparks(x, y, col, n, S, speedScale) {
+  const spMul = speedScale || 1;
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const spd = (90 + rand() * 320) * S * spMul;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd - 40 * S,
+      life: 0.35 + rand() * 0.45,
+      maxLife: 0.8,
+      size: (2.0 + rand() * 3.4) * S,
+      col
+    });
+  }
+}
+
+function spawnFirework(x, y, S) {
+  const hue = (rand() * 360) | 0;
+  const col = `hsl(${hue}, 98%, 64%)`;
+  waves.push({ x, y, r: 8 * S, maxR: 130 * S, alpha: 0.85, col });
+  for (let i = 0; i < 28; i++) {
+    const a = (i / 28) * Math.PI * 2 + (rand() - 0.5) * 0.15;
+    const spd = (120 + rand() * 260) * S;
+    fireworks.push({
+      x, y,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd,
+      life: 0.65 + rand() * 0.45,
+      maxLife: 1.1,
+      size: (2.6 + rand() * 3.2) * S,
+      col: i % 3 === 0 ? '#fde047' : col
+    });
+  }
+}
+
+function buildMachine(S) {
+  const cx = W * 0.5;
+
+  // 3 staggered tiers of counter-rotating glowing mechanical gears (cyan, magenta, gold)
+  gears = [
+    // Tier 1: Cyan
+    { x: cx - 130 * S, y: H * 0.340, r: 74 * S, toothH: 15 * S, teeth: 12, rot: 0.1, omega:  2.55, col: '#22d3ee', glow: 'rgba(34,211,238,0.55)' },
+    { x: cx + 130 * S, y: H * 0.340, r: 74 * S, toothH: 15 * S, teeth: 12, rot: 0.4, omega: -2.55, col: '#22d3ee', glow: 'rgba(34,211,238,0.55)' },
+
+    // Tier 2: Magenta
+    { x: cx,           y: H * 0.495, r: 62 * S, toothH: 14 * S, teeth: 10, rot: 0.2, omega:  3.25, col: '#e879f9', glow: 'rgba(232,121,249,0.55)' },
+    { x: cx - 196 * S, y: H * 0.495, r: 58 * S, toothH: 13 * S, teeth: 10, rot: 0.5, omega: -3.05, col: '#e879f9', glow: 'rgba(232,121,249,0.55)' },
+    { x: cx + 196 * S, y: H * 0.495, r: 58 * S, toothH: 13 * S, teeth: 10, rot: 0.8, omega: -3.05, col: '#e879f9', glow: 'rgba(232,121,249,0.55)' },
+
+    // Tier 3: Gold
+    { x: cx - 116 * S, y: H * 0.655, r: 70 * S, toothH: 15 * S, teeth: 12, rot: 0.3, omega: -3.35, col: '#facc15', glow: 'rgba(250,204,21,0.55)' },
+    { x: cx + 116 * S, y: H * 0.655, r: 70 * S, toothH: 15 * S, teeth: 12, rot: 0.6, omega:  3.35, col: '#facc15', glow: 'rgba(250,204,21,0.55)' }
+  ];
+
+  // Angled funnel chutes guiding balls through the gauntlet & into the narrow golden vault gate
+  walls = [
+    // Top hopper angled sides
+    { x1: cx - 220 * S, y1: H * 0.190, x2: cx - 78 * S,  y2: H * 0.252, col: '#38bdf8' },
+    { x1: cx + 220 * S, y1: H * 0.190, x2: cx + 78 * S,  y2: H * 0.252, col: '#38bdf8' },
+
+    // Tier 1 -> Tier 2 angled guides (leave side hazard gaps near outer edges)
+    { x1: cx - 282 * S, y1: H * 0.395, x2: cx - 238 * S, y2: H * 0.435, col: '#22d3ee' },
+    { x1: cx + 282 * S, y1: H * 0.395, x2: cx + 238 * S, y2: H * 0.435, col: '#22d3ee' },
+
+    // Tier 2 -> Tier 3 funnel chutes
+    { x1: cx - 275 * S, y1: H * 0.555, x2: cx - 195 * S, y2: H * 0.605, col: '#e879f9' },
+    { x1: cx + 275 * S, y1: H * 0.555, x2: cx + 195 * S, y2: H * 0.605, col: '#e879f9' },
+
+    // Tier 3 -> Narrow Golden Vault Gate funnel
+    { x1: cx - 245 * S, y1: H * 0.720, x2: cx - 44 * S,  y2: H * 0.778, col: '#facc15' },
+    { x1: cx + 245 * S, y1: H * 0.720, x2: cx + 44 * S,  y2: H * 0.778, col: '#facc15' },
+
+    // Golden Vault interior bucket walls
+    { x1: cx - 115 * S, y1: H * 0.795, x2: cx - 115 * S, y2: H * 0.875, col: '#facc15' },
+    { x1: cx + 115 * S, y1: H * 0.795, x2: cx + 115 * S, y2: H * 0.875, col: '#facc15' },
+    { x1: cx - 115 * S, y1: H * 0.875, x2: cx + 115 * S, y2: H * 0.875, col: '#fde047' }
+  ];
+}
+
+function makeBall(S) {
+  const cx = W * 0.5;
+  const hue = (175 + rand() * 195) % 360;
+  return {
+    x: cx + (rand() - 0.5) * 160 * S,
+    y: H * 0.192 + rand() * 18 * S,
+    vx: (rand() - 0.5) * 90 * S,
+    vy: (40 + rand() * 80) * S,
+    r: (7.4 + rand() * 1.4) * S,
+    hue,
+    alive: true,
+    vaulted: false,
+    glow: 0.6,
+    stuckTime: 0
+  };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || '1,000 BALLS VS GEAR GAUNTLET';
+  cv.width = W;
+  cv.height = H;
+
+  rng = ((cfg.seed || 1) * 2654435761 + 1013904223) >>> 0;
+  const S = W / 720;
+
+  simTime = 0;
+  gateOpenTime = DUR * 0.845;
+  climaxTime = DUR * 0.88;
+  gateOpen = false;
+  climaxTriggered = false;
+
+  balls = [];
+  sparks = [];
+  waves = [];
+  fireworks = [];
+  events = [];
+
+  spawnedCount = 0;
+  eliminatedCount = 0;
+  vaultedCount = 0;
+  displaySurvivors = LOGICAL_TOTAL;
+  counterPop = 0;
+  shake = 0;
+  lastBounceSoundT = -1;
+  lastBreakSoundT = -1;
+  fireworkTimer = 0;
+
+  buildMachine(S);
+};
+
+function collideSegment(b, x1, y1, x2, y2, restitution) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < 1e-6) return false;
+  const t = Math.max(0, Math.min(1, ((b.x - x1) * dx + (b.y - y1) * dy) / lenSq));
+  const cx = x1 + dx * t;
+  const cy = y1 + dy * t;
+  const ex = b.x - cx;
+  const ey = b.y - cy;
+  const d = Math.hypot(ex, ey);
+  const minD = b.r + 5;
+  if (d < minD && d > 1e-5) {
+    const nx = ex / d;
+    const ny = ey / d;
+    b.x = cx + nx * minD;
+    b.y = cy + ny * minD;
+    const vn = b.vx * nx + b.vy * ny;
+    if (vn < 0) {
+      b.vx -= (1 + restitution) * vn * nx;
+      b.vy -= (1 + restitution) * vn * ny;
+    }
+    return true;
+  }
+  return false;
+}
+
+function eliminateBall(b, S) {
+  b.alive = false;
+  eliminatedCount++;
+  counterPop = Math.min(1.0, counterPop + 0.32);
+  spawnSparks(b.x, b.y, '#ef4444', 7, S, 1.0);
+  if (simTime - lastBreakSoundT > 0.13) {
+    lastBreakSoundT = simTime;
+    events.push({
+      t: simTime,
+      type: 'break',
+      pitchIndex: Math.max(0, 12 - Math.floor((eliminatedCount / MAX_BALLS) * 10)),
+      intensity: 0.45
+    });
+  }
+}
+
+function stepPhysics(dt) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const subSteps = 3;
+  const sdt = dt / subSteps;
+
+  simTime += dt;
+
+  // Pour 320 rendered balls from top hopper over first 4.2s
+  const pourDur = Math.min(4.2, DUR * 0.2);
+  const targetSpawn = Math.min(MAX_BALLS, Math.floor((simTime / pourDur) * MAX_BALLS) + 6);
+  while (spawnedCount < targetSpawn) {
+    balls.push(makeBall(S));
+    spawnedCount++;
+  }
+
+  // Open Golden Vault Gate at ~84.5% of DUR
+  if (!gateOpen && simTime >= gateOpenTime) {
+    gateOpen = true;
+    shake = 14 * S;
+    waves.push({ x: cx, y: H * 0.778, r: 14 * S, maxR: 260 * S, alpha: 0.95, col: '#fde047' });
+    spawnSparks(cx, H * 0.778, '#fde047', 24, S, 1.25);
+    events.push({ t: simTime, type: 'break', pitchIndex: 11, intensity: 0.88 });
+  }
+
+  // Climax banner + fireworks at ~88% of DUR
+  if (!climaxTriggered && simTime >= climaxTime) {
+    climaxTriggered = true;
+    shake = 20 * S;
+    waves.push({ x: cx, y: H * 0.83, r: 20 * S, maxR: 460 * S, alpha: 1.0, col: '#fde047' });
+    spawnFirework(cx - 140 * S, H * 0.76, S);
+    spawnFirework(cx + 140 * S, H * 0.76, S);
+    spawnFirework(cx, H * 0.68, S);
+    events.push({ t: simTime, type: 'win', pitchIndex: 14, intensity: 1.0 });
+
+    // Ensure at least a handful of surviving champions are visibly celebrating inside the vault
+    if (vaultedCount === 0) {
+      let dropped = 0;
+      for (let i = 0; i < balls.length && dropped < 12; i++) {
+        const b = balls[i];
+        if (b.alive && !b.vaulted) {
+          b.x = cx + (rand() - 0.5) * 60 * S;
+          b.y = H * 0.81 + rand() * 35 * S;
+          b.vx = (rand() - 0.5) * 140 * S;
+          b.vy = 140 * S;
+          b.vaulted = true;
+          vaultedCount++;
+          dropped++;
+        }
+      }
+    }
+  }
+
+  // Periodic celebratory fireworks after climax
+  if (climaxTriggered) {
+    fireworkTimer += dt;
+    if (fireworkTimer > 0.52) {
+      fireworkTimer = 0;
+      spawnFirework(cx + (rand() - 0.5) * 380 * S, H * (0.28 + rand() * 0.45), S);
+    }
+  }
+
+  const g = 920 * S;
+  const hazardLeftX = cx - 292 * S;
+  const hazardRightX = cx + 292 * S;
+  const gateY = H * 0.778;
+
+  for (let s = 0; s < subSteps; s++) {
+    // Spin gears
+    const speedRamp = 1 + Math.min(0.45, (simTime / climaxTime) * 0.45);
+    for (let gi = 0; gi < gears.length; gi++) {
+      gears[gi].rot += gears[gi].omega * speedRamp * sdt;
+    }
+
+    // Integrate balls
+    for (let i = 0; i < balls.length; i++) {
+      const b = balls[i];
+      if (!b.alive) continue;
+
+      b.vy += g * sdt;
+      b.x += b.vx * sdt;
+      b.y += b.vy * sdt;
+      b.vx *= 0.9985;
+      b.vy *= 0.9985;
+      if (b.glow > 0) b.glow = Math.max(0, b.glow - sdt * 2.4);
+
+      // Side hazard laser rails below hopper -> eliminate balls flung wide by gears
+      if (b.y > H * 0.27 && b.y < H * 0.77 && !b.vaulted) {
+        if (b.x - b.r < hazardLeftX || b.x + b.r > hazardRightX) {
+          // Keep at least ~18 rendered survivors alive so the vault climax is exciting
+          if (MAX_BALLS - eliminatedCount > 18) {
+            eliminateBall(b, S);
+            continue;
+          } else {
+            // Bounce back inward to preserve final champions
+            if (b.x - b.r < hazardLeftX) { b.x = hazardLeftX + b.r; b.vx = Math.abs(b.vx) * 0.75 + 120 * S; }
+            if (b.x + b.r > hazardRightX) { b.x = hazardRightX - b.r; b.vx = -Math.abs(b.vx) * 0.75 - 120 * S; }
+          }
+        }
+      }
+
+      // Funnel & vault walls
+      for (let wi = 0; wi < walls.length; wi++) {
+        const w = walls[wi];
+        collideSegment(b, w.x1, w.y1, w.x2, w.y2, 0.52);
+      }
+
+      // Vault energy barrier before gateOpenTime
+      if (!gateOpen && !b.vaulted) {
+        if (b.y + b.r > gateY && b.y - b.r < gateY + 24 * S && Math.abs(b.x - cx) < 62 * S) {
+          b.y = gateY - b.r;
+          b.vy = -Math.abs(b.vy) * 0.72 - 220 * S;
+          b.vx += (rand() - 0.5) * 180 * S;
+          b.glow = 1.0;
+          if (simTime - lastBounceSoundT > 0.11) {
+            lastBounceSoundT = simTime;
+            events.push({ t: simTime, type: 'bounce', pitchIndex: (i + 5) % 12, intensity: 0.4 });
+          }
+        }
+      }
+
+      // Check if ball dropped into Golden Vault
+      if (gateOpen && !b.vaulted && b.y > gateY + 14 * S && Math.abs(b.x - cx) < 115 * S) {
+        b.vaulted = true;
+        b.glow = 1.0;
+        vaultedCount++;
+        spawnSparks(b.x, b.y, '#fde047', 6, S, 0.85);
+        if (simTime - lastBounceSoundT > 0.09) {
+          lastBounceSoundT = simTime;
+          events.push({ t: simTime, type: 'bounce', pitchIndex: 8 + (vaultedCount % 7), intensity: 0.62 });
+        }
+      }
+
+      // Keep vaulted balls cleanly inside the golden vault
+      if (b.vaulted) {
+        if (b.y > H * 0.875 - b.r) { b.y = H * 0.875 - b.r; b.vy = -Math.abs(b.vy) * 0.45; }
+        if (b.x < cx - 115 * S + b.r) { b.x = cx - 115 * S + b.r; b.vx = Math.abs(b.vx) * 0.5; }
+        if (b.x > cx + 115 * S - b.r) { b.x = cx + 115 * S - b.r; b.vx = -Math.abs(b.vx) * 0.5; }
+      }
+
+      // Gear teeth collisions
+      for (let gi = 0; gi < gears.length; gi++) {
+        const gr = gears[gi];
+        const dx = b.x - gr.x;
+        const dy = b.y - gr.y;
+        const maxReach = gr.r + gr.toothH + b.r + 4 * S;
+        if (Math.abs(dx) > maxReach || Math.abs(dy) > maxReach) continue;
+
+        const dist = Math.hypot(dx, dy);
+        if (dist < 1e-4) continue;
+        const ang = Math.atan2(dy, dx);
+        const toothWave = 0.5 + 0.5 * Math.cos(gr.teeth * (ang - gr.rot));
+        const rSurf = gr.r + gr.toothH * toothWave;
+        const minD = rSurf + b.r;
+
+        if (dist < minD) {
+          const nx = dx / dist;
+          const ny = dy / dist;
+          b.x = gr.x + nx * minD;
+          b.y = gr.y + ny * minD;
+
+          // Tangential surface velocity of spinning gear tooth
+          const surfSpd = gr.omega * speedRamp * rSurf;
+          const tvx = -ny * surfSpd;
+          const tvy =  nx * surfSpd;
+
+          const rvx = b.vx - tvx;
+          const rvy = b.vy - tvy;
+          const vn = rvx * nx + rvy * ny;
+          if (vn < 0) {
+            b.vx -= 1.62 * vn * nx;
+            b.vy -= 1.62 * vn * ny;
+          }
+          // Tangential tooth kick
+          b.vx += tvx * 0.24;
+          b.vy += tvy * 0.24;
+          b.glow = 1.0;
+
+          if (Math.abs(vn) > 150 * S) {
+            spawnSparks(gr.x + nx * rSurf, gr.y + ny * rSurf, gr.col, 2, S, 0.6);
+            if (simTime - lastBounceSoundT > 0.12) {
+              lastBounceSoundT = simTime;
+              events.push({
+                t: simTime,
+                type: 'bounce',
+                pitchIndex: (gi * 2 + Math.floor(simTime * 2)) % 14,
+                intensity: 0.36
+              });
+            }
+          }
+        }
+      }
+
+      // Clamp velocity & prevent screen escape
+      const spd = Math.hypot(b.vx, b.vy);
+      const maxSpd = 1150 * S;
+      if (spd > maxSpd) {
+        b.vx = (b.vx / spd) * maxSpd;
+        b.vy = (b.vy / spd) * maxSpd;
+      }
+      if (b.y > H + 40 * S && !b.vaulted) {
+        eliminateBall(b, S);
+      }
+    }
+
+    // Fast spatial-grid ball-to-ball collision
+    const cellSize = 22 * S;
+    const grid = new Map();
+    for (let i = 0; i < balls.length; i++) {
+      const b = balls[i];
+      if (!b.alive) continue;
+      const gx = Math.floor(b.x / cellSize);
+      const gy = Math.floor(b.y / cellSize);
+      const key = (gx + 512) * 2048 + (gy + 512);
+      let bucket = grid.get(key);
+      if (!bucket) { bucket = []; grid.set(key, bucket); }
+      bucket.push(i);
+    }
+    for (let i = 0; i < balls.length; i++) {
+      const a = balls[i];
+      if (!a.alive) continue;
+      const gx = Math.floor(a.x / cellSize);
+      const gy = Math.floor(a.y / cellSize);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oy = -1; oy <= 1; oy++) {
+          const bucket = grid.get((gx + ox + 512) * 2048 + (gy + oy + 512));
+          if (!bucket) continue;
+          for (let k = 0; k < bucket.length; k++) {
+            const j = bucket[k];
+            if (j <= i) continue;
+            const b = balls[j];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const minD = a.r + b.r;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < minD * minD && d2 > 1e-6) {
+              const d = Math.sqrt(d2);
+              const nx = dx / d;
+              const ny = dy / d;
+              const overlap = (minD - d) * 0.5;
+              a.x -= nx * overlap;
+              a.y -= ny * overlap;
+              b.x += nx * overlap;
+              b.y += ny * overlap;
+              const rvx = b.vx - a.vx;
+              const rvy = b.vy - a.vy;
+              const vn = rvx * nx + rvy * ny;
+              if (vn < 0) {
+                const imp = -0.78 * vn;
+                a.vx -= imp * nx;
+                a.vy -= imp * ny;
+                b.vx += imp * nx;
+                b.vy += imp * ny;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Smoothly map 320 rendered balls to 1,000 logical SURVIVORS counter
+  const aliveRendered = MAX_BALLS - eliminatedCount;
+  const targetLogical = Math.max(1, Math.round((aliveRendered / MAX_BALLS) * LOGICAL_TOTAL));
+  displaySurvivors += (targetLogical - displaySurvivors) * Math.min(1, dt * 10);
+
+  // Update visual FX
+  shake *= Math.pow(0.06, dt);
+  counterPop = Math.max(0, counterPop - dt * 3.8);
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    sp.vy += 520 * S * dt;
+    sp.x += sp.vx * dt;
+    sp.y += sp.vy * dt;
+    sp.life -= dt * 1.5;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+  for (let i = fireworks.length - 1; i >= 0; i--) {
+    const fw = fireworks[i];
+    fw.vy += 260 * S * dt;
+    fw.vx *= 0.985;
+    fw.vy *= 0.985;
+    fw.x += fw.vx * dt;
+    fw.y += fw.vy * dt;
+    fw.life -= dt * 1.1;
+    if (fw.life <= 0) fireworks.splice(i, 1);
+  }
+  for (let i = waves.length - 1; i >= 0; i--) {
+    const w = waves[i];
+    w.r += (w.maxR - w.r) * Math.min(1, dt * 7.5);
+    w.alpha -= dt * 1.8;
+    if (w.alpha <= 0) waves.splice(i, 1);
+  }
+}
+
+function drawGear(gr, S) {
+  ctx.save();
+  ctx.translate(gr.x, gr.y);
+  ctx.rotate(gr.rot);
+
+  // Outer toothed gear silhouette
+  const steps = gr.teeth * 4;
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const toothWave = 0.5 + 0.5 * Math.cos(gr.teeth * a);
+    const rad = gr.r + gr.toothH * toothWave;
+    const px = Math.cos(a) * rad;
+    const py = Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+
+  ctx.fillStyle = '#0f172a';
+  ctx.shadowColor = gr.glow;
+  ctx.shadowBlur = 18 * S;
+  ctx.fill();
+  ctx.strokeStyle = gr.col;
+  ctx.lineWidth = 3.2 * S;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Inner metallic ring & 4 mechanical spokes
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.arc(0, 0, gr.r * 0.64, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = gr.col;
+  ctx.lineWidth = 5 * S;
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * gr.r * 0.22, Math.sin(a) * gr.r * 0.22);
+    ctx.lineTo(Math.cos(a) * gr.r * 0.64, Math.sin(a) * gr.r * 0.64);
+    ctx.stroke();
+  }
+
+  // Center axle hub
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.arc(0, 0, gr.r * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = gr.col;
+  ctx.beginPath();
+  ctx.arc(0, 0, gr.r * 0.09, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawHook(text, S) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const maxW = W * 0.82;
+  let fontSize = Math.round(38 * S);
+  ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  while (ctx.measureText(text).width > maxW && fontSize > Math.round(22 * S)) {
+    fontSize -= 2;
+    ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  }
+  ctx.shadowColor = 'rgba(34,211,238,0.6)';
+  ctx.shadowBlur = 18 * S;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, W * 0.5, H * 0.088, maxW);
+  ctx.restore();
+}
+
+function drawFrame() {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const hazardLeftX = cx - 292 * S;
+  const hazardRightX = cx + 292 * S;
+  const gateY = H * 0.778;
+
+  // Background
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Dark neon industrial blueprint ambiance
+  const bgGrad = ctx.createRadialGradient(cx, H * 0.52, 20 * S, cx, H * 0.52, 540 * S);
+  bgGrad.addColorStop(0, climaxTriggered ? 'rgba(250,204,21,0.16)' : 'rgba(139,92,246,0.10)');
+  bgGrad.addColorStop(0.55, 'rgba(15,23,42,0.20)');
+  bgGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle machine grid
+  ctx.save();
+  ctx.strokeStyle = 'rgba(148,163,184,0.04)';
+  ctx.lineWidth = 1 * S;
+  const step = 44 * S;
+  for (let x = 0; x <= W; x += step) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y <= H; y += step) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Camera shake
+  ctx.save();
+  if (shake > 0.2) {
+    ctx.translate((rand() - 0.5) * 2 * shake, (rand() - 0.5) * 2 * shake);
+  }
+
+  // Side crimson laser hazard rails (eliminate flung balls)
+  ctx.save();
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 4 * S;
+  ctx.shadowColor = '#ef4444';
+  ctx.shadowBlur = 16 * S;
+  ctx.beginPath();
+  ctx.moveTo(hazardLeftX, H * 0.27); ctx.lineTo(hazardLeftX, H * 0.76);
+  ctx.moveTo(hazardRightX, H * 0.27); ctx.lineTo(hazardRightX, H * 0.76);
+  ctx.stroke();
+  ctx.restore();
+
+  // Golden Vault Chamber backdrop at bottom
+  ctx.save();
+  const vaultGrad = ctx.createLinearGradient(cx, H * 0.78, cx, H * 0.88);
+  vaultGrad.addColorStop(0, gateOpen ? 'rgba(250,204,21,0.24)' : 'rgba(250,204,21,0.08)');
+  vaultGrad.addColorStop(1, 'rgba(250,204,21,0.04)');
+  ctx.fillStyle = vaultGrad;
+  ctx.fillRect(cx - 115 * S, H * 0.795, 230 * S, H * 0.080);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.round(20 * S)}px monospace`;
+  ctx.fillStyle = gateOpen ? '#fde047' : 'rgba(250,204,21,0.55)';
+  ctx.fillText(gateOpen ? 'GOLDEN VAULT OPEN' : 'GOLDEN VAULT', cx, H * 0.842);
+  ctx.restore();
+
+  // Vault Energy Gate (glows gold/red when locked, vanishes when open)
+  if (!gateOpen) {
+    ctx.save();
+    const pulse = 0.6 + 0.4 * Math.sin(simTime * 12);
+    ctx.strokeStyle = `rgba(250,204,21,${pulse})`;
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 16 * S;
+    ctx.beginPath();
+    ctx.moveTo(cx - 44 * S, gateY);
+    ctx.lineTo(cx + 44 * S, gateY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Angled glowing funnel chutes & vault walls
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const w of walls) {
+    ctx.strokeStyle = w.col;
+    ctx.lineWidth = 6 * S;
+    ctx.shadowColor = w.col;
+    ctx.shadowBlur = 12 * S;
+    ctx.beginPath();
+    ctx.moveTo(w.x1, w.y1);
+    ctx.lineTo(w.x2, w.y2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Spinning Mechanical Gears (3 Tiers)
+  for (let i = 0; i < gears.length; i++) {
+    drawGear(gears[i], S);
+  }
+
+  // Shockwaves
+  for (const w of waves) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, w.alpha);
+    ctx.strokeStyle = w.col;
+    ctx.lineWidth = 3.5 * S;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Glowing Neon Balls (320 rendered)
+  for (let i = 0; i < balls.length; i++) {
+    const b = balls[i];
+    if (!b.alive) continue;
+    const col = b.vaulted ? '#fde047' : `hsl(${b.hue}, 96%, 62%)`;
+    const haloCol = b.vaulted ? 'rgba(253,224,71,0.38)' : `hsla(${b.hue}, 96%, 60%, ${0.22 + b.glow * 0.25})`;
+
+    ctx.fillStyle = haloCol;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r * 1.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(b.x - b.r * 0.28, b.y - b.r * 0.28, b.r * 0.28, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Sparks & Fireworks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
+    ctx.fillStyle = sp.col;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  for (const fw of fireworks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, fw.life / fw.maxLife);
+    ctx.fillStyle = fw.col;
+    ctx.shadowColor = fw.col;
+    ctx.shadowBlur = 10 * S;
+    ctx.beginPath();
+    ctx.arc(fw.x, fw.y, fw.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore(); // end camera shake
+
+  // Top Safe-Zone HUD
+  drawHook(HOOK, S);
+
+  // Live SURVIVORS Counter Pill
+  const pillY = H * 0.145;
+  ctx.save();
+  ctx.translate(cx, pillY);
+  const popScale = 1 + counterPop * 0.12;
+  ctx.scale(popScale, popScale);
+  ctx.fillStyle = 'rgba(15,23,42,0.86)';
+  ctx.strokeStyle = climaxTriggered ? '#fde047' : '#22d3ee';
+  ctx.lineWidth = 2.5 * S;
+  ctx.shadowColor = climaxTriggered ? 'rgba(250,204,21,0.5)' : 'rgba(34,211,238,0.4)';
+  ctx.shadowBlur = 14 * S;
+  ctx.beginPath();
+  ctx.roundRect(-210 * S, -26 * S, 420 * S, 52 * S, 16 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.round(28 * S)}px monospace`;
+  ctx.fillStyle = climaxTriggered ? '#fde047' : '#ffffff';
+  const survCount = Math.max(1, Math.round(displaySurvivors));
+  ctx.fillText(`SURVIVORS: ${survCount.toLocaleString()}`, 0, 1 * S, 390 * S);
+  ctx.restore();
+
+  // Climax Banner at ~88% of DUR
+  if (climaxTriggered) {
+    const finAge = Math.min(1, (simTime - climaxTime) / 0.32);
+    const scale = 0.85 + 0.15 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(cx, H * 0.49);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.92)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.42, -68 * S, W * 0.84, 136 * S, 26 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 26 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('VAULT REACHED! 🏆', 0, -10 * S, W * 0.78);
+    ctx.font = `800 ${Math.round(21 * S)}px monospace`;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText(`${survCount.toLocaleString()} SURVIVED THE GAUNTLET`, 0, 34 * S, W * 0.78);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    stepPhysics(1 / FPS);
+    drawFrame();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>
