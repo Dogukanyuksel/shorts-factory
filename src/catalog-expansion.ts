@@ -24,7 +24,7 @@ export const EXPANSION_CHANNEL_META: Record<
   bio: {
     brandName: "Bio Mechanics",
     guardNeedle: "bio mechanics",
-    ytHandle: "@biomechanicsshorts",
+    ytHandle: "@biomechanicshq",
     playlistTitle: "Inside The Human Body | Bio Mechanics",
     accentHex: "#fb7185",
   },
