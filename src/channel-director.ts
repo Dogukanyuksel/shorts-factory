@@ -3,10 +3,53 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fetchYouTubeStatistics } from "./analytics.js";
 import { loadState, type ChannelId } from "./auto-publish.js";
-import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS } from "./catalog.js";
+import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, type PhysicsNiche } from "./catalog.js";
 import { loadDerivedShortsQueue } from "./derive-shorts.js";
-import { hoursSinceLastPublish } from "./devops.js";
+import { hoursSinceLastPublish, resolveMetaToken } from "./devops.js";
 import { NARRATIVE_LONGFORM_SPECS } from "./longform-narrative.js";
+
+export interface IgMediaMetrics {
+  views: number;
+  likes: number;
+  comments: number;
+  saves: number;
+  shares: number;
+}
+
+export interface VideoPerformanceRow {
+  id: string;
+  channel: ChannelId;
+  nicheOrEpisode: string;
+  title: string;
+  url: string;
+  publishedAt: string;
+  ageHours: number;
+  ytViews: number;
+  ytLikes: number;
+  ytComments: number;
+  igViews: number;
+  igLikes: number;
+  igComments: number;
+  igSaves: number;
+  igShares: number;
+  totalViews: number;
+  viewsPerHour: number;
+  /** Birleşik viral skor: izlenme hızı + kaydetme/paylaşma ağırlığı (algoritma sinyali). */
+  viralScore: number;
+}
+
+export interface DirectorStrategy {
+  updatedAt: string;
+  physics: {
+    boostedNiches: PhysicsNiche[];
+    cooledNiches: PhysicsNiche[];
+    topWinningTitles: string[];
+  };
+  explainer: {
+    topWinningTitles: string[];
+    highSaveTopics: string[];
+  };
+}
 
 export interface DirectorChannelAudit {
   channel: ChannelId;
@@ -17,7 +60,9 @@ export interface DirectorChannelAudit {
   hoursSinceLastLongform: number;
   pendingDerivedShorts: number;
   missingInstagramCount: number;
-  topPerformer?: { title: string; views: number; viewsPerHour: number; engagementRatePct: number; url: string };
+  totalYtViews: number;
+  totalIgViews: number;
+  topPerformers: VideoPerformanceRow[];
   issues: string[];
   recommendations: string[];
 }
@@ -27,11 +72,56 @@ export interface DirectorReport {
   healthy: boolean;
   missingSceneFiles: string[];
   channels: Record<ChannelId, DirectorChannelAudit>;
+  strategy: DirectorStrategy;
   criticalAlerts: string[];
   breakoutAlerts: string[];
 }
 
 const REPORT_PATH = resolve("state", "director-report.json");
+const STRATEGY_PATH = resolve("state", "director-strategy.json");
+const GRAPH_BASE = "https://graph.facebook.com/v21.0";
+
+function extractNicheOrEpisode(id: string, channel: ChannelId): string {
+  if (channel === "physics") {
+    const m = id.match(/^([a-z0-9-]+)-seed\d+$/);
+    if (m) return m[1];
+  }
+  return id.replace(/^explainer-/, "");
+}
+
+async function fetchIgMetrics(mediaId: string, token: string): Promise<IgMediaMetrics> {
+  const out: IgMediaMetrics = { views: 0, likes: 0, comments: 0, saves: 0, shares: 0 };
+  if (!mediaId || !/^\d{10,}$/.test(mediaId) || !token) return out;
+  try {
+    const baseRes = await fetch(
+      `${GRAPH_BASE}/${encodeURIComponent(mediaId)}?fields=like_count,comments_count`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(12_000) },
+    );
+    if (baseRes.ok) {
+      const j = (await baseRes.json()) as { like_count?: number; comments_count?: number };
+      out.likes = Number(j.like_count || 0);
+      out.comments = Number(j.comments_count || 0);
+    }
+    const insRes = await fetch(
+      `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/insights?metric=views,saved,shares`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(12_000) },
+    );
+    if (insRes.ok) {
+      const ins = (await insRes.json()) as {
+        data?: Array<{ name?: string; values?: Array<{ value?: number }> }>;
+      };
+      for (const m of ins.data || []) {
+        const val = Number(m.values?.[0]?.value || 0);
+        if (m.name === "views") out.views = val;
+        else if (m.name === "saved") out.saves = val;
+        else if (m.name === "shares") out.shares = val;
+      }
+    }
+  } catch {
+    // IG geçici erişim hatası tüm denetimi durdurmasın
+  }
+  return out;
+}
 
 function auditSceneAssets(): string[] {
   const missing: string[] = [];
@@ -74,7 +164,19 @@ async function main() {
 
   const apiKey = process.env.YOUTUBE_API_KEY?.trim() || "";
   const validIds = state.published.map((r) => r.videoId).filter(Boolean);
-  const statsMap = apiKey && validIds.length > 0 ? await fetchYouTubeStatistics(validIds, apiKey) : new Map();
+  const ytStatsMap = apiKey && validIds.length > 0 ? await fetchYouTubeStatistics(validIds, apiKey) : new Map();
+
+  // Instagram metriklerini son 20 Reels için çek (hızlı + rate-limit güvenli)
+  const igMetricsMap = new Map<string, IgMediaMetrics>();
+  const recentWithIg = state.published
+    .filter((r) => r.instagramMediaId && /^\d{10,}$/.test(r.instagramMediaId))
+    .slice(-20);
+  for (const rec of recentWithIg) {
+    const token = resolveMetaToken(rec.channel);
+    if (!token || !rec.instagramMediaId) continue;
+    const m = await fetchIgMetrics(rec.instagramMediaId, token);
+    igMetricsMap.set(rec.instagramMediaId, m);
+  }
 
   const nowMs = Date.now();
   const criticalAlerts: string[] = [];
@@ -84,8 +186,49 @@ async function main() {
     criticalAlerts.push(`Eksik sahne dosyası tespit edildi (${missingSceneFiles.length} adet)`);
   }
 
+  const allPerf: VideoPerformanceRow[] = [];
+  for (const r of state.published) {
+    const yt = r.videoId ? ytStatsMap.get(r.videoId) : undefined;
+    const ig = r.instagramMediaId ? igMetricsMap.get(r.instagramMediaId) : undefined;
+    const ytViews = yt?.views ?? 0;
+    const ytLikes = yt?.likes ?? 0;
+    const ytComments = yt?.comments ?? 0;
+    const igViews = ig?.views ?? 0;
+    const igLikes = ig?.likes ?? 0;
+    const igComments = ig?.comments ?? 0;
+    const igSaves = ig?.saves ?? 0;
+    const igShares = ig?.shares ?? 0;
+    const totalViews = ytViews + igViews;
+    const ageHours = Math.max(1, Number(((nowMs - Date.parse(r.publishedAt)) / 3_600_000).toFixed(1)));
+    const viewsPerHour = Number((totalViews / ageHours).toFixed(1));
+    const viralScore = Number(
+      (viewsPerHour + (ytLikes + igLikes) * 1.5 + (ytComments + igComments) * 4 + (igSaves + igShares) * 6).toFixed(1),
+    );
+    allPerf.push({
+      id: r.id,
+      channel: r.channel,
+      nicheOrEpisode: extractNicheOrEpisode(r.id, r.channel),
+      title: r.title,
+      url: r.url,
+      publishedAt: r.publishedAt,
+      ageHours,
+      ytViews,
+      ytLikes,
+      ytComments,
+      igViews,
+      igLikes,
+      igComments,
+      igSaves,
+      igShares,
+      totalViews,
+      viewsPerHour,
+      viralScore,
+    });
+  }
+
   const auditChannel = (ch: ChannelId): DirectorChannelAudit => {
     const recs = state.published.filter((r) => r.channel === ch);
+    const perfs = allPerf.filter((p) => p.channel === ch).sort((a, b) => b.viralScore - a.viralScore);
     const shorts = recs.filter((r) => r.url.includes("/shorts/"));
     const longforms = recs.filter((r) => r.url.includes("/watch?v="));
     const hoursShort = Number(hoursSinceLastPublish(state.published, ch, "short").toFixed(1));
@@ -96,8 +239,8 @@ async function main() {
     const issues: string[] = [];
     const recommendations: string[] = [];
 
-    if (hoursShort > 14 && Number.isFinite(hoursShort)) {
-      issues.push(`Son Short yayını ${hoursShort} saat önce (14s eşiği aşıldı)`);
+    if (hoursShort > 12 && Number.isFinite(hoursShort)) {
+      issues.push(`Son Short yayını ${hoursShort} saat önce (12s eşiği aşıldı)`);
       criticalAlerts.push(`${ch}: Son Short ${hoursShort} saat önce yayınlandı — yayın aksamış olabilir.`);
     }
     if (hoursLong > 36 && Number.isFinite(hoursLong)) {
@@ -106,25 +249,12 @@ async function main() {
     if (missingIg >= 2) {
       recommendations.push(`${missingIg} Short Instagram'da eksik — sync-instagram çalıştırılabilir.`);
     }
-    if (pendingDerived === 0) {
-      recommendations.push("Huni kuyruğu boş — bir sonraki 4-perdeli uzun video yeni 3 Vitrin Short üretecek.");
-    }
 
-    let topPerformer: DirectorChannelAudit["topPerformer"];
-    for (const r of recs) {
-      if (!r.videoId) continue;
-      const st = statsMap.get(r.videoId);
-      if (!st) continue;
-      const ageH = Math.max(1, (nowMs - Date.parse(r.publishedAt)) / 3_600_000);
-      const vph = Number((st.views / ageH).toFixed(1));
-      const eng = st.views > 0 ? Number((((st.likes + st.comments * 3) / st.views) * 100).toFixed(2)) : 0;
-      if (!topPerformer || st.views > topPerformer.views) {
-        topPerformer = { title: r.title, views: st.views, viewsPerHour: vph, engagementRatePct: eng, url: r.url };
-      }
-      if (st.views >= 10_000 && ageH <= 72) {
+    for (const p of perfs.slice(0, 3)) {
+      if (p.totalViews >= 10_000 && p.ageHours <= 72) {
         breakoutAlerts.push(
           `🔥 <b>PATLAMA TESPİTİ (${ch === "explainer" ? "Clear Mechanics" : "Kinetic Lab"}):</b> ` +
-            `${st.views.toLocaleString("tr-TR")} izlenme (${vph}/saat) — ${r.title}\n${r.url}`,
+            `${p.totalViews.toLocaleString("tr-TR")} toplam izlenme (YT: ${p.ytViews.toLocaleString("tr-TR")} | IG: ${p.igViews.toLocaleString("tr-TR")}) — ${p.title}\n${p.url}`,
         );
       }
     }
@@ -138,7 +268,9 @@ async function main() {
       hoursSinceLastLongform: Number.isFinite(hoursLong) ? hoursLong : -1,
       pendingDerivedShorts: pendingDerived,
       missingInstagramCount: missingIg,
-      topPerformer,
+      totalYtViews: perfs.reduce((a, p) => a + p.ytViews, 0),
+      totalIgViews: perfs.reduce((a, p) => a + p.igViews, 0),
+      topPerformers: perfs.slice(0, 5),
       issues,
       recommendations,
     };
@@ -146,25 +278,54 @@ async function main() {
 
   const physics = auditChannel("physics");
   const explainer = auditChannel("explainer");
-  const healthy = criticalAlerts.length === 0;
 
+  // Dinamik büyüme stratejisi: YT+IG birleşik skoru en yüksek nişleri otomatik öne al!
+  const validPhysicsNiches = new Set(CURATED_PHYSICS_JOBS.map((j) => j.niche));
+  const physicsPerfByNiche = allPerf
+    .filter((p) => p.channel === "physics" && validPhysicsNiches.has(p.nicheOrEpisode as PhysicsNiche) && p.totalViews > 0)
+    .sort((a, b) => b.viralScore - a.viralScore);
+
+  const boostedNiches = [...new Set(physicsPerfByNiche.slice(0, 3).map((p) => p.nicheOrEpisode as PhysicsNiche))];
+  const cooledNiches = [...new Set(physicsPerfByNiche.slice(-2).map((p) => p.nicheOrEpisode as PhysicsNiche))].filter(
+    (n) => !boostedNiches.includes(n),
+  );
+
+  const strategy: DirectorStrategy = {
+    updatedAt: new Date().toISOString(),
+    physics: {
+      boostedNiches,
+      cooledNiches,
+      topWinningTitles: physics.topPerformers.slice(0, 3).map((p) => p.title),
+    },
+    explainer: {
+      topWinningTitles: explainer.topPerformers.slice(0, 3).map((p) => p.title),
+      highSaveTopics: explainer.topPerformers
+        .filter((p) => p.igSaves + p.igShares > 0)
+        .slice(0, 3)
+        .map((p) => p.nicheOrEpisode),
+    },
+  };
+
+  const healthy = criticalAlerts.length === 0;
   const report: DirectorReport = {
-    generatedAt: new Date().toISOString(),
+    generatedAt: strategy.updatedAt,
     healthy,
     missingSceneFiles,
     channels: { physics, explainer },
+    strategy,
     criticalAlerts,
     breakoutAlerts,
   };
 
   await mkdir(dirname(REPORT_PATH), { recursive: true });
   await writeFile(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await writeFile(STRATEGY_PATH, `${JSON.stringify(strategy, null, 2)}\n`, "utf8");
 
-  console.log(`[director] Denetim tamamlandı | Sağlıklı=${healthy} | Kritik=${criticalAlerts.length} | Patlama=${breakoutAlerts.length}`);
-  console.log(`  Kinetic Lab    : ${physics.shortsCount} Short, ${physics.longformCount} Uzun, ${physics.pendingDerivedShorts} huni bekleyen`);
-  console.log(`  Clear Mechanics: ${explainer.shortsCount} Short, ${explainer.longformCount} Uzun, ${explainer.pendingDerivedShorts} huni bekleyen`);
+  console.log(
+    `[director] 6h Denetim TAMAM | Sağlıklı=${healthy} | YT+IG Toplam: Physics=${physics.totalYtViews + physics.totalIgViews}, Explainer=${explainer.totalYtViews + explainer.totalIgViews}`,
+  );
+  console.log(`  Öne Alınan Kazanan Nişler: ${boostedNiches.join(", ") || "(veri birikiyor)"}`);
 
-  // Patron kuralı: Gereksiz spam yok — yalnızca gerçek kritik arıza veya 10K+ viral patlamada Telegram'a bildir
   if (criticalAlerts.length > 0) {
     await sendTelegramAlert(`🚨 <b>Kanal Müdürü Kritik Uyarı</b>\n• ${criticalAlerts.join("\n• ")}`);
   }

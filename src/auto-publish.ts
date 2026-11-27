@@ -468,7 +468,30 @@ async function main() {
     }
   }
 
-  const job = votedJob ?? pickNextJob(channel, publishedIds);
+  // Dinamik büyüme döngüsü: Kanal Müdürü'nün YT+IG birleşik skorla seçtiği kazanan nişi her 3 slotta bir öne al
+  let directorBoostedJob: PublishJob | null = null;
+  if (!votedJob && channel === "physics" && state.published.filter((r) => r.channel === "physics").length % 3 === 2) {
+    const stratPath = resolve("state", "director-strategy.json");
+    if (existsSync(stratPath)) {
+      try {
+        const strat = JSON.parse(await readFile(stratPath, "utf8")) as { physics?: { boostedNiches?: string[] } };
+        const lastPhysId = [...state.published].reverse().find((r) => r.channel === "physics")?.id || "";
+        for (const niche of strat.physics?.boostedNiches || []) {
+          if (lastPhysId.startsWith(`${niche}-`)) continue;
+          const candidate = pickJobByKey("physics", niche, publishedIds);
+          if (candidate) {
+            directorBoostedJob = candidate;
+            console.log(`🚀 [director-loop] YT+IG viral lideri (${niche}) dinamik olarak öne alındı!`);
+            break;
+          }
+        }
+      } catch {
+        // Strateji dosyası okunamazsa normal sıradan devam et
+      }
+    }
+  }
+
+  const job = votedJob ?? directorBoostedJob ?? pickNextJob(channel, publishedIds);
 
   if (!job) {
     console.log(`[auto-publish] "${channel}" kanalı için bekleyen yeni video kalmadı.`);
