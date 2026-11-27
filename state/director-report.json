@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-11-27T17:58:42.298Z",
+  "healthy": true,
+  "missingSceneFiles": [],
+  "channels": {
+    "physics": {
+      "channel": "physics",
+      "totalPublished": 18,
+      "shortsCount": 12,
+      "longformCount": 4,
+      "hoursSinceLastShort": 0.5,
+      "hoursSinceLastLongform": 2.6,
+      "pendingDerivedShorts": 3,
+      "missingInstagramCount": 0,
+      "topPerformer": {
+        "title": "Cyan vs Magenta: Chaos Theory Arena Duel #shorts",
+        "views": 1732,
+        "viewsPerHour": 31.6,
+        "engagementRatePct": 1.21,
+        "url": "https://youtube.com/shorts/sHx6nTQ79GM"
+      },
+      "issues": [],
+      "recommendations": []
+    },
+    "explainer": {
+      "channel": "explainer",
+      "totalPublished": 14,
+      "shortsCount": 8,
+      "longformCount": 4,
+      "hoursSinceLastShort": 0.5,
+      "hoursSinceLastLongform": 11.1,
+      "pendingDerivedShorts": 3,
+      "missingInstagramCount": 0,
+      "topPerformer": {
+        "title": "What If Earth Were Compressed to the Size of a Marble? #shorts",
+        "views": 1311,
+        "viewsPerHour": 39.3,
+        "engagementRatePct": 2.29,
+        "url": "https://youtube.com/shorts/4hWKnZfXP0I"
+      },
+      "issues": [],
+      "recommendations": []
+    }
+  },
+  "criticalAlerts": [],
+  "breakoutAlerts": []
+}
