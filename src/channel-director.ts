@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fetchYouTubeStatistics } from "./analytics.js";
 import { loadState, type ChannelId } from "./auto-publish.js";
 import { CURATED_PHYSICS_JOBS, EXPLAINER_JOBS, type PhysicsNiche } from "./catalog.js";
+import { EXPANSION_JOBS, type ExpansionChannelId } from "./catalog-expansion.js";
 import { loadDerivedShortsQueue } from "./derive-shorts.js";
 import { hoursSinceLastPublish, resolveMetaToken } from "./devops.js";
 import { NARRATIVE_LONGFORM_SPECS } from "./longform-narrative.js";
@@ -67,19 +68,51 @@ export interface DirectorChannelAudit {
   recommendations: string[];
 }
 
+export interface ExpansionChannelAudit {
+  channel: ExpansionChannelId;
+  totalPublished: number;
+  remainingStock: number;
+  totalYtViews: number;
+  totalIgViews: number;
+  topTitle?: string;
+  topViews: number;
+}
+
 export interface DirectorReport {
   generatedAt: string;
   healthy: boolean;
   missingSceneFiles: string[];
   channels: Record<ChannelId, DirectorChannelAudit>;
+  expansion: Record<ExpansionChannelId, ExpansionChannelAudit>;
   strategy: DirectorStrategy;
   criticalAlerts: string[];
   breakoutAlerts: string[];
 }
 
+interface ExpansionPublishedRecord {
+  id: string;
+  channel: ExpansionChannelId;
+  title: string;
+  videoId: string;
+  url: string;
+  publishedAt: string;
+  instagramMediaId?: string;
+}
+
 const REPORT_PATH = resolve("state", "director-report.json");
 const STRATEGY_PATH = resolve("state", "director-strategy.json");
+const EXPANSION_STATE_PATH = resolve("state", "published-expansion.json");
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
+
+async function loadExpansionPublished(): Promise<ExpansionPublishedRecord[]> {
+  try {
+    const raw = await readFile(EXPANSION_STATE_PATH, "utf8");
+    const parsed = JSON.parse(raw) as { published?: ExpansionPublishedRecord[] };
+    return Array.isArray(parsed.published) ? parsed.published : [];
+  } catch {
+    return [];
+  }
+}
 
 function extractNicheOrEpisode(id: string, channel: ChannelId): string {
   if (channel === "physics") {
@@ -137,6 +170,10 @@ function auditSceneAssets(): string[] {
     const p = resolve("niches", "longform-deep-dive", `${spec.slug}.html`);
     if (!existsSync(p)) missing.push(p);
   }
+  for (const job of EXPANSION_JOBS) {
+    const p = resolve("niches", "expansion", `${job.episode}.html`);
+    if (!existsSync(p)) missing.push(p);
+  }
   return [...new Set(missing)];
 }
 
@@ -159,18 +196,23 @@ async function sendTelegramAlert(text: string): Promise<void> {
 
 async function main() {
   const state = await loadState();
+  const expansionPublished = await loadExpansionPublished();
   const queue = await loadDerivedShortsQueue();
   const missingSceneFiles = auditSceneAssets();
 
   const apiKey = process.env.YOUTUBE_API_KEY?.trim() || "";
-  const validIds = state.published.map((r) => r.videoId).filter(Boolean);
+  const validIds = [
+    ...state.published.map((r) => r.videoId),
+    ...expansionPublished.map((r) => r.videoId),
+  ].filter(Boolean);
   const ytStatsMap = apiKey && validIds.length > 0 ? await fetchYouTubeStatistics(validIds, apiKey) : new Map();
 
-  // Instagram metriklerini son 20 Reels için çek (hızlı + rate-limit güvenli)
+  // Instagram metriklerini son 20 Reels + expansion Reels için çek (hızlı + rate-limit güvenli)
   const igMetricsMap = new Map<string, IgMediaMetrics>();
-  const recentWithIg = state.published
-    .filter((r) => r.instagramMediaId && /^\d{10,}$/.test(r.instagramMediaId))
-    .slice(-20);
+  const recentWithIg: Array<{ channel: "physics" | "explainer" | "wealth" | "bio"; instagramMediaId?: string }> = [
+    ...state.published.filter((r) => r.instagramMediaId && /^\d{10,}$/.test(r.instagramMediaId)).slice(-20),
+    ...expansionPublished.filter((r) => r.instagramMediaId && /^\d{10,}$/.test(r.instagramMediaId)).slice(-12),
+  ];
   for (const rec of recentWithIg) {
     const token = resolveMetaToken(rec.channel);
     if (!token || !rec.instagramMediaId) continue;
@@ -279,6 +321,44 @@ async function main() {
   const physics = auditChannel("physics");
   const explainer = auditChannel("explainer");
 
+  const auditExpansion = (ch: ExpansionChannelId): ExpansionChannelAudit => {
+    const recs = expansionPublished.filter((r) => r.channel === ch);
+    const publishedIds = new Set(recs.map((r) => r.id));
+    const remainingStock = EXPANSION_JOBS.filter((j) => j.channel === ch && !publishedIds.has(j.id)).length;
+    let totalYtViews = 0;
+    let totalIgViews = 0;
+    let topTitle: string | undefined;
+    let topViews = 0;
+    for (const r of recs) {
+      const yt = r.videoId ? ytStatsMap.get(r.videoId) : undefined;
+      const ig = r.instagramMediaId ? igMetricsMap.get(r.instagramMediaId) : undefined;
+      const yv = yt?.views ?? 0;
+      const iv = ig?.views ?? 0;
+      totalYtViews += yv;
+      totalIgViews += iv;
+      if (yv + iv >= topViews) {
+        topViews = yv + iv;
+        topTitle = r.title;
+      }
+    }
+    if (remainingStock <= 2) {
+      const label = ch === "wealth" ? "Wealth Mechanics" : "Bio Mechanics";
+      criticalAlerts.push(`${label}: Katalog stoku azaldı (kalan ${remainingStock} bölüm) — yeni bölüm eklenmeli.`);
+    }
+    return {
+      channel: ch,
+      totalPublished: recs.length,
+      remainingStock,
+      totalYtViews,
+      totalIgViews,
+      topTitle,
+      topViews,
+    };
+  };
+
+  const wealth = auditExpansion("wealth");
+  const bio = auditExpansion("bio");
+
   // Dinamik büyüme stratejisi: YT+IG birleşik skoru en yüksek nişleri otomatik öne al!
   const validPhysicsNiches = new Set(CURATED_PHYSICS_JOBS.map((j) => j.niche));
   const physicsPerfByNiche = allPerf
@@ -312,6 +392,7 @@ async function main() {
     healthy,
     missingSceneFiles,
     channels: { physics, explainer },
+    expansion: { wealth, bio },
     strategy,
     criticalAlerts,
     breakoutAlerts,
@@ -322,7 +403,7 @@ async function main() {
   await writeFile(STRATEGY_PATH, `${JSON.stringify(strategy, null, 2)}\n`, "utf8");
 
   console.log(
-    `[director] 6h Denetim TAMAM | Sağlıklı=${healthy} | YT+IG Toplam: Physics=${physics.totalYtViews + physics.totalIgViews}, Explainer=${explainer.totalYtViews + explainer.totalIgViews}`,
+    `[director] 6h Denetim TAMAM | Sağlıklı=${healthy} | YT+IG Toplam: Physics=${physics.totalYtViews + physics.totalIgViews}, Explainer=${explainer.totalYtViews + explainer.totalIgViews}, Wealth=${wealth.totalYtViews + wealth.totalIgViews}, Bio=${bio.totalYtViews + bio.totalIgViews}`,
   );
   console.log(`  Öne Alınan Kazanan Nişler: ${boostedNiches.join(", ") || "(veri birikiyor)"}`);
 
@@ -333,7 +414,7 @@ async function main() {
     await sendTelegramAlert(breakoutAlerts.slice(0, 2).join("\n\n"));
   }
 
-  // BigBoss isteği: Güncellenen strateji özetini (kazananlar + öne alınan format + stok) tek kısa kartta Telegram'a ilet
+  // BigBoss isteği: Güncellenen strateji özetini (4 kanal + kazananlar + stok) tek kısa kartta Telegram'a ilet
   const remNarrExp = NARRATIVE_LONGFORM_SPECS.filter(
     (s) => s.channel === "explainer" && !state.published.some((p) => p.id === s.id),
   ).length;
@@ -343,11 +424,13 @@ async function main() {
   const topPhys = physics.topPerformers[0];
   const topExp = explainer.topPerformers[0];
   const stratMsg = [
-    `🧠 <b>LITTLE BOSS STRATEJİ RAPORU</b>`,
-    `• <b>Kinetic Lab:</b> YT ${(physics.totalYtViews).toLocaleString("tr-TR")} | IG ${(physics.totalIgViews).toLocaleString("tr-TR")} | Huni: ${physics.pendingDerivedShorts} | Derin 16:9 Stok: ${remNarrPhys}`,
+    `🧠 <b>LITTLE BOSS STRATEJİ RAPORU (4 KANAL)</b>`,
+    `• <b>Kinetic Lab:</b> YT ${(physics.totalYtViews).toLocaleString("tr-TR")} | IG ${(physics.totalIgViews).toLocaleString("tr-TR")} | Huni: ${physics.pendingDerivedShorts} | 16:9 Stok: ${remNarrPhys}`,
     topPhys ? `  ↳ Lider: ${topPhys.title.slice(0, 48)} (${topPhys.totalViews.toLocaleString("tr-TR")})` : "",
-    `• <b>Clear Mechanics:</b> YT ${(explainer.totalYtViews).toLocaleString("tr-TR")} | IG ${(explainer.totalIgViews).toLocaleString("tr-TR")} | Huni: ${explainer.pendingDerivedShorts} | Derin 16:9 Stok: ${remNarrExp}`,
+    `• <b>Clear Mechanics:</b> YT ${(explainer.totalYtViews).toLocaleString("tr-TR")} | IG ${(explainer.totalIgViews).toLocaleString("tr-TR")} | Huni: ${explainer.pendingDerivedShorts} | 16:9 Stok: ${remNarrExp}`,
     topExp ? `  ↳ Lider: ${topExp.title.slice(0, 48)} (${topExp.totalViews.toLocaleString("tr-TR")})` : "",
+    `• <b>Wealth Mechanics:</b> YT ${(wealth.totalYtViews).toLocaleString("tr-TR")} | IG ${(wealth.totalIgViews).toLocaleString("tr-TR")} | Yayın: ${wealth.totalPublished} | Stok: ${wealth.remainingStock}`,
+    `• <b>Bio Mechanics:</b> YT ${(bio.totalYtViews).toLocaleString("tr-TR")} | IG ${(bio.totalIgViews).toLocaleString("tr-TR")} | Yayın: ${bio.totalPublished} | Stok: ${bio.remainingStock}`,
     `• <b>Otomatik Öne Alınan Kazananlar:</b> ${boostedNiches.length > 0 ? boostedNiches.join(", ") : "Veri toplanıyor"}`,
   ]
     .filter(Boolean)

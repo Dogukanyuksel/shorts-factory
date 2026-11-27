@@ -19,7 +19,7 @@ function main() {
 
   const abs = resolve(filePath);
   const localContent = readFileSync(abs, "utf8");
-  const isPublishedJson = filePath.endsWith("published.json");
+  const isPublishedJson = filePath.endsWith("published.json") || filePath.endsWith("published-expansion.json");
   const isDerivedQueueJson = filePath.endsWith("derived-shorts-queue.json");
 
   const status = runGit(["status", "--porcelain", filePath]);

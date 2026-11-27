@@ -1,0 +1,648 @@
+<!doctype html>
+<!--
+  Bio Mechanics — Inside Your Lungs: How 480 Million Air Sacs Power Every Breath
+  60fps, deterministic, audio-synced HTML5 Canvas medical cutaway
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Every single day, your lungs pull in eleven thousand liters of air through a microscopic living forest.', caption: '11,000 LITERS/DAY' },
+  { id: 'tree', text: 'Air races down your trachea and splits twenty-three times across a glowing bronchial tree.', caption: '1. BRONCHIAL TREE' },
+  { id: 'alveoli', text: 'At the very tips sit four hundred eighty million elastic air sacs called alveoli—clustered like grapes.', caption: '2. 480M ALVEOLI' },
+  { id: 'membrane', text: 'Wrapped in hair-thin capillaries, oxygen crosses a membrane just half a micron thick.', caption: '3. 0.5 MICRON WALL' },
+  { id: 'exchange', text: 'Cyan oxygen locks onto dark blue blood cells, turning them bright crimson while carbon dioxide escapes!', caption: '4. O₂ / CO₂ SWAP' },
+  { id: 'scale', text: 'Unfolded flat, those tiny sacs would cover an entire tennis court—powering twenty thousand breaths a day.', caption: 'TENNIS COURT AREA' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lTre = getLine('tree', 1);
+  const lAlv = getLine('alveoli', 2);
+  const lMem = getLine('membrane', 3);
+  const lExc = getLine('exchange', 4);
+  const lSca = getLine('scale', 5);
+
+  EVENTS = [
+    { t: lTre.start + 0.14, type: 'bounce', pitchIndex: 2, intensity: 0.58 },
+    { t: lAlv.start + 0.14, type: 'bounce', pitchIndex: 4, intensity: 0.72 },
+    { t: lMem.start + 0.15, type: 'bounce', pitchIndex: 6, intensity: 0.75 },
+    { t: lExc.start + 0.10, type: 'break', pitchIndex: 7, intensity: 0.96 },
+    { t: lExc.start + 1.05, type: 'bounce', pitchIndex: 8, intensity: 0.78 },
+    { t: lSca.start + 0.25, type: 'bounce', pitchIndex: 9, intensity: 0.80 },
+    { t: Math.min(DUR - 0.25, lSca.start + 1.4), type: 'win', pitchIndex: 10, intensity: 0.96 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function getActivePhase(t) {
+  for (let i = SCRIPT.length - 1; i >= 0; i--) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) return { idx: i, line: ln };
+  }
+  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
+}
+
+// Deterministic recursive bronchial tree renderer
+function drawBronchialBranch(x, y, len, angle, depth, breathAmt, S) {
+  if (depth <= 0) return;
+  const ex = x + Math.cos(angle) * len;
+  const ey = y + Math.sin(angle) * len;
+
+  ctx.strokeStyle = depth >= 4 ? '#38bdf8' : (depth >= 2 ? '#22d3ee' : '#7dd3fc');
+  ctx.lineWidth = Math.max(1.2 * S, depth * 2.1 * S);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+
+  if (depth === 1) {
+    // Glowing alveolar tip cluster
+    const tipR = (3.4 + 1.6 * breathAmt) * S;
+    ctx.fillStyle = 'rgba(125,211,252,0.75)';
+    ctx.beginPath();
+    ctx.arc(ex, ey, tipR, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  const spread = 0.44 + (depth === 5 ? 0.24 : 0) + 0.05 * breathAmt;
+  drawBronchialBranch(ex, ey, len * 0.72, angle - spread, depth - 1, breathAmt, S);
+  drawBronchialBranch(ex, ey, len * 0.72, angle + spread, depth - 1, breathAmt, S);
+}
+
+// Surrounding background alveoli grape sacs (normalized around hero alveolus)
+const ALVEOLI_SACS = [
+  { x: -1.35, y: -0.62, r: 0.56 },
+  { x:  1.32, y: -0.60, r: 0.54 },
+  { x: -1.48, y:  0.22, r: 0.50 },
+  { x:  1.45, y:  0.18, r: 0.52 },
+  { x: -0.88, y: -1.12, r: 0.48 },
+  { x:  0.86, y: -1.10, r: 0.48 },
+  { x: -0.95, y:  0.88, r: 0.46 },
+  { x:  0.96, y:  0.86, r: 0.46 },
+];
+
+function drawFrame(t) {
+  const S = W / 720;
+  const safeLeft = W * 0.08;
+  const safeRight = W * 0.84;
+  const safeW = safeRight - safeLeft;
+  const cx = (safeLeft + safeRight) * 0.5;
+
+  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
+  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
+
+  const lAlv = getLine('alveoli', 2);
+  const lMem = getLine('membrane', 3);
+  const lExc = getLine('exchange', 4);
+  const lSca = getLine('scale', 5);
+
+  // Live breathing cycle (~3.4s per breath: smooth inhale/exhale)
+  const breathCycle = t * 1.85;
+  const breathAmt = 0.5 + 0.5 * Math.sin(breathCycle - Math.PI * 0.5); // 0 = exhaled, 1 = inhaled
+  const breathDeriv = Math.cos(breathCycle - Math.PI * 0.5); // >0 = inhaling, <0 = exhaling
+  const isInhaling = breathDeriv >= 0;
+
+  // Transition from Bronchial Tree (0) -> Magnified Alveoli Cutaway (1)
+  const zoomToAlveoli = smooth(lAlv.start - 0.2, lAlv.start + 1.0, t);
+  const memFocus = smooth(lMem.start - 0.1, lMem.start + 0.6, t);
+  const exchangeBoost = smooth(lExc.start - 0.2, lExc.start + 0.5, t);
+
+  // === 1. DEEP MIDNIGHT #050712 MEDICAL STUDIO BACKGROUND ===
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  const bgGlow = ctx.createRadialGradient(cx, H * 0.37, 18 * S, cx, H * 0.37, H * 0.44);
+  bgGlow.addColorStop(0, `rgba(56,189,248,${(0.12 + 0.09 * breathAmt).toFixed(3)})`);
+  bgGlow.addColorStop(0.50, `rgba(244,63,94,${(0.06 + 0.06 * exchangeBoost).toFixed(3)})`);
+  bgGlow.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle diagnostic grid
+  ctx.strokeStyle = 'rgba(56,189,248,0.042)';
+  ctx.lineWidth = 1 * S;
+  for (let x = safeLeft; x <= safeRight; x += 42 * S) {
+    ctx.beginPath(); ctx.moveTo(x, H * 0.14); ctx.lineTo(x, H * 0.74); ctx.stroke();
+  }
+  for (let y = H * 0.14; y <= H * 0.74; y += 42 * S) {
+    ctx.beginPath(); ctx.moveTo(safeLeft, y); ctx.lineTo(safeRight, y); ctx.stroke();
+  }
+
+  // === 2. MAIN DUAL-SCALE LUNG / ALVEOLAR GAS-EXCHANGE VIEWPORT ===
+  const boxX = safeLeft;
+  const boxY = H * 0.186;
+  const boxW = safeW;
+  const boxH = H * 0.358;
+  const boxCx = boxX + boxW * 0.5;
+  const boxCy = boxY + boxH * 0.5;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 22 * S);
+  const vpG = ctx.createRadialGradient(boxCx, boxCy, 20 * S, boxCx, boxCy, boxW * 0.72);
+  vpG.addColorStop(0, '#0a1930');
+  vpG.addColorStop(0.65, '#070f21');
+  vpG.addColorStop(1, '#040712');
+  ctx.fillStyle = vpG;
+  ctx.fill();
+
+  ctx.save();
+  ctx.clip();
+
+  // --- VIEW A: GLOWING BRONCHIAL TREE & LUNG LOBES (Fades out as we zoom into Alveoli) ---
+  const treeAlpha = 1 - zoomToAlveoli;
+  if (treeAlpha > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = treeAlpha;
+    const expand = 1 + 0.055 * breathAmt;
+    ctx.translate(boxCx, boxCy + 8 * S);
+    ctx.scale(expand * (1 + 0.45 * zoomToAlveoli), expand * (1 + 0.45 * zoomToAlveoli));
+
+    // Left & Right Translucent Sculpted Lung Lobes
+    for (const side of [-1, 1]) {
+      ctx.save();
+      ctx.scale(side, 1);
+      const lobeG = ctx.createRadialGradient(74 * S, -10 * S, 10 * S, 78 * S, 10 * S, 145 * S);
+      lobeG.addColorStop(0, `rgba(251,113,133,${(0.26 + 0.12 * breathAmt).toFixed(2)})`);
+      lobeG.addColorStop(0.55, 'rgba(136,19,55,0.28)');
+      lobeG.addColorStop(1, 'rgba(15,23,42,0.12)');
+      ctx.fillStyle = lobeG;
+      ctx.strokeStyle = 'rgba(253,164,175,0.42)';
+      ctx.lineWidth = 2.2 * S;
+      ctx.beginPath();
+      ctx.moveTo(16 * S, -125 * S);
+      ctx.bezierCurveTo(105 * S, -135 * S, 185 * S, -30 * S, 178 * S, 96 * S);
+      ctx.bezierCurveTo(170 * S, 152 * S, 64 * S, 154 * S, 18 * S, 118 * S);
+      ctx.bezierCurveTo(12 * S, 32 * S, 12 * S, -55 * S, 16 * S, -125 * S);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Trachea & Cartilage Rings
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 18 * S;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 16 * S;
+    ctx.beginPath();
+    ctx.moveTo(0, -172 * S);
+    ctx.lineTo(0, -72 * S);
+    ctx.stroke();
+
+    // Recursive Bronchial Branches (Left & Right main bronchi)
+    drawBronchialBranch(0, -72 * S, 68 * S, Math.PI * 0.5 - 0.72, 5, breathAmt, S);
+    drawBronchialBranch(0, -72 * S, 68 * S, Math.PI * 0.5 + 0.72, 5, breathAmt, S);
+    ctx.shadowBlur = 0;
+
+    // Flowing cyan air particles rushing down trachea into lungs
+    for (let i = 0; i < 22; i++) {
+      const dir = isInhaling ? 1 : -1;
+      const u = ((t * 0.75 * dir + i / 22) % 1 + 1) % 1;
+      const side = i % 2 === 0 ? -1 : 1;
+      let px, py;
+      if (u < 0.4) {
+        const k = u / 0.4;
+        px = Math.sin(i * 4.1) * 5 * S;
+        py = lerp(-168 * S, -72 * S, k);
+      } else {
+        const k = (u - 0.4) / 0.6;
+        px = side * lerp(0, 124 * S, k) + Math.sin(i * 3.3 + k * 5) * 14 * S;
+        py = lerp(-72 * S, 84 * S, k);
+      }
+      ctx.fillStyle = isInhaling ? 'rgba(56,189,248,0.88)' : 'rgba(251,191,36,0.72)';
+      ctx.beginPath();
+      ctx.arc(px, py, 3.6 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // --- VIEW B: MAGNIFIED 3D ALVEOLI GRAPE CLUSTER & CAPILLARY GAS EXCHANGE ---
+  if (zoomToAlveoli > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = zoomToAlveoli;
+
+    const alvCx = boxCx;
+    const alvCy = boxCy - 24 * S;
+    const heroR = (92 + 12 * breathAmt) * S;
+
+    // Bronchiole stem feeding the grape cluster from top
+    ctx.save();
+    const stemG = ctx.createLinearGradient(alvCx - 24 * S, 0, alvCx + 24 * S, 0);
+    stemG.addColorStop(0, '#0c4a6e');
+    stemG.addColorStop(0.5, '#38bdf8');
+    stemG.addColorStop(1, '#082f49');
+    ctx.fillStyle = stemG;
+    ctx.strokeStyle = '#7dd3fc';
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath();
+    ctx.roundRect(alvCx - 24 * S, boxY - 10 * S, 48 * S, (alvCy - heroR * 0.72) - boxY + 24 * S, 10 * S);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // Background Alveoli Grape Cluster
+    for (let i = 0; i < ALVEOLI_SACS.length; i++) {
+      const s = ALVEOLI_SACS[i];
+      const sx = alvCx + s.x * heroR * 0.94;
+      const sy = alvCy + s.y * heroR * 0.80;
+      const sr = s.r * heroR;
+      const sacG = ctx.createRadialGradient(sx - sr * 0.3, sy - sr * 0.3, sr * 0.1, sx, sy, sr);
+      sacG.addColorStop(0, 'rgba(253,164,175,0.45)');
+      sacG.addColorStop(0.55, 'rgba(190,24,60,0.34)');
+      sacG.addColorStop(1, 'rgba(45,10,30,0.65)');
+      ctx.fillStyle = sacG;
+      ctx.strokeStyle = 'rgba(251,113,133,0.42)';
+      ctx.lineWidth = 1.6 * S;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Hero Center Alveolus Cutaway Chamber
+    ctx.save();
+    ctx.shadowColor = `rgba(56,189,248,${(0.32 + 0.26 * breathAmt).toFixed(2)})`;
+    ctx.shadowBlur = 26 * S;
+    const heroG = ctx.createRadialGradient(alvCx - 20 * S, alvCy - 24 * S, 12 * S, alvCx, alvCy, heroR);
+    heroG.addColorStop(0, `rgba(56,189,248,${(0.32 + 0.18 * breathAmt).toFixed(2)})`);
+    heroG.addColorStop(0.65, 'rgba(12,74,110,0.52)');
+    heroG.addColorStop(0.92, 'rgba(136,19,55,0.72)');
+    heroG.addColorStop(1, '#fda4af');
+    ctx.fillStyle = heroG;
+    ctx.strokeStyle = memFocus > 0.3 ? '#fef08a' : '#fda4af';
+    ctx.lineWidth = (3.0 + 1.4 * memFocus) * S;
+    ctx.beginPath();
+    ctx.arc(alvCx, alvCy, heroR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // --- PULMONARY CAPILLARY ARCH WRAPPING UNDER HERO ALVEOLUS ---
+    const capY = alvCy + heroR + 28 * S;
+    const capThickness = 36 * S;
+    // Bezier curve for capillary center-line: left (deoxygenated blue) -> bottom tangent -> right (oxygenated crimson)
+    const cP0 = { x: boxX - 18 * S, y: capY + 22 * S };
+    const cP1 = { x: alvCx - 95 * S, y: capY - 22 * S };
+    const cP2 = { x: alvCx + 95 * S, y: capY - 22 * S };
+    const cP3 = { x: boxX + boxW + 18 * S, y: capY + 22 * S };
+
+    const capPt = (u) => {
+      const m = 1 - u;
+      return {
+        x: m*m*m*cP0.x + 3*m*m*u*cP1.x + 3*m*u*u*cP2.x + u*u*u*cP3.x,
+        y: m*m*m*cP0.y + 3*m*m*u*cP1.y + 3*m*u*u*cP2.y + u*u*u*cP3.y,
+      };
+    };
+
+    // Capillary outer casing
+    ctx.save();
+    ctx.lineCap = 'round';
+    const capWallG = ctx.createLinearGradient(boxX, 0, boxX + boxW, 0);
+    capWallG.addColorStop(0, '#1e3a8a');
+    capWallG.addColorStop(0.45, '#3b0764');
+    capWallG.addColorStop(0.62, '#be123c');
+    capWallG.addColorStop(1, '#f43f5e');
+    ctx.strokeStyle = capWallG;
+    ctx.lineWidth = capThickness + 8 * S;
+    ctx.beginPath();
+    ctx.moveTo(cP0.x, cP0.y);
+    ctx.bezierCurveTo(cP1.x, cP1.y, cP2.x, cP2.y, cP3.x, cP3.y);
+    ctx.stroke();
+
+    // Capillary inner plasma channel
+    const capInG = ctx.createLinearGradient(boxX, 0, boxX + boxW, 0);
+    capInG.addColorStop(0, '#0f172a');
+    capInG.addColorStop(0.45, '#1e1b4b');
+    capInG.addColorStop(0.60, '#4c0519');
+    capInG.addColorStop(1, '#881337');
+    ctx.strokeStyle = capInG;
+    ctx.lineWidth = capThickness;
+    ctx.beginPath();
+    ctx.moveTo(cP0.x, cP0.y);
+    ctx.bezierCurveTo(cP1.x, cP1.y, cP2.x, cP2.y, cP3.x, cP3.y);
+    ctx.stroke();
+    ctx.restore();
+
+    // Flowing Red Blood Cells turning DARK BLUE -> BRIGHT CRIMSON at the 0.5-micron membrane!
+    for (let i = 0; i < 13; i++) {
+      const u = ((t * 0.24 + i / 13) % 1 + 1) % 1;
+      const pt = capPt(u);
+      const oxy = smooth(0.40, 0.58, u);
+      const rCol = Math.round(lerp(56, 251, oxy));
+      const gCol = Math.round(lerp(82, 77, oxy));
+      const bCol = Math.round(lerp(196, 109, oxy));
+
+      ctx.save();
+      ctx.translate(pt.x, pt.y + Math.sin(i * 3.1 + t * 3) * 4 * S);
+      ctx.shadowColor = oxy > 0.5 ? '#fb7185' : '#3b82f6';
+      ctx.shadowBlur = (8 + 8 * oxy) * S;
+      ctx.fillStyle = `rgb(${rCol},${gCol},${bCol})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 12 * S, 7.5 * S, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = oxy > 0.5 ? 'rgba(255,228,230,0.75)' : 'rgba(191,219,254,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(-2 * S, -1 * S, 5 * S, 2.8 * S, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // --- CYAN O₂ BUBBLES CROSSING DOWN ACROSS 0.5-MICRON MEMBRANE INTO BLOOD ---
+    for (let i = 0; i < 16; i++) {
+      const u = ((t * 0.55 + i / 16) % 1 + 1) % 1;
+      const spreadX = (hash(i * 17) - 0.5) * 96 * S;
+      const ox = alvCx + spreadX * (0.4 + 0.6 * u);
+      const oy = lerp(alvCy - 42 * S, capY - 2 * S, u);
+      const or = (4.2 + hash(i * 31) * 2.4) * S;
+
+      ctx.save();
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 10 * S;
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(ox, oy, or, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#e0f2fe';
+      ctx.beginPath();
+      ctx.arc(ox - 1.2 * S, oy - 1.2 * S, or * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // --- AMBER CO₂ BUBBLES DIFFUSING UP FROM BLUE BLOOD INTO ALVEOLUS & OUT ---
+    for (let i = 0; i < 11; i++) {
+      const u = ((t * 0.48 + i / 11 + 0.3) % 1 + 1) % 1;
+      const cx2 = alvCx - 46 * S + (hash(i * 43) - 0.5) * 44 * S + u * 26 * S;
+      const cy2 = lerp(capY + 4 * S, boxY + 8 * S, u);
+      const cr = (3.8 + hash(i * 59) * 2.0) * S;
+
+      ctx.save();
+      ctx.shadowColor = '#fbbf24';
+      ctx.shadowBlur = 8 * S;
+      ctx.fillStyle = 'rgba(251,191,36,0.88)';
+      ctx.beginPath();
+      ctx.arc(cx2, cy2, cr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Highlight 0.5-MICRON MEMBRANE glowing line between alveolus and capillary
+    const memY = alvCy + heroR + 2 * S;
+    ctx.save();
+    ctx.strokeStyle = memFocus > 0.25 ? '#fef08a' : 'rgba(254,240,138,0.55)';
+    ctx.lineWidth = (2.2 + 1.6 * memFocus) * S;
+    ctx.setLineDash([6 * S, 5 * S]);
+    ctx.beginPath();
+    ctx.moveTo(alvCx - 74 * S, memY);
+    ctx.lineTo(alvCx + 74 * S, memY);
+    ctx.stroke();
+    ctx.restore();
+
+    // Crisp micro-anatomy tags inside safe viewport
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont('O₂ IN ↓', 14 * S, 90 * S, '900');
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillText('O₂ IN ↓', alvCx + 42 * S, alvCy - 18 * S);
+
+    fitFont('↑ CO₂ OUT', 13 * S, 95 * S, '900');
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText('↑ CO₂ OUT', alvCx - 42 * S, alvCy - 18 * S);
+
+    fitFont('0.5 µm MEMBRANE', 12.5 * S, 145 * S, '900');
+    ctx.fillStyle = '#fef08a';
+    ctx.fillText('0.5 µm MEMBRANE', alvCx, memY - 14 * S);
+
+    ctx.textAlign = 'left';
+    fitFont('O₂-POOR', 12 * S, 76 * S, '800');
+    ctx.fillStyle = '#93c5fd';
+    ctx.fillText('O₂-POOR', boxX + 14 * S, boxY + boxH - 18 * S);
+
+    ctx.textAlign = 'right';
+    fitFont('O₂-RICH', 12 * S, 76 * S, '800');
+    ctx.fillStyle = '#fda4af';
+    ctx.fillText('O₂-RICH', boxX + boxW - 14 * S, boxY + boxH - 18 * S);
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // Top-left breath status pill inside cutaway
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const bTxt = isInhaling ? '● INHALE • O₂ LOADING' : '○ EXHALE • CO₂ EXIT';
+  fitFont(bTxt, 12.5 * S, 210 * S, '800');
+  ctx.fillStyle = 'rgba(5,7,18,0.74)';
+  ctx.beginPath();
+  ctx.roundRect(boxX + 12 * S, boxY + 12 * S, ctx.measureText(bTxt).width + 20 * S, 25 * S, 8 * S);
+  ctx.fill();
+  ctx.fillStyle = isInhaling ? '#38bdf8' : '#fbbf24';
+  ctx.fillText(bTxt, boxX + 22 * S, boxY + 18 * S);
+  ctx.restore();
+
+  ctx.restore(); // end cutaway clip
+
+  // Cutaway outer neon rim
+  ctx.strokeStyle = isInhaling ? 'rgba(56,189,248,0.62)' : 'rgba(251,113,133,0.48)';
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 22 * S);
+  ctx.stroke();
+  ctx.restore();
+
+  // === 3. LIVE RESPIRATORY SPIROMETER MONITOR (y: H*0.560 to H*0.624) ===
+  const spX = safeLeft;
+  const spY = H * 0.560;
+  const spW = safeW;
+  const spH = H * 0.064;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(9,16,32,0.88)';
+  ctx.strokeStyle = 'rgba(56,189,248,0.45)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.roundRect(spX, spY, spW, spH, 12 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  const padX = 14 * S;
+  const traceW = spW - padX * 2;
+  const midY = spY + spH * 0.60;
+  const ampY = spH * 0.28;
+  const samples = 96;
+
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2.8 * S;
+  ctx.shadowColor = '#38bdf8';
+  ctx.shadowBlur = 10 * S;
+  ctx.beginPath();
+  let lastX = spX + padX;
+  let lastY = midY;
+  for (let i = 0; i <= samples; i++) {
+    const frac = i / samples;
+    const sx = spX + padX + frac * traceW;
+    const ph = breathCycle - (1 - frac) * 7.5;
+    const sy = midY - Math.sin(ph - Math.PI * 0.5) * ampY;
+    if (i === 0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+    lastX = sx;
+    lastY = sy;
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = '#f0f9ff';
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 4.2 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  fitFont('TIDAL AIRFLOW • 99% SpO₂', 13 * S, spW - 28 * S, '800');
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillText('TIDAL AIRFLOW • 99% SpO₂', spX + 14 * S, spY + 8 * S);
+  ctx.restore();
+
+  // === 4. LIVE STAT CARDS: 11,000 L/DAY & 480M ALVEOLI (y: H*0.634, h: H*0.052) ===
+  const cardY = H * 0.634;
+  const cardH = H * 0.052;
+  const gap = 12 * S;
+  const cardW = (safeW - gap) * 0.5;
+
+  const progressAll = clamp(t / Math.max(1, DUR - 0.5), 0, 1);
+  const easedLiters = Math.min(11000, Math.round((0.06 + 0.94 * Math.pow(progressAll, 1.25)) * 11000));
+
+  function drawStatCard(x, label, valueText, accent, valColor) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.88)';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(label, 12.5 * S, cardW - 16 * S, '800');
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
+
+    fitFont(valueText, 23 * S, cardW - 16 * S, '900');
+    ctx.fillStyle = valColor;
+    ctx.fillText(valueText, x + cardW * 0.5, cardY + cardH * 0.70);
+    ctx.restore();
+  }
+
+  drawStatCard(safeLeft, 'AIR PER DAY', `${easedLiters.toLocaleString('en-US')} L`, 'rgba(56,189,248,0.68)', '#38bdf8');
+  drawStatCard(
+    safeLeft + cardW + gap,
+    phaseIdx === 5 ? 'SURFACE AREA' : 'AIR SACS',
+    phaseIdx === 5 ? '70 m² COURT' : '480 MILLION',
+    'rgba(251,113,133,0.65)',
+    '#fda4af'
+  );
+
+  // === 5. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  fitFont('BIO MECHANICS • ALVEOLAR ENGINE', 21 * S, safeW, '800');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('BIO MECHANICS • ALVEOLAR ENGINE', cx, H * 0.155);
+
+  const pillW = Math.min(safeW, 430 * S);
+  const pillH = 52 * S;
+  const pillY = H * 0.714;
+  const pop = 1 + 0.05 * Math.exp(-phaseProg * 14);
+
+  ctx.save();
+  ctx.translate(cx, pillY);
+  ctx.scale(pop, pop);
+
+  let c0 = '#38bdf8', c1 = '#0284c7', txtCol = '#ffffff';
+  if (phaseIdx === 3) {
+    c0 = '#fbbf24'; c1 = '#f59e0b'; txtCol = '#090d16';
+  } else if (phaseIdx === 4) {
+    c0 = '#fb7185'; c1 = '#e11d48'; txtCol = '#ffffff';
+  } else if (phaseIdx === 5) {
+    c0 = '#34d399'; c1 = '#059669'; txtCol = '#052e16';
+  }
+
+  ctx.shadowColor = c0;
+  ctx.shadowBlur = 18 * S;
+  const pillG = ctx.createLinearGradient(-pillW * 0.5, 0, pillW * 0.5, 0);
+  pillG.addColorStop(0, c0);
+  pillG.addColorStop(1, c1);
+  ctx.fillStyle = pillG;
+  ctx.beginPath();
+  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  fitFont(activeLine.caption, 27 * S, pillW - 36 * S, '900');
+  ctx.fillStyle = txtCol;
+  ctx.fillText(activeLine.caption, 0, 1 * S);
+  ctx.restore();
+  ctx.restore();
+}
+
+window.renderFrame = drawFrame;
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

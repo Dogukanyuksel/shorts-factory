@@ -1,0 +1,443 @@
+<!doctype html>
+<!--
+  Wealth Mechanics — The 3-Second Math Trick That Predicts When Your Money Doubles (Rule of 72, 60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const easeOutCubic = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
+
+const SCRIPT = [
+  { id: 'hook', text: 'Want to know when your money doubles in three seconds flat? Just divide seventy-two by your interest rate.', caption: '72 ÷ RATE = DOUBLING' },
+  { id: 'savings', text: 'Put ten thousand dollars in a one percent savings account. Seventy-two divided by one equals seventy-two years to double.', caption: '1% SAVINGS = 72 YRS' },
+  { id: 'bonds', text: 'Move it into four percent bonds and the wait drops to eighteen years. Better, but still slow.', caption: '4% BONDS = 18 YRS' },
+  { id: 'index', text: 'Now watch a nine percent index fund. Seventy-two divided by nine means your money doubles every eight years!', caption: '9% INDEX = 8 YRS' },
+  { id: 'bursts', text: 'Year eight: two X. Year sixteen: four X. Year twenty-four: eight X. Year thirty-two: sixteen times your starting cash!', caption: '2× → 4× → 8× → 16×' },
+  { id: 'verdict', text: 'Same ten thousand dollars. Same thirty-two years. Fourteen thousand in savings versus one hundred fifty-eight thousand in index funds.', caption: '$14K VS $158K' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg = {}) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 23;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lSav = getLine('savings', 1);
+  const lBnd = getLine('bonds', 2);
+  const lIdx = getLine('index', 3);
+  const lBur = getLine('bursts', 4);
+  const lVerd = getLine('verdict', 5);
+
+  EVENTS = [
+    { t: lSav.start + 0.15, type: 'bounce', pitchIndex: 2, intensity: 0.50 },
+    { t: lBnd.start + 0.15, type: 'bounce', pitchIndex: 5, intensity: 0.62 },
+    { t: lIdx.start + 0.15, type: 'break', pitchIndex: 8, intensity: 0.82 },
+    { t: lBur.start + 0.18, type: 'bounce', pitchIndex: 10, intensity: 0.90 },
+    { t: lVerd.start + 0.18, type: 'win', pitchIndex: 12, intensity: 0.96 },
+  ];
+};
+
+const START_CASH = 10000;
+const MAX_YEAR = 32;
+const MAX_VAL_32 = START_CASH * Math.pow(1.09, 32); // $157,633.28
+
+function compoundVal(rate, year) {
+  return START_CASH * Math.pow(1 + rate, Math.max(0, year));
+}
+
+function fmtExact(v) {
+  return '$' + Math.max(0, Math.round(v)).toLocaleString('en-US');
+}
+
+function fmtShort(v) {
+  const n = Math.max(0, Math.round(v));
+  if (n >= 100000) return '$' + Math.round(n / 1000) + 'K';
+  if (n >= 10000) return '$' + (n / 1000).toFixed(1) + 'K';
+  return '$' + n.toLocaleString('en-US');
+}
+
+function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  // Strict Safe-Zone: x in [6.5%W, 84%W], y in [14%H, 74%H]
+  const safeL = W * 0.065;
+  const safeR = W * 0.84;
+  const safeW = safeR - safeL;
+  const cx = (safeL + safeR) * 0.5;
+
+  // Deep obsidian background
+  ctx.fillStyle = '#030a08';
+  ctx.fillRect(0, 0, W, H);
+
+  // Ambient emerald & gold radial aura
+  const bgG = ctx.createRadialGradient(cx, H * 0.38, 18 * S, cx, H * 0.44, W * 0.65);
+  bgG.addColorStop(0, 'rgba(16, 185, 129, 0.12)');
+  bgG.addColorStop(0.55, 'rgba(245, 158, 11, 0.045)');
+  bgG.addColorStop(1, 'rgba(3, 10, 8, 0)');
+  ctx.fillStyle = bgG;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle emerald grid
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.045)';
+  ctx.lineWidth = 1 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const lHook = getLine('hook', 0);
+  const lSav = getLine('savings', 1);
+  const lBnd = getLine('bonds', 2);
+  const lIdx = getLine('index', 3);
+  const lBur = getLine('bursts', 4);
+  const lVerd = getLine('verdict', 5);
+
+  const pSav = smooth(lSav.start - 0.15, lSav.start + 0.45, t);
+  const pBnd = smooth(lBnd.start - 0.15, lBnd.start + 0.45, t);
+  const pIdx = smooth(lIdx.start - 0.15, lIdx.start + 0.45, t);
+  const pVerd = smooth(lVerd.start, lVerd.start + 0.45, t);
+
+  // Deterministic simulated year (0 -> 32)
+  let simYear = 0;
+  if (t >= lIdx.start && t < lBur.start) {
+    simYear = lerp(0, 8, smooth(lIdx.start, lBur.start, t));
+  } else if (t >= lBur.start && t < lVerd.start) {
+    simYear = lerp(8, 32, clamp((t - lBur.start) / Math.max(0.1, lVerd.start - lBur.start), 0, 1));
+  } else if (t >= lVerd.start) {
+    simYear = 32;
+  }
+
+  // Active formula showcase values synced to narration
+  let hudRate = 'RATE', hudAns = 'YEARS TO DOUBLE', hudCol = '#34d399';
+  if (t >= lSav.start && t < lBnd.start) {
+    hudRate = '1%'; hudAns = '72 YRS TO DOUBLE'; hudCol = '#ef4444';
+  } else if (t >= lBnd.start && t < lIdx.start) {
+    hudRate = '4%'; hudAns = '18 YRS TO DOUBLE'; hudCol = '#f59e0b';
+  } else if (t >= lIdx.start) {
+    hudRate = '9%'; hudAns = '8 YRS TO DOUBLE'; hudCol = '#10b981';
+  }
+
+  // === 1. HEADER (y: 14.3%H .. 18.2%H) ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('THE RULE OF 72', 32 * S, safeW, '900');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText('THE RULE OF 72', cx, H * 0.154);
+
+  fitFont('$10,000 STARTING CASH · 32-YEAR RACE', 13.5 * S, safeW, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#6ee7b7';
+  ctx.fillText('$10,000 STARTING CASH · 32-YEAR RACE', cx, H * 0.176);
+  ctx.restore();
+
+  // === 2. GLOWING FORMULA HUD CARD (y: 19.4%H .. 29.0%H) ===
+  const hudY = H * 0.194;
+  const hudH = H * 0.096;
+  const hudPulse = 0.5 + 0.5 * Math.sin(t * 4.5);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(6, 36, 28, 0.72)';
+  ctx.strokeStyle = hudCol;
+  ctx.lineWidth = (2.0 + 0.6 * hudPulse) * S;
+  ctx.shadowColor = hudCol;
+  ctx.shadowBlur = (12 + 8 * hudPulse) * S;
+  ctx.beginPath();
+  ctx.roundRect(safeL, hudY, safeW, hudH, 16 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const formulaTop = `72  ÷  ${hudRate}  =  ${hudAns}`;
+  fitFont(formulaTop, 25 * S, safeW - 28 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(formulaTop, cx, hudY + hudH * 0.39);
+
+  fitFont('3-SECOND MENTAL MATH FOR COMPOUND DOUBLING', 11.5 * S, safeW - 28 * S, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = hudCol;
+  ctx.fillText('3-SECOND MENTAL MATH FOR COMPOUND DOUBLING', cx, hudY + hudH * 0.75);
+  ctx.restore();
+
+  // === 3. THREE PARALLEL RACING WEALTH BARS (y: 30.8%H .. 60.6%H) ===
+  const raceY = H * 0.308;
+  const raceH = H * 0.298; // ends at H * 0.606
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 20, 16, 0.80)';
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.26)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.roundRect(safeL, raceY, safeW, raceH, 16 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  // Race header + live Year pill
+  const rHdrY = raceY + 24 * S;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  fitFont('LIVE $10,000 WEALTH RACE', 13.5 * S, safeW * 0.60, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('LIVE $10,000 WEALTH RACE', safeL + 16 * S, rHdrY);
+
+  const yrPillW = 104 * S, yrPillH = 24 * S;
+  const yrPillX = safeR - 14 * S - yrPillW;
+  ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
+  ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.beginPath();
+  ctx.roundRect(yrPillX, rHdrY - yrPillH * 0.5, yrPillW, yrPillH, 12 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  fitFont(`YEAR ${Math.floor(simYear)} / 32`, 12.5 * S, yrPillW - 10 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText(`YEAR ${Math.floor(simYear)} / 32`, yrPillX + yrPillW * 0.5, rHdrY);
+
+  const tracks = [
+    {
+      name: 'SAVINGS ACCOUNT',
+      badge: '1% · 72 YRS',
+      rate: 0.01,
+      col: '#ef4444',
+      glow: '#dc2626',
+      alpha: lerp(0.35, 1.0, pSav),
+      isIndex: false,
+    },
+    {
+      name: 'GOVT BONDS',
+      badge: '4% · 18 YRS',
+      rate: 0.04,
+      col: '#f59e0b',
+      glow: '#d97706',
+      alpha: lerp(0.35, 1.0, pBnd),
+      isIndex: false,
+    },
+    {
+      name: 'INDEX FUND',
+      badge: '9% · 8 YRS',
+      rate: 0.09,
+      col: '#10b981',
+      glow: '#10b981',
+      alpha: lerp(0.35, 1.0, pIdx),
+      isIndex: true,
+    },
+  ];
+
+  const barL = safeL + 16 * S;
+  const barMaxW = safeW - 32 * S;
+  const rowStart = raceY + 62 * S;
+  const rowStep = 104 * S;
+
+  for (let i = 0; i < tracks.length; i++) {
+    const tr = tracks[i];
+    const ry = rowStart + i * rowStep;
+    const curVal = compoundVal(tr.rate, simYear);
+    const mult = curVal / START_CASH;
+    // Log-blended visual scale so $10K starts visible while $158K dominates dramatically
+    const frac = clamp(curVal / MAX_VAL_32, 0.06, 1.0);
+    const barW = Math.max(26 * S, frac * barMaxW);
+
+    ctx.save();
+    ctx.globalAlpha = tr.alpha;
+
+    // Row title left + badge + live value right
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    fitFont(`${tr.name} (${tr.badge})`, 14 * S, barMaxW * 0.64, '800', 'ui-monospace, monospace');
+    ctx.fillStyle = tr.col;
+    ctx.fillText(`${tr.name} (${tr.badge})`, barL, ry - 6 * S);
+
+    ctx.textAlign = 'right';
+    fitFont(`${fmtExact(curVal)}  (${mult.toFixed(1)}×)`, 15.5 * S, barMaxW * 0.38, '900', 'ui-monospace, monospace');
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillText(`${fmtExact(curVal)}  (${mult.toFixed(1)}×)`, barL + barMaxW, ry - 6 * S);
+
+    // Track rail
+    const barH = 38 * S;
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.10)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.beginPath();
+    ctx.roundRect(barL, ry, barMaxW, barH, 10 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Filled racing bar
+    const bgBar = ctx.createLinearGradient(barL, 0, barL + barW, 0);
+    bgBar.addColorStop(0, tr.isIndex ? '#047857' : (i === 1 ? '#b45309' : '#991b1b'));
+    bgBar.addColorStop(1, tr.col);
+
+    ctx.fillStyle = bgBar;
+    ctx.shadowColor = tr.glow;
+    ctx.shadowBlur = (tr.isIndex ? 16 : 8) * S;
+    ctx.beginPath();
+    ctx.roundRect(barL, ry, barW, barH, 10 * S);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Leading glowing tip on Index Fund bar
+    if (tr.isIndex && simYear > 0.2) {
+      ctx.fillStyle = '#ecfdf5';
+      ctx.beginPath();
+      ctx.roundRect(barL + barW - 5 * S, ry + 4 * S, 4 * S, barH - 8 * S, 2 * S);
+      ctx.fill();
+    }
+
+    // Sub-milestone caption below track
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    let note = '';
+    if (i === 0) note = simYear >= 32 ? '0 DOUBLINGS IN 32 YRS (+37%)' : 'NEEDS 72 YEARS FOR FIRST 2×';
+    else if (i === 1) note = simYear >= 18 ? 'DOUBLED ONCE AT YR 18 (2×)' : 'DOUBLES AT YEAR 18';
+    else note = simYear >= 32 ? '4 DOUBLINGS: 2× → 4× → 8× → 16×!' : 'DOUBLES EVERY 8 YEARS';
+    fitFont(note, 11.5 * S, barMaxW, '700', 'ui-monospace, monospace');
+    ctx.fillStyle = tr.isIndex ? '#6ee7b7' : '#94a3b8';
+    ctx.fillText(note, barL, ry + barH + 6 * S);
+
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // === 4. DOUBLING BURST TIMELINE (2×, 4×, 8×, 16× AT YRS 8, 16, 24, 32) (y: 62.2%H .. 73.6%H) ===
+  const burY = H * 0.622;
+  const burH = H * 0.114; // ends at H * 0.736 <= 0.74
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 20, 16, 0.84)';
+  ctx.strokeStyle = pVerd > 0.2 ? 'rgba(52, 211, 153, 0.70)' : 'rgba(16, 185, 129, 0.28)';
+  ctx.lineWidth = (1.6 + pVerd * 1.2) * S;
+  ctx.beginPath();
+  ctx.roundRect(safeL, burY, safeW, burH, 16 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  // Title inside bottom panel
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('9% INDEX FUND DOUBLING BURSTS', 12.5 * S, safeW - 24 * S, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('9% INDEX FUND DOUBLING BURSTS', cx, burY + 20 * S);
+
+  const milestones = [
+    { yr: 8, mult: '2×', val: '$20K' },
+    { yr: 16, mult: '4×', val: '$40K' },
+    { yr: 24, mult: '8×', val: '$79K' },
+    { yr: 32, mult: '16×', val: '$158K' },
+  ];
+
+  const nodeY = burY + burH * 0.62;
+  const lineL = safeL + 56 * S;
+  const lineR = safeR - 56 * S;
+
+  // Connecting progress spine
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+  ctx.lineWidth = 4 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(lineL, nodeY);
+  ctx.lineTo(lineR, nodeY);
+  ctx.stroke();
+
+  const progX = lerp(lineL, lineR, clamp((simYear - 8) / 24, 0, 1));
+  if (simYear >= 8) {
+    ctx.strokeStyle = '#10b981';
+    ctx.shadowColor = '#10b981';
+    ctx.shadowBlur = 10 * S;
+    ctx.lineWidth = 4 * S;
+    ctx.beginPath();
+    ctx.moveTo(lineL, nodeY);
+    ctx.lineTo(progX, nodeY);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  for (let m = 0; m < milestones.length; m++) {
+    const ms = milestones[m];
+    const mx = lerp(lineL, lineR, m / (milestones.length - 1));
+    const hit = simYear >= ms.yr - 0.15;
+    const hitAge = clamp((simYear - (ms.yr - 0.15)) / 4.5, 0, 1);
+
+    // Expanding deterministic shockwave ring when milestone hits!
+    if (hit && hitAge < 1) {
+      const ringR = lerp(22 * S, 46 * S, easeOutCubic(hitAge));
+      ctx.save();
+      ctx.strokeStyle = '#34d399';
+      ctx.globalAlpha = (1 - hitAge) * 0.85;
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath();
+      ctx.arc(mx, nodeY, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Node circle
+    const rad = (hit ? 23 : 19) * S;
+    ctx.save();
+    ctx.fillStyle = hit ? '#065f46' : 'rgba(15, 23, 42, 0.90)';
+    ctx.strokeStyle = hit ? '#34d399' : 'rgba(148, 163, 184, 0.35)';
+    ctx.lineWidth = (hit ? 2.6 : 1.5) * S;
+    if (hit) {
+      ctx.shadowColor = '#10b981';
+      ctx.shadowBlur = 14 * S;
+    }
+    ctx.beginPath();
+    ctx.arc(mx, nodeY, rad, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(ms.mult, (hit ? 17 : 14) * S, rad * 1.7, '900', 'ui-monospace, monospace');
+    ctx.fillStyle = hit ? '#ecfdf5' : '#64748b';
+    ctx.fillText(ms.mult, mx, nodeY);
+
+    // Year + value label underneath node
+    fitFont(`Y${ms.yr} · ${ms.val}`, 11 * S, 96 * S, '800', 'ui-monospace, monospace');
+    ctx.fillStyle = hit ? '#6ee7b7' : '#64748b';
+    ctx.fillText(`Y${ms.yr} · ${ms.val}`, mx, nodeY + rad + 13 * S);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+window.renderFrame = (t) => { drawFrame(t); };
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

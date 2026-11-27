@@ -1,0 +1,750 @@
+<!doctype html>
+<!--
+  Bio Mechanics — What Happens Inside Your Body 0.2 Seconds After Fear Hits
+  60fps, deterministic, audio-synced HTML5 Canvas nervous system cutaway
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'In just two tenths of a second after fear hits, your nervous system hijacks your entire body.', caption: '0.2s FEAR HIJACK' },
+  { id: 'amygdala', text: 'At fifty milliseconds, your amygdala—the brain threat radar—flashes red before you even consciously react.', caption: '1. AMYGDALA (0.05s)' },
+  { id: 'spine', text: 'An electric command rockets down your spinal cord straight to the adrenal glands above your kidneys.', caption: '2. SPINAL LIGHTNING' },
+  { id: 'adrenaline', text: 'Instantly, a crimson flood of adrenaline surges into your bloodstream—supercharging every vital system.', caption: '3. ADRENALINE FLOOD' },
+  { id: 'pupil', text: 'Your pupils dilate wide for sharper vision while your heart rate spikes from sixty-eight to one hundred fifty-two BPM.', caption: '4. PUPIL + 152 BPM' },
+  { id: 'redirect', text: 'Blood is instantly diverted away from your gut and blasted into your arms and legs for explosive power.', caption: '5. MUSCLE OVERDRIVE' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg = {}) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lAm = getLine('amygdala', 1);
+  const lSp = getLine('spine', 2);
+  const lAd = getLine('adrenaline', 3);
+  const lPu = getLine('pupil', 4);
+  const lRe = getLine('redirect', 5);
+
+  EVENTS = [
+    { t: lAm.start + 0.12, type: 'break', pitchIndex: 1, intensity: 0.95 },
+    { t: lSp.start + 0.15, type: 'bounce', pitchIndex: 6, intensity: 0.85 },
+    { t: lAd.start + 0.14, type: 'break', pitchIndex: 2, intensity: 1.0 },
+    { t: lPu.start + 0.18, type: 'bounce', pitchIndex: 7, intensity: 0.82 },
+    { t: lPu.start + 0.85, type: 'bounce', pitchIndex: 8, intensity: 0.76 },
+    { t: lRe.start + 0.20, type: 'bounce', pitchIndex: 9, intensity: 0.88 },
+    { t: Math.min(DUR - 0.25, lRe.start + 1.35), type: 'win', pitchIndex: 10, intensity: 0.96 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function getActivePhase(t) {
+  for (let i = SCRIPT.length - 1; i >= 0; i--) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) return { idx: i, line: ln };
+  }
+  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
+}
+
+function ecgSample(u) {
+  const p = ((u % 1) + 1) % 1;
+  const g = (c, w, a) => a * Math.exp(-Math.pow((p - c) / w, 2));
+  return (
+    g(0.16, 0.032, 0.18) +
+    g(0.285, 0.011, -0.18) +
+    g(0.315, 0.013, 1.0) +
+    g(0.348, 0.013, -0.28) +
+    g(0.56, 0.055, 0.28)
+  );
+}
+
+// Draw translucent bioluminescent human silhouette cutaway
+function drawBodySilhouette(bx, by, sc, adrenaline, redirectAmt) {
+  ctx.save();
+  ctx.translate(bx, by);
+  ctx.scale(sc, sc);
+
+  // Outer silhouette path (head, neck, shoulders, arms, torso, upper thighs)
+  ctx.beginPath();
+  // Head
+  ctx.arc(0, -196, 36, Math.PI * 0.65, Math.PI * 2.35);
+  // Right neck -> shoulder -> outer arm
+  ctx.lineTo(15, -158);
+  ctx.quadraticCurveTo(64, -152, 76, -124);
+  ctx.lineTo(96, -18);
+  ctx.quadraticCurveTo(98, 2, 82, 4);
+  ctx.lineTo(66, -16);
+  ctx.lineTo(54, -96);
+  // Right torso -> hip -> right leg
+  ctx.lineTo(48, 34);
+  ctx.quadraticCurveTo(58, 72, 54, 178);
+  ctx.lineTo(16, 178);
+  ctx.lineTo(8, 78);
+  ctx.lineTo(-8, 78);
+  // Left leg -> hip -> left torso
+  ctx.lineTo(-16, 178);
+  ctx.lineTo(-54, 178);
+  ctx.quadraticCurveTo(-58, 72, -48, 34);
+  // Left arm -> shoulder -> neck
+  ctx.lineTo(-54, -96);
+  ctx.lineTo(-66, -16);
+  ctx.lineTo(-82, 4);
+  ctx.quadraticCurveTo(-98, 2, -96, -18);
+  ctx.lineTo(-76, -124);
+  ctx.quadraticCurveTo(-64, -152, -15, -158);
+  ctx.closePath();
+
+  const bodyG = ctx.createLinearGradient(0, -230, 0, 180);
+  bodyG.addColorStop(0, 'rgba(30,41,59,0.88)');
+  bodyG.addColorStop(0.5, adrenaline > 0.2 ? 'rgba(69,10,28,0.82)' : 'rgba(15,23,42,0.88)');
+  bodyG.addColorStop(1, redirectAmt > 0.2 ? 'rgba(127,29,29,0.78)' : 'rgba(15,23,42,0.85)');
+  ctx.fillStyle = bodyG;
+  ctx.strokeStyle = adrenaline > 0.3 ? 'rgba(251,113,133,0.72)' : 'rgba(56,189,248,0.58)';
+  ctx.lineWidth = 2.4;
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const safeLeft = W * 0.075;
+  const safeRight = W * 0.835;
+  const safeW = safeRight - safeLeft;
+  const cx = (safeLeft + safeRight) * 0.5;
+
+  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
+  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
+
+  const lAm = getLine('amygdala', 1);
+  const lSp = getLine('spine', 2);
+  const lAd = getLine('adrenaline', 3);
+  const lPu = getLine('pupil', 4);
+  const lRe = getLine('redirect', 5);
+
+  // Key animation envelopes
+  const amygdalaFire = smooth(lAm.start, lAm.start + 0.55, t);
+  const spineBolt = smooth(lSp.start, lSp.start + 1.05, t);
+  const adrenalineFlood = smooth(lAd.start, lAd.start + 1.15, t);
+  const pupilDilate = smooth(lPu.start, lPu.start + 0.95, t);
+  const redirectAmt = smooth(lRe.start, lRe.start + 1.05, t);
+
+  // Live BPM ramps smoothly from 68 -> 152 BPM!
+  const bpmRamp = smooth(lAd.start + 0.2, lPu.start + 1.1, t);
+  const bpm = Math.round(lerp(68, 152, bpmRamp));
+  const beatRateHz = bpm / 60;
+  // Deterministic continuous phase integral approximation for smooth heartbeat
+  const beatCycles = t * (68 / 60) + bpmRamp * bpmRamp * (t - lAd.start > 0 ? (t - lAd.start) * 0.95 : 0);
+  const beatPhase = ((beatCycles % 1) + 1) % 1;
+  const heartPulse = Math.exp(-Math.pow((beatPhase - 0.32) / 0.11, 2));
+
+  // Elapsed reaction clock: 0.00s -> 0.05s (amygdala) -> 0.12s (adrenal) -> 0.20s (full hijack)
+  let reactSec = 0.00;
+  if (t < lAm.start) reactSec = lerp(0.00, 0.02, smooth(0, lAm.start, t));
+  else if (t < lSp.start) reactSec = lerp(0.02, 0.05, smooth(lAm.start, lSp.start, t));
+  else if (t < lAd.start) reactSec = lerp(0.05, 0.11, smooth(lSp.start, lAd.start, t));
+  else if (t < lPu.start) reactSec = lerp(0.11, 0.16, smooth(lAd.start, lPu.start, t));
+  else reactSec = lerp(0.16, 0.20, smooth(lPu.start, lRe.end - 0.4, t));
+
+  // Subtle camera jolt when amygdala fires & adrenaline hits
+  const jolt = Math.exp(-Math.pow((t - (lAm.start + 0.25)) / 0.22, 2)) + 0.8 * Math.exp(-Math.pow((t - (lAd.start + 0.25)) / 0.25, 2));
+  const shakeX = jolt > 0.04 ? Math.sin(t * 115) * 3.8 * S * jolt : 0;
+  const shakeY = jolt > 0.04 ? Math.cos(t * 98) * 3.2 * S * jolt : 0;
+
+  // === 1. DEEP MIDNIGHT #050712 MEDICAL STUDIO BACKGROUND ===
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  const bgGlow = ctx.createRadialGradient(cx, H * 0.39, 18 * S, cx, H * 0.39, H * 0.46);
+  if (adrenalineFlood > 0.2) {
+    bgGlow.addColorStop(0, `rgba(244,63,94,${(0.22 * adrenalineFlood + 0.06 * heartPulse).toFixed(3)})`);
+  } else if (amygdalaFire > 0.2) {
+    bgGlow.addColorStop(0, `rgba(251,113,133,${(0.18 * amygdalaFire).toFixed(3)})`);
+  } else {
+    bgGlow.addColorStop(0, 'rgba(56,189,248,0.14)');
+  }
+  bgGlow.addColorStop(0.55, 'rgba(15,23,42,0.16)');
+  bgGlow.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle diagnostic grid
+  ctx.strokeStyle = 'rgba(56,189,248,0.042)';
+  ctx.lineWidth = 1 * S;
+  for (let x = safeLeft; x <= safeRight; x += 42 * S) {
+    ctx.beginPath(); ctx.moveTo(x, H * 0.14); ctx.lineTo(x, H * 0.74); ctx.stroke();
+  }
+  for (let y = H * 0.14; y <= H * 0.74; y += 42 * S) {
+    ctx.beginPath(); ctx.moveTo(safeLeft, y); ctx.lineTo(safeRight, y); ctx.stroke();
+  }
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // === 2. LEFT-CENTER: NERVOUS SYSTEM SILHOUETTE CUTAWAY ===
+  const bx = safeLeft + 158 * S;
+  const by = H * 0.430;
+  const sc = 1.12 * S;
+
+  drawBodySilhouette(bx, by, sc, adrenalineFlood, redirectAmt);
+
+  // Coordinates in body space
+  const headX = bx;
+  const headY = by - 196 * sc;
+  const amygX = bx + 5 * sc;
+  const amygY = by - 192 * sc;
+  const heartX = bx + 8 * sc;
+  const heartY = by - 96 * sc;
+  const adrenalY = by - 22 * sc;
+  const gutY = by + 20 * sc;
+
+  // 2A. Brain silhouette + glowing Amygdala
+  ctx.save();
+  ctx.fillStyle = amygdalaFire > 0.2 ? 'rgba(251,113,133,0.28)' : 'rgba(56,189,248,0.22)';
+  ctx.strokeStyle = amygdalaFire > 0.2 ? '#fda4af' : '#7dd3fc';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.ellipse(headX, headY - 4 * sc, 26 * sc, 21 * sc, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Amygdala threat radar node
+  const amygPulse = 0.5 + 0.5 * Math.sin(t * 14);
+  if (amygdalaFire > 0.05) {
+    const ag = ctx.createRadialGradient(amygX, amygY, 2 * S, amygX, amygY, (28 + 14 * amygPulse) * S * amygdalaFire);
+    ag.addColorStop(0, 'rgba(255,228,230,0.95)');
+    ag.addColorStop(0.35, 'rgba(244,63,94,0.85)');
+    ag.addColorStop(1, 'rgba(244,63,94,0)');
+    ctx.fillStyle = ag;
+    ctx.beginPath();
+    ctx.arc(amygX, amygY, (28 + 14 * amygPulse) * S * amygdalaFire, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Expanding alarm radar ring
+    const ringU = ((t * 1.8) % 1 + 1) % 1;
+    ctx.strokeStyle = `rgba(251,113,133,${((1 - ringU) * 0.85 * amygdalaFire).toFixed(2)})`;
+    ctx.lineWidth = 2.2 * S;
+    ctx.beginPath();
+    ctx.arc(amygX, amygY, lerp(6 * S, 46 * S, ringU), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = amygdalaFire > 0.15 ? '#fb7185' : '#38bdf8';
+  ctx.beginPath();
+  ctx.arc(amygX, amygY, (5.5 + 2 * amygPulse * amygdalaFire) * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 2B. Spinal Cord & Lightning Signal Rocket down to Adrenal Glands
+  ctx.save();
+  const spineTop = headY + 18 * sc;
+  const spineBot = adrenalY + 12 * sc;
+  ctx.strokeStyle = 'rgba(148,163,184,0.45)';
+  ctx.lineWidth = 5 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(bx, spineTop);
+  ctx.lineTo(bx, spineBot);
+  ctx.stroke();
+
+  if (spineBolt > 0.02) {
+    const boltEndY = lerp(spineTop, adrenalY, spineBolt);
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 3.4 * S;
+    ctx.shadowColor = '#fbbf24';
+    ctx.shadowBlur = 16 * S;
+    ctx.beginPath();
+    ctx.moveTo(bx, spineTop);
+    const segs = 9;
+    for (let s = 1; s <= segs; s++) {
+      const sy = lerp(spineTop, boltEndY, s / segs);
+      const jitter = (s < segs ? (s % 2 === 0 ? -1 : 1) * (4.5 + 2.5 * Math.sin(t * 40 + s)) * S : 0);
+      ctx.lineTo(bx + jitter, sy);
+    }
+    ctx.stroke();
+
+    // Electric spark pulses traveling continuously down spine
+    for (let p = 0; p < 4; p++) {
+      const pu = ((t * 2.4 + p * 0.25) % 1 + 1) % 1;
+      const py = lerp(spineTop, adrenalY, pu * spineBolt);
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(bx, py, 4.2 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // 2C. Adrenal Glands atop Kidneys
+  ctx.save();
+  for (let side of [-1, 1]) {
+    const kx = bx + side * 22 * sc;
+    const ky = adrenalY + 10 * sc;
+    // Kidney bean
+    ctx.fillStyle = 'rgba(71,85,105,0.65)';
+    ctx.strokeStyle = 'rgba(148,163,184,0.5)';
+    ctx.lineWidth = 1.4 * S;
+    ctx.beginPath();
+    ctx.ellipse(kx, ky, 10 * sc, 15 * sc, side * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Adrenal gland cap on top of kidney
+    const adGlow = clamp(spineBolt * 0.6 + adrenalineFlood, 0, 1);
+    if (adGlow > 0.1) {
+      ctx.shadowColor = '#fbbf24';
+      ctx.shadowBlur = 14 * S * adGlow;
+    }
+    ctx.fillStyle = adGlow > 0.35 ? '#fbbf24' : '#64748b';
+    ctx.beginPath();
+    ctx.moveTo(kx - 10 * sc, ky - 11 * sc);
+    ctx.lineTo(kx + 10 * sc, ky - 11 * sc);
+    ctx.lineTo(kx, ky - 23 * sc);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+
+  // 2D. Gut (dims as blood is diverted away in Phase 5)
+  ctx.save();
+  const gutAlpha = lerp(0.85, 0.22, redirectAmt);
+  ctx.globalAlpha = gutAlpha;
+  ctx.strokeStyle = redirectAmt > 0.3 ? '#64748b' : '#34d399';
+  ctx.lineWidth = 5.5 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(bx - 18 * sc, gutY - 4 * sc);
+  ctx.bezierCurveTo(bx + 22 * sc, gutY - 6 * sc, bx - 22 * sc, gutY + 12 * sc, bx + 18 * sc, gutY + 14 * sc);
+  ctx.bezierCurveTo(bx - 16 * sc, gutY + 26 * sc, bx + 16 * sc, gutY + 32 * sc, bx - 8 * sc, gutY + 38 * sc);
+  ctx.stroke();
+  ctx.restore();
+
+  // 2E. Crimson Adrenaline Flood -> Heart, Arms & Legs!
+  if (adrenalineFlood > 0.04) {
+    ctx.save();
+    const vessels = [
+      // Adrenal to Heart
+      [{ x: bx, y: adrenalY }, { x: heartX, y: heartY }],
+      // Heart to Left Arm
+      [{ x: heartX, y: heartY }, { x: bx - 58 * sc, y: by - 122 * sc }, { x: bx - 78 * sc, y: by - 26 * sc }],
+      // Heart to Right Arm
+      [{ x: heartX, y: heartY }, { x: bx + 58 * sc, y: by - 122 * sc }, { x: bx + 78 * sc, y: by - 26 * sc }],
+      // Adrenal to Left Leg
+      [{ x: bx, y: adrenalY }, { x: bx - 28 * sc, y: by + 64 * sc }, { x: bx - 34 * sc, y: by + 162 * sc }],
+      // Adrenal to Right Leg
+      [{ x: bx, y: adrenalY }, { x: bx + 28 * sc, y: by + 64 * sc }, { x: bx + 34 * sc, y: by + 162 * sc }],
+    ];
+
+    for (let v = 0; v < vessels.length; v++) {
+      const pts = vessels[v];
+      const isLimb = v >= 1;
+      const vAlpha = isLimb ? clamp(adrenalineFlood * 0.55 + redirectAmt * 0.6, 0, 1) : adrenalineFlood;
+      ctx.strokeStyle = `rgba(251,113,133,${(0.75 * vAlpha).toFixed(2)})`;
+      ctx.lineWidth = (isLimb ? (2.6 + 2.4 * redirectAmt) : 3.2) * S;
+      ctx.shadowColor = '#f43f5e';
+      ctx.shadowBlur = (8 + 10 * redirectAmt) * S;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k].x, pts[k].y);
+      ctx.stroke();
+
+      // Animated adrenaline flow beads surging along vessels
+      ctx.shadowBlur = 0;
+      const beadCount = isLimb ? 5 : 3;
+      for (let b = 0; b < beadCount; b++) {
+        const u = ((t * (1.2 + 1.4 * redirectAmt) + b / beadCount + v * 0.17) % 1 + 1) % 1;
+        let px, py;
+        if (pts.length === 2) {
+          px = lerp(pts[0].x, pts[1].x, u);
+          py = lerp(pts[0].y, pts[1].y, u);
+        } else if (u < 0.5) {
+          const lu = u * 2;
+          px = lerp(pts[0].x, pts[1].x, lu);
+          py = lerp(pts[0].y, pts[1].y, lu);
+        } else {
+          const lu = (u - 0.5) * 2;
+          px = lerp(pts[1].x, pts[2].x, lu);
+          py = lerp(pts[1].y, pts[2].y, lu);
+        }
+        ctx.fillStyle = '#ffe4e6';
+        ctx.beginPath();
+        ctx.arc(px, py, (3.2 + 1.4 * redirectAmt) * S, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Glowing muscle overdrive zones in quads & biceps
+    if (redirectAmt > 0.1) {
+      const muscles = [
+        { x: bx - 72 * sc, y: by - 72 * sc, rx: 14 * sc, ry: 32 * sc, rot: 0.18 },
+        { x: bx + 72 * sc, y: by - 72 * sc, rx: 14 * sc, ry: 32 * sc, rot: -0.18 },
+        { x: bx - 34 * sc, y: by + 118 * sc, rx: 16 * sc, ry: 44 * sc, rot: 0.04 },
+        { x: bx + 34 * sc, y: by + 118 * sc, rx: 16 * sc, ry: 44 * sc, rot: -0.04 },
+      ];
+      for (let m = 0; m < muscles.length; m++) {
+        const mu = muscles[m];
+        ctx.save();
+        ctx.translate(mu.x, mu.y);
+        ctx.rotate(mu.rot);
+        const mg = ctx.createRadialGradient(0, 0, 2 * S, 0, 0, mu.ry);
+        mg.addColorStop(0, `rgba(251,113,133,${(0.75 * redirectAmt).toFixed(2)})`);
+        mg.addColorStop(1, 'rgba(244,63,94,0)');
+        ctx.fillStyle = mg;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, mu.rx * 1.4, mu.ry * 1.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  // 2F. Pulsing Heart inside chest
+  ctx.save();
+  const hs = (1 + 0.18 * heartPulse) * sc;
+  ctx.translate(heartX, heartY);
+  ctx.scale(hs, hs);
+  ctx.shadowColor = '#fb7185';
+  ctx.shadowBlur = (10 + 14 * heartPulse) * S;
+  ctx.fillStyle = adrenalineFlood > 0.25 ? '#f43f5e' : '#fb7185';
+  ctx.beginPath();
+  ctx.moveTo(0, 12);
+  ctx.bezierCurveTo(-18, -2, -16, -18, 0, -8);
+  ctx.bezierCurveTo(16, -18, 18, -2, 0, 12);
+  ctx.fill();
+  ctx.restore();
+
+  // Live Elapsed Reaction Clock Pill (top-left inside safe zone)
+  ctx.save();
+  const clkX = safeLeft + 6 * S;
+  const clkY = H * 0.188;
+  const clkW = 132 * S;
+  const clkH = 38 * S;
+  ctx.fillStyle = 'rgba(15,23,42,0.92)';
+  ctx.strokeStyle = amygdalaFire > 0.2 ? 'rgba(251,113,133,0.75)' : 'rgba(56,189,248,0.55)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.roundRect(clkX, clkY, clkW, clkH, 10 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont(`T + ${reactSec.toFixed(2)}s`, 18 * S, clkW - 14 * S, '900');
+  ctx.fillStyle = amygdalaFire > 0.2 ? '#fb7185' : '#38bdf8';
+  ctx.fillText(`T + ${reactSec.toFixed(2)}s`, clkX + clkW * 0.5, clkY + clkH * 0.52);
+  ctx.restore();
+
+  // === 3. RIGHT-SIDE LIVE BIOMETRIC INSET PANELS (strictly <= safeRight) ===
+  const panelX = safeLeft + 318 * S;
+  const panelW = safeRight - panelX;
+
+  // --- PANEL A: LIVE PUPIL DILATION ZOOM (y: H*0.188 to H*0.335) ---
+  const pAy = H * 0.188;
+  const pAh = H * 0.148;
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.88)';
+  ctx.strokeStyle = pupilDilate > 0.2 ? 'rgba(56,189,248,0.8)' : 'rgba(148,163,184,0.35)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.roundRect(panelX, pAy, panelW, pAh, 14 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('PUPIL DILATION', 13 * S, panelW - 16 * S, '800');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('PUPIL DILATION', panelX + panelW * 0.5, pAy + 18 * S);
+
+  // Stylized glowing eye + iris + dilating pupil
+  const eyeCx = panelX + panelW * 0.5;
+  const eyeCy = pAy + pAh * 0.55;
+  const irisR = 44 * S;
+  const pupilR = lerp(13 * S, 31 * S, pupilDilate);
+
+  // Sclera almond clip
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(eyeCx - 74 * S, eyeCy);
+  ctx.quadraticCurveTo(eyeCx, eyeCy - 52 * S, eyeCx + 74 * S, eyeCy);
+  ctx.quadraticCurveTo(eyeCx, eyeCy + 52 * S, eyeCx - 74 * S, eyeCy);
+  ctx.closePath();
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+  ctx.clip();
+
+  // Bioluminescent radial iris
+  const irisG = ctx.createRadialGradient(eyeCx, eyeCy, pupilR * 0.8, eyeCx, eyeCy, irisR);
+  irisG.addColorStop(0, '#0284c7');
+  irisG.addColorStop(0.55, '#38bdf8');
+  irisG.addColorStop(0.88, '#0c4a6e');
+  irisG.addColorStop(1, '#082f49');
+  ctx.fillStyle = irisG;
+  ctx.beginPath();
+  ctx.arc(eyeCx, eyeCy, irisR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Iris radial fibers
+  ctx.strokeStyle = 'rgba(224,242,254,0.35)';
+  ctx.lineWidth = 1.1 * S;
+  for (let f = 0; f < 24; f++) {
+    const ang = (f / 24) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(eyeCx + Math.cos(ang) * (pupilR + 2 * S), eyeCy + Math.sin(ang) * (pupilR + 2 * S));
+    ctx.lineTo(eyeCx + Math.cos(ang) * (irisR - 2 * S), eyeCy + Math.sin(ang) * (irisR - 2 * S));
+    ctx.stroke();
+  }
+
+  // Dilating black pupil
+  ctx.fillStyle = '#02040a';
+  ctx.beginPath();
+  ctx.arc(eyeCx, eyeCy, pupilR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Specular corneal glint
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
+  ctx.beginPath();
+  ctx.arc(eyeCx - 11 * S, eyeCy - 10 * S, 5 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const pupilPct = Math.round(lerp(0, 120, pupilDilate));
+  fitFont(pupilPct > 5 ? `WIDE +${pupilPct}%` : 'NORMAL', 14 * S, panelW - 16 * S, '900');
+  ctx.fillStyle = pupilPct > 5 ? '#38bdf8' : '#cbd5e1';
+  ctx.fillText(pupilPct > 5 ? `WIDE +${pupilPct}%` : 'NORMAL', eyeCx, pAy + pAh - 16 * S);
+  ctx.restore();
+
+  // --- PANEL B: LIVE BPM & ECG TRACE (y: H*0.350 to H*0.478) ---
+  const pBy = H * 0.350;
+  const pBh = H * 0.128;
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.88)';
+  ctx.strokeStyle = bpm > 100 ? 'rgba(251,113,133,0.82)' : 'rgba(52,211,153,0.55)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.roundRect(panelX, pBy, panelW, pBh, 14 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('LIVE HEART RATE', 13 * S, panelW - 16 * S, '800');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('LIVE HEART RATE', panelX + panelW * 0.5, pBy + 18 * S);
+
+  // Live ECG waveform inside panel
+  const ecgLeft = panelX + 12 * S;
+  const ecgW = panelW - 24 * S;
+  const ecgBaseY = pBy + pBh * 0.58;
+  const ecgColor = bpm > 100 ? '#fb7185' : '#34d399';
+
+  ctx.strokeStyle = ecgColor;
+  ctx.lineWidth = 2.4 * S;
+  ctx.shadowColor = ecgColor;
+  ctx.shadowBlur = 8 * S;
+  ctx.beginPath();
+  const samples = 56;
+  const freqScale = lerp(1.1, 2.35, bpmRamp);
+  for (let i = 0; i <= samples; i++) {
+    const u = i / samples;
+    const x = ecgLeft + u * ecgW;
+    const val = ecgSample(u * freqScale - t * beatRateHz * 0.65);
+    const y = ecgBaseY - val * (26 * S);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  fitFont(`${bpm} BPM`, 26 * S, panelW - 16 * S, '900');
+  ctx.fillStyle = ecgColor;
+  ctx.fillText(`${bpm} BPM`, panelX + panelW * 0.5, pBy + pBh - 22 * S);
+  ctx.restore();
+
+  // --- PANEL C: BLOOD FLOW REDIRECT BARS (y: H*0.492 to H*0.614) ---
+  const pCy = H * 0.492;
+  const pCh = H * 0.122;
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.88)';
+  ctx.strokeStyle = redirectAmt > 0.2 ? 'rgba(251,191,36,0.78)' : 'rgba(148,163,184,0.35)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.roundRect(panelX, pCy, panelW, pCh, 14 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('BLOOD FLOW SHIFT', 13 * S, panelW - 16 * S, '800');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('BLOOD FLOW SHIFT', panelX + panelW * 0.5, pCy + 18 * S);
+
+  const gutPct = Math.round(lerp(35, 6, redirectAmt));
+  const musPct = Math.round(lerp(20, 82, redirectAmt));
+
+  function drawMeter(yPos, label, pct, col) {
+    const barX = panelX + 14 * S;
+    const barW = panelW - 28 * S;
+    const barH = 14 * S;
+    ctx.textAlign = 'left';
+    fitFont(label, 12 * S, barW * 0.68, '800');
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(label, barX, yPos - 12 * S);
+
+    ctx.textAlign = 'right';
+    fitFont(`${pct}%`, 13 * S, barW * 0.35, '900');
+    ctx.fillStyle = col;
+    ctx.fillText(`${pct}%`, barX + barW, yPos - 12 * S);
+
+    ctx.fillStyle = 'rgba(30,41,59,0.9)';
+    ctx.beginPath();
+    ctx.roundRect(barX, yPos, barW, barH, 7 * S);
+    ctx.fill();
+
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.roundRect(barX, yPos, Math.max(8 * S, barW * (pct / 100)), barH, 7 * S);
+    ctx.fill();
+  }
+
+  drawMeter(pCy + 54 * S, 'GUT / DIGESTION', gutPct, redirectAmt > 0.3 ? '#64748b' : '#34d399');
+  drawMeter(pCy + 106 * S, 'ARM & LEG MUSCLES', musPct, '#fb7185');
+  ctx.restore();
+
+  ctx.restore(); // end shake
+
+  // === 4. TELEMETRY CARDS (y: H*0.630 to H*0.682) ===
+  const cardY = H * 0.630;
+  const cardH = H * 0.052;
+  const gap = 12 * S;
+  const cardW = (safeW - gap) * 0.5;
+
+  let surgeLabel = 'BASELINE';
+  let surgeColor = '#94a3b8';
+  if (phaseIdx === 1) { surgeLabel = '0.05s ALARM'; surgeColor = '#fb7185'; }
+  else if (phaseIdx === 2) { surgeLabel = 'SPINAL SIGNAL'; surgeColor = '#fbbf24'; }
+  else if (phaseIdx === 3) { surgeLabel = 'ADRENALINE +840%'; surgeColor = '#fb7185'; }
+  else if (phaseIdx === 4) { surgeLabel = 'PEAK AROUSAL'; surgeColor = '#38bdf8'; }
+  else if (phaseIdx === 5) { surgeLabel = 'MUSCLE OVERDRIVE'; surgeColor = '#fb7185'; }
+
+  function drawCard(x, label, val, accent, valColor) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.9)';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(label, 13 * S, cardW - 18 * S, '800');
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
+
+    fitFont(val, 22 * S, cardW - 18 * S, '900');
+    ctx.fillStyle = valColor;
+    ctx.fillText(val, x + cardW * 0.5, cardY + cardH * 0.70);
+    ctx.restore();
+  }
+
+  drawCard(
+    safeLeft,
+    'LIVE HEART RATE',
+    `${bpm} BPM`,
+    bpm > 100 ? 'rgba(251,113,133,0.75)' : 'rgba(52,211,153,0.55)',
+    bpm > 100 ? '#fb7185' : '#34d399'
+  );
+  drawCard(
+    safeLeft + cardW + gap,
+    'SYMPATHETIC STATE',
+    surgeLabel,
+    phaseIdx === 2 ? 'rgba(251,191,36,0.72)' : 'rgba(251,113,133,0.68)',
+    surgeColor
+  );
+
+  // === 5. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  fitFont('BIO MECHANICS • FIGHT OR FLIGHT', 21 * S, safeW, '800');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('BIO MECHANICS • FIGHT OR FLIGHT', cx, H * 0.155);
+
+  const pillW = Math.min(safeW, 430 * S);
+  const pillH = 52 * S;
+  const pillY = H * 0.715;
+  const pop = 1 + 0.05 * Math.exp(-phaseProg * 14);
+
+  ctx.save();
+  ctx.translate(cx, pillY);
+  ctx.scale(pop, pop);
+
+  const isAmber = phaseIdx === 2;
+  const isCyan = phaseIdx === 4;
+  ctx.shadowColor = isAmber ? 'rgba(251,191,36,0.45)' : (isCyan ? 'rgba(56,189,248,0.45)' : 'rgba(251,113,133,0.45)');
+  ctx.shadowBlur = 20 * S;
+  ctx.fillStyle = isAmber ? '#fbbf24' : (isCyan ? '#38bdf8' : '#f43f5e');
+  ctx.beginPath();
+  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  fitFont(activeLine.caption, 26 * S, pillW - 34 * S, '900');
+  ctx.fillStyle = (isAmber || isCyan) ? '#050712' : '#ffffff';
+  ctx.fillText(activeLine.caption, 0, 1 * S);
+  ctx.restore();
+  ctx.restore();
+}
+
+window.renderFrame = (t) => drawFrame(t);
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

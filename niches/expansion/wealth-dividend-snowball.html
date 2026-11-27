@@ -1,0 +1,546 @@
+<!doctype html>
+<!--
+  Wealth Mechanics — How a Dividend Snowball Quietly Replaces Your Paycheck (60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'In year one, a dividend portfolio pays you barely one hundred fifty dollars. Almost everyone quits right here.', caption: 'YEAR 1: $150 / YEAR' },
+  { id: 'drip', text: 'But invest five hundred dollars a month and automatically reinvest every dividend — and you ignite a compounding DRIP loop.', caption: 'THE DRIP FEEDBACK LOOP' },
+  { id: 'early', text: 'Your dividends buy extra shares, and those new shares pay their own dividends. By year ten, payouts pass two thousand two hundred a year.', caption: 'YEAR 10: $2,220 / YEAR' },
+  { id: 'momentum', text: 'By year twenty, the snowball gets heavy. Annual dividends surge past seven thousand two hundred dollars — completely passive.', caption: 'YEAR 20: $7,240 / YEAR' },
+  { id: 'paycheck', text: 'At year thirty, that tiny snowball explodes to eighteen thousand six hundred a year — over fifteen hundred dollars every single month!', caption: 'YEAR 30: $1,552 / MONTH' },
+  { id: 'law', text: 'Slow at first, unstoppable at the end. Start rolling early, and let dividends quietly replace your paycheck.', caption: 'REPLACE YOUR PAYCHECK' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 24;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lDrip = getLine('drip', 1);
+  const lEarly = getLine('early', 2);
+  const lMom = getLine('momentum', 3);
+  const lPay = getLine('paycheck', 4);
+  const lLaw = getLine('law', 5);
+
+  EVENTS = [
+    { t: lDrip.start + 0.18, type: 'bounce', pitchIndex: 4, intensity: 0.65 },
+    { t: lEarly.start + 0.20, type: 'bounce', pitchIndex: 6, intensity: 0.72 },
+    { t: lMom.start + 0.18, type: 'break', pitchIndex: 9, intensity: 0.84 },
+    { t: lPay.start + 0.18, type: 'win', pitchIndex: 11, intensity: 0.96 },
+    { t: lLaw.start + 0.22, type: 'win', pitchIndex: 12, intensity: 0.90 },
+  ];
+};
+
+// === EXACT 30-YEAR DIVIDEND SNOWBALL MODEL ===
+// $500/mo invested at 8.2% total return (with DRIP), 2.4% dividend yield
+const MONTHLY_CONTRIB = 500;
+const MONTHLY_RATE = 0.082 / 12;
+const DIV_YIELD = 0.024;
+
+function portfolioVal(yr) {
+  if (yr <= 0) return 0;
+  const n = yr * 12;
+  return MONTHLY_CONTRIB * (Math.pow(1 + MONTHLY_RATE, n) - 1) / MONTHLY_RATE;
+}
+
+function annualDiv(yr) {
+  return portfolioVal(yr) * DIV_YIELD;
+}
+
+const MAX_DIV_Y30 = annualDiv(30); // ~$18,626/yr ($1,552/mo)
+
+function fmtExact(v) {
+  return '$' + Math.max(0, Math.round(v)).toLocaleString('en-US');
+}
+
+function fmtK(v) {
+  const n = Math.max(0, Math.round(v));
+  if (n >= 1000000) return '$' + (n / 1000000).toFixed(2) + 'M';
+  if (n >= 10000) return '$' + Math.round(n / 1000) + 'K';
+  return '$' + n.toLocaleString('en-US');
+}
+
+function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function computeYear(t) {
+  const lHook = getLine('hook', 0);
+  const lDrip = getLine('drip', 1);
+  const lEarly = getLine('early', 2);
+  const lMom = getLine('momentum', 3);
+  const lPay = getLine('paycheck', 4);
+
+  if (t < lDrip.start) return lerp(1.0, 2.2, smooth(lHook.start, lDrip.start, t));
+  if (t < lEarly.start) return lerp(2.2, 6.0, smooth(lDrip.start, lEarly.start, t));
+  if (t < lMom.start) return lerp(6.0, 12.5, smooth(lEarly.start, lMom.start, t));
+  if (t < lPay.start) return lerp(12.5, 22.5, smooth(lMom.start, lPay.start, t));
+  return lerp(22.5, 30.0, smooth(lPay.start, lPay.start + 1.8, t));
+}
+
+// Draw faceted geometric emerald snowball + golden DRIP reinvestment droplets
+function drawGeometricSnowball(cx, cy, r, rot, dripIntensity, t, S) {
+  ctx.save();
+
+  // Outer emerald bloom aura
+  const aura = ctx.createRadialGradient(cx, cy, r * 0.25, cx, cy, r * 2.1);
+  aura.addColorStop(0, 'rgba(16, 185, 129, 0.36)');
+  aura.addColorStop(0.55, 'rgba(16, 185, 129, 0.10)');
+  aura.addColorStop(1, 'rgba(3, 10, 8, 0)');
+  ctx.fillStyle = aura;
+  ctx.beginPath(); ctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2); ctx.fill();
+
+  // Main crystalline sphere body
+  const sphereGrad = ctx.createRadialGradient(cx - r * 0.32, cy - r * 0.32, r * 0.08, cx, cy, r);
+  sphereGrad.addColorStop(0, '#a7f3d0');
+  sphereGrad.addColorStop(0.38, '#10b981');
+  sphereGrad.addColorStop(0.78, '#047857');
+  sphereGrad.addColorStop(1, '#022c22');
+  ctx.fillStyle = sphereGrad;
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = 18 * S;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Rotating geometric facets (outer dodecagon + inner hexagon spokes)
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+
+  const sides = 10;
+  ctx.strokeStyle = 'rgba(209, 250, 229, 0.45)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.beginPath();
+  for (let i = 0; i <= sides; i++) {
+    const a = (i / sides) * Math.PI * 2;
+    const px = Math.cos(a) * r * 0.92;
+    const py = Math.sin(a) * r * 0.92;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Inner faceted star lines
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.38)';
+  ctx.lineWidth = 1.1 * S;
+  for (let i = 0; i < 5; i++) {
+    const a1 = (i / 5) * Math.PI * 2;
+    const a2 = ((i + 2) / 5) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a1) * r * 0.65, Math.sin(a1) * r * 0.65);
+    ctx.lineTo(Math.cos(a2) * r * 0.65, Math.sin(a2) * r * 0.65);
+    ctx.stroke();
+  }
+
+  // Bright central compounding core
+  const coreG = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.36);
+  coreG.addColorStop(0, '#fefce8');
+  coreG.addColorStop(0.5, '#facc15');
+  coreG.addColorStop(1, 'rgba(16, 185, 129, 0)');
+  ctx.fillStyle = coreG;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.36, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Crisp outer rim
+  ctx.strokeStyle = 'rgba(167, 243, 208, 0.85)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+
+  // === DETERMINISTIC DRIP LOOP: Dividend droplets spin off & arc straight back into core ===
+  const numDrops = Math.round(lerp(4, 14, dripIntensity));
+  // Subtle dashed DRIP orbit ring
+  ctx.strokeStyle = `rgba(250, 204, 21, ${(0.18 + dripIntensity * 0.28).toFixed(3)})`;
+  ctx.lineWidth = 1.3 * S;
+  ctx.setLineDash([4 * S, 5 * S]);
+  ctx.beginPath(); ctx.arc(cx, cy, r + 16 * S, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (let k = 0; k < numDrops; k++) {
+    const phase = (t * 0.72 + k / numDrops) % 1;
+    // Droplet spins out to r + 24*S, loops around, and spirals right back into the snowball core!
+    const launchAng = k * 2.39996 + rot * 0.45; // golden angle spacing
+    const orbitAng = launchAng + phase * Math.PI * 1.45;
+    const dist = r * 0.3 + Math.sin(phase * Math.PI) * (r * 0.95 + 20 * S);
+    const dx = cx + Math.cos(orbitAng) * dist;
+    const dy = cy + Math.sin(orbitAng) * dist;
+    const alpha = Math.sin(phase * Math.PI);
+    const dropR = (2.6 + (k % 3) * 0.95) * S * (0.7 + 0.4 * dripIntensity);
+
+    // Droplet motion trail
+    const prevPhase = Math.max(0, phase - 0.06);
+    const prevAng = launchAng + prevPhase * Math.PI * 1.45;
+    const prevDist = r * 0.3 + Math.sin(prevPhase * Math.PI) * (r * 0.95 + 20 * S);
+    ctx.strokeStyle = `rgba(250, 204, 21, ${(alpha * 0.55).toFixed(3)})`;
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(prevAng) * prevDist, cy + Math.sin(prevAng) * prevDist);
+    ctx.lineTo(dx, dy);
+    ctx.stroke();
+
+    // Glowing gold dividend droplet
+    ctx.fillStyle = `rgba(254, 240, 138, ${alpha.toFixed(3)})`;
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur = 8 * S;
+    ctx.beginPath(); ctx.arc(dx, dy, dropR, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  // Safe zone: x in [6.5%W, 84%W], y in [14%H, 74%H]
+  const safeL = W * 0.065;
+  const safeR = W * 0.84;
+  const safeW = safeR - safeL;
+  const cx = (safeL + safeR) * 0.5;
+
+  // Deep obsidian #030a08 background
+  ctx.fillStyle = '#030a08';
+  ctx.fillRect(0, 0, W, H);
+
+  // Emerald & gold ambient glow
+  const bgG = ctx.createRadialGradient(cx, H * 0.42, 16 * S, cx, H * 0.44, W * 0.62);
+  bgG.addColorStop(0, 'rgba(16, 185, 129, 0.12)');
+  bgG.addColorStop(0.55, 'rgba(245, 158, 11, 0.04)');
+  bgG.addColorStop(1, 'rgba(3, 10, 8, 0)');
+  ctx.fillStyle = bgG;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle emerald grid
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.042)';
+  ctx.lineWidth = 1 * S;
+  for (let x = 0; x < W; x += 42 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 42 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const lPay = getLine('paycheck', 4);
+  const lLaw = getLine('law', 5);
+
+  const curYr = computeYear(t);
+  const curPort = portfolioVal(curYr);
+  const curAnnDiv = annualDiv(curYr);
+  const curMoDiv = curAnnDiv / 12;
+  const prog = clamp((curYr - 1) / 29, 0, 1);
+  const payReveal = smooth(lPay.start, lPay.start + 0.5, t);
+  const lawFocus = smooth(lLaw.start, lLaw.start + 0.4, t);
+
+  // === 1. HEADER TITLE (y: 0.145H .. 0.186H) ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('THE DIVIDEND SNOWBALL', 30 * S, safeW, '900');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText('THE DIVIDEND SNOWBALL', cx, H * 0.155);
+
+  fitFont('$500/MO · DRIP REINVESTED · 30 YEARS', 13.5 * S, safeW, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#6ee7b7';
+  ctx.fillText('$500/MO · DRIP REINVESTED · 30 YEARS', cx, H * 0.178);
+  ctx.restore();
+
+  // === 2. DUAL LIVE DIVIDEND KPI CARDS (y: 0.196H .. 0.270H) ===
+  const kpiGap = 11 * S;
+  const kpiW = (safeW - kpiGap) * 0.5;
+  const kpiY = H * 0.196;
+  const kpiH = H * 0.074;
+
+  // Left KPI: Annual Dividend
+  ctx.save();
+  ctx.fillStyle = 'rgba(6, 56, 40, 0.45)';
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.58)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath(); ctx.roundRect(safeL, kpiY, kpiW, kpiH, 14 * S); ctx.fill(); ctx.stroke();
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  fitFont('ANNUAL DIVIDEND', 12 * S, kpiW - 22 * S, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#34d399';
+  ctx.fillText('ANNUAL DIVIDEND', safeL + 12 * S, kpiY + 10 * S);
+
+  fitFont(`${fmtExact(curAnnDiv)}/YR`, 25 * S, kpiW - 22 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText(`${fmtExact(curAnnDiv)}/YR`, safeL + 12 * S, kpiY + 30 * S);
+
+  fitFont(`YEAR ${Math.round(curYr)} OF 30`, 11.5 * S, kpiW - 22 * S, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#6ee7b7';
+  ctx.fillText(`YEAR ${Math.round(curYr)} OF 30`, safeL + 12 * S, kpiY + kpiH - 20 * S);
+  ctx.restore();
+
+  // Right KPI: Monthly Paycheck
+  const rightKpiX = safeL + kpiW + kpiGap;
+  ctx.save();
+  ctx.fillStyle = 'rgba(54, 30, 6, 0.46)';
+  ctx.strokeStyle = payReveal > 0.3 ? '#facc15' : 'rgba(245, 158, 11, 0.55)';
+  ctx.lineWidth = (1.6 + payReveal * 1.1) * S;
+  ctx.shadowColor = '#f59e0b';
+  ctx.shadowBlur = (6 + payReveal * 14) * S;
+  ctx.beginPath(); ctx.roundRect(rightKpiX, kpiY, kpiW, kpiH, 14 * S); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  fitFont('MONTHLY PAYCHECK', 12 * S, kpiW - 22 * S, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText('MONTHLY PAYCHECK', rightKpiX + 12 * S, kpiY + 10 * S);
+
+  fitFont(`${fmtExact(curMoDiv)}/MO`, 25 * S, kpiW - 22 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#fefce8';
+  ctx.fillText(`${fmtExact(curMoDiv)}/MO`, rightKpiX + 12 * S, kpiY + 30 * S);
+
+  fitFont(`PORTFOLIO: ${fmtK(curPort)}`, 11.5 * S, kpiW - 22 * S, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#fde68a';
+  ctx.fillText(`PORTFOLIO: ${fmtK(curPort)}`, rightKpiX + 12 * S, kpiY + kpiH - 20 * S);
+  ctx.restore();
+
+  // === 3. HERO VISUAL: 30-YEAR SLOPE + ROLLING EMERALD SNOWBALL + DRIP LOOP (y: 0.282H .. 0.544H) ===
+  const stageY = H * 0.282;
+  const stageH = H * 0.262;
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 20, 16, 0.80)';
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.26)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.beginPath(); ctx.roundRect(safeL, stageY, safeW, stageH, 16 * S); ctx.fill(); ctx.stroke();
+
+  // Stage label top-left & DRIP badge top-right
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${Math.round(12 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('30-YEAR COMPOUNDING SLOPE', safeL + 14 * S, stageY + 20 * S);
+
+  const dripW = 104 * S, dripH = 22 * S;
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.6)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.beginPath(); ctx.roundRect(safeR - 14 * S - dripW, stageY + 9 * S, dripW, dripH, 11 * S); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fef08a';
+  ctx.font = `900 ${Math.round(11 * S)}px ui-monospace, monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillText('↻ DRIP ACTIVE', safeR - 14 * S - dripW * 0.5, stageY + 20 * S);
+
+  // Slope geometry inside stage
+  const slX0 = safeL + 38 * S;
+  const slY0 = stageY + 76 * S;
+  const slX1 = safeR - 92 * S;
+  const slY1 = stageY + stageH - 36 * S;
+  const dx = slX1 - slX0;
+  const dy = slY1 - slY0;
+  const slopeLen = Math.hypot(dx, dy);
+  const slopeAng = Math.atan2(dy, dx);
+  // Upward normal to slope
+  const nx = Math.sin(slopeAng);
+  const ny = -Math.cos(slopeAng);
+
+  // Sub-slope mountain fill
+  const mGrad = ctx.createLinearGradient(0, slY0, 0, stageY + stageH);
+  mGrad.addColorStop(0, 'rgba(16, 185, 129, 0.14)');
+  mGrad.addColorStop(1, 'rgba(3, 10, 8, 0.02)');
+  ctx.fillStyle = mGrad;
+  ctx.beginPath();
+  ctx.moveTo(slX0 - 14 * S, slY0 - 6 * S);
+  ctx.lineTo(slX1 + 66 * S, slY1 + 14 * S);
+  ctx.lineTo(slX1 + 66 * S, stageY + stageH - 6 * S);
+  ctx.lineTo(slX0 - 14 * S, stageY + stageH - 6 * S);
+  ctx.closePath();
+  ctx.fill();
+
+  // Base slope track line
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(slX0, slY0); ctx.lineTo(slX1, slY1); ctx.stroke();
+
+  // Active glowing emerald trail behind the snowball
+  const curSX = lerp(slX0, slX1, prog);
+  const curSY = lerp(slY0, slY1, prog);
+  const trailG = ctx.createLinearGradient(slX0, slY0, curSX, curSY);
+  trailG.addColorStop(0, '#047857');
+  trailG.addColorStop(0.65, '#10b981');
+  trailG.addColorStop(1, '#facc15');
+  ctx.strokeStyle = trailG;
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = 12 * S;
+  ctx.lineWidth = 5 * S;
+  ctx.beginPath(); ctx.moveTo(slX0, slY0); ctx.lineTo(curSX, curSY); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Slope year milestone ticks (Y1, Y10, Y20, Y30)
+  const milestones = [
+    { yr: 1, lbl: 'Y1 · $150' },
+    { yr: 10, lbl: 'Y10 · $2.2K' },
+    { yr: 20, lbl: 'Y20 · $7.2K' },
+    { yr: 30, lbl: 'Y30 · $18.6K' },
+  ];
+  ctx.font = `800 ${Math.round(10.5 * S)}px ui-monospace, monospace`;
+  for (const ms of milestones) {
+    const mp = (ms.yr - 1) / 29;
+    const mx = lerp(slX0, slX1, mp);
+    const my = lerp(slY0, slY1, mp);
+    const reached = curYr >= ms.yr - 0.1;
+
+    ctx.fillStyle = reached ? '#facc15' : '#475569';
+    ctx.beginPath(); ctx.arc(mx, my, 4 * S, 0, Math.PI * 2); ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = reached ? '#e2e8f0' : '#64748b';
+    ctx.fillText(ms.lbl, mx - 4 * S, my + 10 * S);
+  }
+
+  // Rolling Emerald Snowball: radius grows nonlinearly with annual dividend
+  const ballR = lerp(15 * S, 48 * S, Math.pow(clamp(curAnnDiv / MAX_DIV_Y30, 0, 1), 0.42));
+  const ballCX = curSX + nx * (ballR + 3 * S);
+  const ballCY = curSY + ny * (ballR + 3 * S);
+  const rollAngle = (prog * slopeLen) / (26 * S);
+  drawGeometricSnowball(ballCX, ballCY, ballR, rollAngle, clamp(prog * 1.15, 0.1, 1), t, S);
+
+  // Floating "+DIVIDENDS" callout cleanly separated from snowball
+  if (curYr > 3) {
+    const tagW = 114 * S, tagH = 24 * S;
+    const tagX = clamp(ballCX - ballR - tagW - 22 * S, safeL + 14 * S, safeR - tagW - 14 * S);
+    const tagY = clamp(ballCY - ballR - 18 * S, stageY + 38 * S, stageY + stageH - 54 * S);
+    ctx.fillStyle = 'rgba(6, 78, 59, 0.90)';
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.4 * S;
+    ctx.beginPath(); ctx.roundRect(tagX, tagY, tagW, tagH, 8 * S); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ecfdf5';
+    ctx.font = `900 ${Math.round(11.5 * S)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`+${fmtExact(curAnnDiv)}/YR`, tagX + tagW * 0.5, tagY + tagH * 0.5);
+  }
+  ctx.restore();
+
+  // === 4. LOWER PANEL: 30-YEAR ANNUAL DIVIDEND EXPLOSION BAR CHART (y: 0.556H .. 0.736H) ===
+  const chartY = H * 0.556;
+  const chartH = H * 0.180; // ends at 0.736H <= 0.74H
+  const cL = safeL + 46 * S;
+  const cR = safeR - 12 * S;
+  const cTop = chartY + 34 * S;
+  const cBot = chartY + chartH - 36 * S;
+  const cW = cR - cL;
+  const cH = cBot - cTop;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 20, 16, 0.82)';
+  ctx.strokeStyle = lawFocus > 0.25 ? 'rgba(250, 204, 21, 0.62)' : 'rgba(16, 185, 129, 0.24)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.beginPath(); ctx.roundRect(safeL, chartY, safeW, chartH, 16 * S); ctx.fill(); ctx.stroke();
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${Math.round(12.5 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText('ANNUAL DIVIDEND INCOME (YR 1 → 30)', safeL + 14 * S, chartY + 18 * S);
+
+  // Horizontal $18K ($1,500/mo) target line
+  const yTarget = cBot - (18000 / 20000) * cH;
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.42)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.setLineDash([4 * S, 4 * S]);
+  ctx.beginPath(); ctx.moveTo(cL, yTarget); ctx.lineTo(cR, yTarget); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.textAlign = 'right';
+  ctx.font = `700 ${Math.round(10.5 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#facc15';
+  ctx.fillText('$18K', cL - 6 * S, yTarget);
+  ctx.fillStyle = '#64748b';
+  ctx.fillText('$9K', cL - 6 * S, cBot - (9000 / 20000) * cH);
+  ctx.fillText('$0', cL - 6 * S, cBot);
+
+  // 30 annual bars
+  const barGap = 2.5 * S;
+  const barW = (cW - barGap * 29) / 30;
+  for (let yr = 1; yr <= 30; yr++) {
+    const bx = cL + (yr - 1) * (barW + barGap);
+    const dv = annualDiv(yr);
+    const fullH = Math.max(3 * S, (dv / 20000) * cH);
+    const fillFrac = clamp(curYr - (yr - 1), 0, 1);
+
+    // Ghost bar track
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.08)';
+    ctx.fillRect(bx, cBot - fullH, barW, fullH);
+
+    if (fillFrac > 0.01) {
+      const bh = fullH * fillFrac;
+      const isPaycheck = yr >= 28;
+      const bg = ctx.createLinearGradient(0, cBot - bh, 0, cBot);
+      if (isPaycheck) {
+        bg.addColorStop(0, '#facc15');
+        bg.addColorStop(1, '#10b981');
+      } else {
+        bg.addColorStop(0, '#34d399');
+        bg.addColorStop(1, '#047857');
+      }
+      ctx.fillStyle = bg;
+      ctx.beginPath(); ctx.roundRect(bx, cBot - bh, barW, bh, [3 * S, 3 * S, 0, 0]); ctx.fill();
+    }
+  }
+
+  // X-axis year labels
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = `700 ${Math.round(10.5 * S)}px ui-monospace, monospace`;
+  for (const yl of [1, 10, 20, 30]) {
+    const lx = cL + (yl - 0.5) * (barW + barGap);
+    ctx.fillStyle = yl === 30 ? '#facc15' : '#94a3b8';
+    ctx.fillText(`Y${yl}`, lx, cBot + 5 * S);
+  }
+
+  // Paycheck milestone callout at Year 30
+  if (payReveal > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = payReveal;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${Math.round(12 * S)}px ui-monospace, monospace`;
+    ctx.fillStyle = '#facc15';
+    ctx.fillText('★ $1,552/MO PASSIVE PAYCHECK', cR - 2 * S, chartY + 18 * S);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+window.renderFrame = drawFrame;
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

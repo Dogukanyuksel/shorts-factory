@@ -1,0 +1,659 @@
+<!doctype html>
+<!--
+  Bio Mechanics — What Actually Happens Inside Your Brain When You Sleep
+  60fps, deterministic, audio-synced HTML5 Canvas medical cutaway
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'When you fall asleep, your brain does not shut down—it launches a high-pressure night shift.', caption: 'THE NIGHT SHIFT' },
+  { id: 'awake', text: 'All day long, firing neurons pack tightly together and shed toxic beta-amyloid waste between them.', caption: '1. TOXIC BUILDUP' },
+  { id: 'shrink', text: 'Once deep slow-wave sleep begins, your brain cells actually shrink by sixty percent.', caption: '2. CELLS SHRINK 60%' },
+  { id: 'channels', text: 'That sudden shrinkage opens wide fluid channels right through your dense neural tissue.', caption: '3. CHANNELS OPEN' },
+  { id: 'flush', text: 'Then rhythmic pulses of cerebrospinal fluid surge through, power-washing the waste out!', caption: '4. GLYMPHATIC FLUSH' },
+  { id: 'clean', text: 'Skip deep sleep and that plaque stays behind—every eight-hour night literally washes your brain clean.', caption: 'BRAIN WASHED CLEAN' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lAwk = getLine('awake', 1);
+  const lShr = getLine('shrink', 2);
+  const lChn = getLine('channels', 3);
+  const lFls = getLine('flush', 4);
+  const lCln = getLine('clean', 5);
+
+  EVENTS = [
+    { t: lAwk.start + 0.15, type: 'bounce', pitchIndex: 2, intensity: 0.55 },
+    { t: lShr.start + 0.12, type: 'bounce', pitchIndex: 4, intensity: 0.72 },
+    { t: lChn.start + 0.14, type: 'bounce', pitchIndex: 6, intensity: 0.76 },
+    { t: lFls.start + 0.10, type: 'break', pitchIndex: 7, intensity: 0.96 },
+    { t: lFls.start + 1.10, type: 'bounce', pitchIndex: 8, intensity: 0.78 },
+    { t: lCln.start + 0.25, type: 'bounce', pitchIndex: 9, intensity: 0.75 },
+    { t: Math.min(DUR - 0.25, lCln.start + 1.4), type: 'win', pitchIndex: 10, intensity: 0.96 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function getActivePhase(t) {
+  for (let i = SCRIPT.length - 1; i >= 0; i--) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) return { idx: i, line: ln };
+  }
+  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
+}
+
+// Deterministic neuron layout inside normalized cutaway coordinates [-1, 1] x [-1, 1]
+const NEURONS = [
+  { x: -0.64, y: -0.56, r: 0.20, phase: 0.1, branches: 5 },
+  { x: -0.06, y: -0.60, r: 0.22, phase: 1.3, branches: 6 },
+  { x:  0.52, y: -0.52, r: 0.19, phase: 2.4, branches: 5 },
+  { x: -0.68, y: -0.04, r: 0.21, phase: 3.2, branches: 5 },
+  { x: -0.14, y: -0.04, r: 0.24, phase: 0.8, branches: 6 },
+  { x:  0.42, y: -0.02, r: 0.22, phase: 4.1, branches: 6 },
+  { x: -0.58, y:  0.52, r: 0.20, phase: 2.0, branches: 5 },
+  { x:  0.02, y:  0.54, r: 0.22, phase: 5.0, branches: 6 },
+  { x:  0.56, y:  0.50, r: 0.19, phase: 3.7, branches: 5 },
+];
+
+// Deterministic synaptic connections between nearby neurons
+const SYNAPSES = [
+  [0, 1], [1, 2], [0, 3], [0, 4], [1, 4], [1, 5], [2, 5],
+  [3, 4], [4, 5], [3, 6], [4, 6], [4, 7], [5, 7], [5, 8],
+  [6, 7], [7, 8],
+];
+
+// Deterministic beta-amyloid metabolic waste clusters positioned in interstitial gaps
+const PLAQUES = [];
+for (let i = 0; i < 64; i++) {
+  const lane = i % 3; // 0: upper channel, 1: mid channel, 2: lower channel
+  const baseY = lane === 0 ? -0.30 : (lane === 1 ? 0.24 : -0.80 + (i % 2) * 1.56);
+  const bx = -0.82 + hash(i * 19 + 3) * 1.52;
+  const by = clamp(baseY + (hash(i * 31 + 7) - 0.5) * 0.28, -0.84, 0.84);
+  PLAQUES.push({
+    x: bx,
+    y: by,
+    r: 0.022 + hash(i * 43 + 11) * 0.026,
+    rot: hash(i * 59 + 5) * Math.PI * 2,
+    speed: 0.72 + hash(i * 71 + 13) * 0.65,
+    delay: hash(i * 83 + 17) * 0.42,
+    spawnAt: hash(i * 97 + 23),
+  });
+}
+
+// Deterministic EEG sample: blends chaotic high-frequency Awake Beta with deep slow-wave Delta
+function eegSample(u, sleepBlend) {
+  const beta =
+    0.35 * Math.sin(u * 29.0) +
+    0.25 * Math.sin(u * 47.0 + 1.1) +
+    0.22 * Math.cos(u * 67.0 + 2.4) +
+    0.18 * Math.sin(u * 17.0);
+  const delta =
+    0.88 * Math.sin(u * 5.2) +
+    0.18 * Math.sin(u * 10.4 + 0.6);
+  return lerp(beta * 0.62, delta * 0.96, sleepBlend);
+}
+
+function drawNeuron(cx, cy, radius, origRadius, shrinkAmt, fireGlow, sleepTint, seed, branches, S) {
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Dashed "awake footprint" ghost ring during shrinkage so 60% reduction is unmistakable
+  if (shrinkAmt > 0.04) {
+    const ghostAlpha = shrinkAmt * 0.42 * (1 - 0.35 * sleepTint);
+    ctx.save();
+    ctx.setLineDash([5 * S, 5 * S]);
+    ctx.strokeStyle = `rgba(148,163,184,${ghostAlpha.toFixed(3)})`;
+    ctx.lineWidth = 1.4 * S;
+    ctx.beginPath();
+    ctx.arc(0, 0, origRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Radiating dendrites
+  for (let b = 0; b < branches; b++) {
+    const ang = (b / branches) * Math.PI * 2 + hash(seed * 13 + b) * 0.55;
+    const len = radius * (1.28 + hash(seed * 29 + b) * 0.38);
+    const ctrlAng = ang + (hash(seed * 41 + b) - 0.5) * 0.42;
+    const ex = Math.cos(ang) * len;
+    const ey = Math.sin(ang) * len;
+    const kx = Math.cos(ctrlAng) * len * 0.55;
+    const ky = Math.sin(ctrlAng) * len * 0.55;
+
+    ctx.strokeStyle = sleepTint > 0.5
+      ? `rgba(125,211,252,${(0.45 + 0.25 * fireGlow).toFixed(2)})`
+      : `rgba(251,113,133,${(0.52 + 0.35 * fireGlow).toFixed(2)})`;
+    ctx.lineWidth = Math.max(1.6 * S, radius * 0.14);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(ang) * radius * 0.65, Math.sin(ang) * radius * 0.65);
+    ctx.quadraticCurveTo(kx, ky, ex, ey);
+    ctx.stroke();
+  }
+
+  // Sculpted 3D soma body
+  const rR = Math.round(lerp(244, 56, sleepTint));
+  const rG = Math.round(lerp(63, 189, sleepTint));
+  const rB = Math.round(lerp(94, 248, sleepTint));
+
+  ctx.shadowColor = `rgba(${rR},${rG},${rB},${(0.32 + 0.45 * fireGlow).toFixed(2)})`;
+  ctx.shadowBlur = (14 + 14 * fireGlow) * S;
+
+  const somaG = ctx.createRadialGradient(-radius * 0.28, -radius * 0.28, radius * 0.12, 0, 0, radius);
+  somaG.addColorStop(0, sleepTint > 0.5 ? '#bae6fd' : '#fda4af');
+  somaG.addColorStop(0.42, sleepTint > 0.5 ? '#0284c7' : '#e11d48');
+  somaG.addColorStop(0.82, sleepTint > 0.5 ? '#0c4a6e' : '#881337');
+  somaG.addColorStop(1, '#1e1b4b');
+
+  ctx.fillStyle = somaG;
+  ctx.strokeStyle = sleepTint > 0.5 ? 'rgba(186,230,253,0.75)' : 'rgba(253,164,175,0.78)';
+  ctx.lineWidth = 2.0 * S;
+  ctx.beginPath();
+  // Slightly organic lobed neuron soma
+  const steps = 18;
+  for (let s = 0; s <= steps; s++) {
+    const a = (s / steps) * Math.PI * 2;
+    const lobe = 1 + 0.08 * Math.sin(a * branches + seed);
+    const px = Math.cos(a) * radius * lobe;
+    const py = Math.sin(a) * radius * lobe;
+    if (s === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Bioluminescent nucleus
+  ctx.shadowBlur = 0;
+  const nucR = radius * 0.36;
+  const nucG = ctx.createRadialGradient(-nucR * 0.25, -nucR * 0.25, 1, 0, 0, nucR);
+  nucG.addColorStop(0, '#f8fafc');
+  nucG.addColorStop(0.55, sleepTint > 0.5 ? '#38bdf8' : '#fb7185');
+  nucG.addColorStop(1, 'rgba(15,23,42,0.8)');
+  ctx.fillStyle = nucG;
+  ctx.beginPath();
+  ctx.arc(0, 0, nucR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Firing spark highlight during awake activity
+  if (fireGlow > 0.15) {
+    ctx.fillStyle = `rgba(254,240,138,${(fireGlow * 0.72).toFixed(2)})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, nucR * (0.55 + 0.55 * fireGlow), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const safeLeft = W * 0.08;
+  const safeRight = W * 0.84;
+  const safeW = safeRight - safeLeft;
+  const cx = (safeLeft + safeRight) * 0.5;
+
+  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
+  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
+
+  const lAwk = getLine('awake', 1);
+  const lShr = getLine('shrink', 2);
+  const lChn = getLine('channels', 3);
+  const lFls = getLine('flush', 4);
+  const lCln = getLine('clean', 5);
+
+  // Core physiological state variables (100% deterministic pure functions of t)
+  const buildupAmt = smooth(0.2, lAwk.end, t);
+  const shrinkAmt = smooth(lShr.start, lShr.end + 0.4, t);
+  const channelGlow = smooth(lChn.start - 0.15, lChn.end, t);
+  const flushAmt = smooth(lFls.start - 0.1, lCln.end - 0.3, t);
+  const cleanAmt = smooth(lFls.start + 0.6, DUR - 0.6, t);
+  const sleepBlend = smooth(lShr.start - 0.2, lChn.start + 0.6, t);
+
+  // Rhythmic slow-wave CSF pulse during deep sleep
+  const csfPulse = 0.5 + 0.5 * Math.sin(t * 3.8 - 0.6);
+
+  // === 1. DEEP MIDNIGHT #050712 MEDICAL STUDIO BACKGROUND ===
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  const bgGlow = ctx.createRadialGradient(cx, H * 0.37, 20 * S, cx, H * 0.37, H * 0.44);
+  const glowR = Math.round(lerp(217, 14, sleepBlend));
+  const glowG = Math.round(lerp(119, 165, sleepBlend));
+  const glowB = Math.round(lerp(6, 233, sleepBlend));
+  bgGlow.addColorStop(0, `rgba(${glowR},${glowG},${glowB},${(0.14 + 0.08 * csfPulse * flushAmt).toFixed(3)})`);
+  bgGlow.addColorStop(0.55, 'rgba(15,23,42,0.16)');
+  bgGlow.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle diagnostic grid inside safe zone
+  ctx.strokeStyle = 'rgba(56,189,248,0.042)';
+  ctx.lineWidth = 1 * S;
+  for (let x = safeLeft; x <= safeRight; x += 42 * S) {
+    ctx.beginPath(); ctx.moveTo(x, H * 0.14); ctx.lineTo(x, H * 0.74); ctx.stroke();
+  }
+  for (let y = H * 0.14; y <= H * 0.74; y += 42 * S) {
+    ctx.beginPath(); ctx.moveTo(safeLeft, y); ctx.lineTo(safeRight, y); ctx.stroke();
+  }
+
+  // === 2. BIOLUMINESCENT BRAIN TISSUE CUTAWAY VIEWPORT ===
+  const boxX = safeLeft;
+  const boxY = H * 0.186;
+  const boxW = safeW;
+  const boxH = H * 0.358;
+  const boxCx = boxX + boxW * 0.485;
+  const boxCy = boxY + boxH * 0.50;
+  const halfW = boxW * 0.44;
+  const halfH = boxH * 0.44;
+
+  ctx.save();
+  // Cutaway frame
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 22 * S);
+  const tissueG = ctx.createRadialGradient(boxCx, boxCy, 16 * S, boxCx, boxCy, boxW * 0.72);
+  tissueG.addColorStop(0, sleepBlend > 0.4 ? '#082032' : '#1b1024');
+  tissueG.addColorStop(0.65, '#091124');
+  tissueG.addColorStop(1, '#050814');
+  ctx.fillStyle = tissueG;
+  ctx.fill();
+
+  // Clip interior to cutaway
+  ctx.save();
+  ctx.clip();
+
+  // --- A. INTERSTITIAL GLYMPHATIC CHANNELS (Open & Glow Cyan as Neurons Shrink) ---
+  const channelYs = [boxCy - halfH * 0.30, boxCy + halfH * 0.25];
+  if (channelGlow > 0.02) {
+    for (let c = 0; c < channelYs.length; c++) {
+      const cyLine = channelYs[c];
+      const chThick = lerp(10 * S, 46 * S, shrinkAmt) * (0.88 + 0.16 * csfPulse);
+      const chG = ctx.createLinearGradient(boxX, cyLine - chThick, boxX, cyLine + chThick);
+      chG.addColorStop(0, 'rgba(56,189,248,0)');
+      chG.addColorStop(0.5, `rgba(56,189,248,${(channelGlow * (0.18 + 0.22 * flushAmt * csfPulse)).toFixed(3)})`);
+      chG.addColorStop(1, 'rgba(56,189,248,0)');
+      ctx.fillStyle = chG;
+      ctx.fillRect(boxX, cyLine - chThick, boxW, chThick * 2);
+    }
+  }
+
+  // --- B. GLYMPHATIC CSF PULSE WAVES & FLOW STREAMLINES ---
+  if (channelGlow > 0.05) {
+    // Sweeping luminous CSF wave fronts moving left -> right
+    const waveSpeed = lerp(0.28, 0.78, flushAmt);
+    for (let w = 0; w < 3; w++) {
+      const u = ((t * waveSpeed + w / 3) % 1 + 1) % 1;
+      const wx = boxX - 40 * S + u * (boxW + 80 * S);
+      const waveG = ctx.createLinearGradient(wx - 68 * S, 0, wx + 22 * S, 0);
+      waveG.addColorStop(0, 'rgba(56,189,248,0)');
+      waveG.addColorStop(0.65, `rgba(56,189,248,${(0.24 * flushAmt).toFixed(3)})`);
+      waveG.addColorStop(0.92, `rgba(186,230,253,${(0.42 * flushAmt).toFixed(3)})`);
+      waveG.addColorStop(1, 'rgba(56,189,248,0)');
+      ctx.fillStyle = waveG;
+      ctx.fillRect(wx - 68 * S, boxY, 92 * S, boxH);
+    }
+
+    // Flowing CSF droplets along the opened interstitial channels
+    const numDrops = 56;
+    for (let i = 0; i < numDrops; i++) {
+      const lane = i % 2;
+      const u = ((t * (0.26 + 0.58 * flushAmt) + hash(i * 17)) % 1 + 1) % 1;
+      const px = boxX + u * (boxW - 18 * S);
+      const baseLaneY = channelYs[lane];
+      const waveOff = Math.sin(u * Math.PI * 4 + i * 1.7) * (10 + 14 * shrinkAmt) * S;
+      const py = baseLaneY + waveOff + (hash(i * 29) - 0.5) * 26 * S;
+      const dr = (2.6 + hash(i * 41) * 3.4) * S;
+      const alpha = channelGlow * (0.35 + 0.60 * flushAmt) * (0.65 + 0.35 * csfPulse);
+
+      ctx.fillStyle = `rgba(56,189,248,${alpha.toFixed(2)})`;
+      ctx.beginPath();
+      ctx.ellipse(px, py, dr * (1.2 + 1.4 * flushAmt), dr * 0.72, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(224,242,254,${(alpha * 0.85).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(px + dr * 0.35, py, dr * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // --- C. VENOUS DRAINAGE VESSEL ON RIGHT EDGE (Perivascular Exit) ---
+  const veinX = boxX + boxW - 34 * S;
+  const veinG = ctx.createLinearGradient(veinX - 18 * S, 0, veinX + 34 * S, 0);
+  veinG.addColorStop(0, 'rgba(14,116,144,0.15)');
+  veinG.addColorStop(0.35, 'rgba(8,145,178,0.55)');
+  veinG.addColorStop(0.7, 'rgba(14,165,233,0.42)');
+  veinG.addColorStop(1, 'rgba(8,47,73,0.92)');
+  ctx.fillStyle = veinG;
+  ctx.fillRect(veinX, boxY, 36 * S, boxH);
+  ctx.strokeStyle = `rgba(56,189,248,${(0.35 + 0.45 * flushAmt).toFixed(2)})`;
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(veinX, boxY);
+  ctx.lineTo(veinX, boxY + boxH);
+  ctx.stroke();
+
+  // --- D. SYNAPTIC CONNECTIONS & AWAKE FIRING PULSES ---
+  const awakeActivity = 1 - sleepBlend * 0.82;
+  for (let s = 0; s < SYNAPSES.length; s++) {
+    const a = NEURONS[SYNAPSES[s][0]];
+    const b = NEURONS[SYNAPSES[s][1]];
+    const ax = boxCx + a.x * halfW;
+    const ay = boxCy + a.y * halfH;
+    const bx = boxCx + b.x * halfW;
+    const by = boxCy + b.y * halfH;
+
+    ctx.strokeStyle = sleepBlend > 0.5
+      ? 'rgba(56,189,248,0.18)'
+      : 'rgba(251,113,133,0.28)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+
+    // Firing action potential spark travelling along synapse during awake phase
+    if (awakeActivity > 0.25) {
+      const spU = ((t * 1.15 + hash(s * 37)) % 1 + 1) % 1;
+      const sx = lerp(ax, bx, spU);
+      const sy = lerp(ay, by, spU);
+      ctx.fillStyle = `rgba(251,191,36,${(awakeActivity * 0.85).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 3.2 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // --- E. BETA-AMYLOID METABOLIC WASTE PLAQUES (Amber Clusters Flushed Out) ---
+  for (let i = 0; i < PLAQUES.length; i++) {
+    const p = PLAQUES[i];
+    // Gradual appearance during awake phase
+    const appear = smooth(p.spawnAt * 0.65, p.spawnAt * 0.65 + 0.25, buildupAmt);
+    if (appear <= 0.01) continue;
+
+    // Wash-out displacement during glymphatic flush
+    const washProg = clamp((flushAmt - p.delay * 0.55) * (1.45 * p.speed), 0, 1.35);
+    const driftX = washProg * washProg * 2.15;
+    const driftY = Math.sin(t * 2.4 + i) * 0.025 + washProg * (p.y > 0 ? -0.10 : 0.10);
+
+    const px = boxCx + (p.x + driftX) * halfW;
+    const py = boxCy + (p.y + driftY) * halfH;
+    if (px > boxX + boxW + 20 * S) continue;
+
+    const fadeOut = clamp(1 - smooth(0.88, 1.25, washProg), 0, 1);
+    const pr = p.r * halfW * (0.75 + 0.25 * appear) * (1 - 0.25 * washProg);
+    const alpha = appear * fadeOut;
+    if (alpha <= 0.02) continue;
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(p.rot + washProg * 2.4);
+    ctx.shadowColor = 'rgba(251,191,36,0.75)';
+    ctx.shadowBlur = 10 * S * alpha;
+    ctx.fillStyle = `rgba(251,191,36,${(0.88 * alpha).toFixed(2)})`;
+    ctx.beginPath();
+    // Crystalline irregular beta-amyloid clump
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      const rad = pr * (k % 2 === 0 ? 1.0 : 0.62);
+      const kx = Math.cos(a) * rad;
+      const ky = Math.sin(a) * rad;
+      if (k === 0) ctx.moveTo(kx, ky);
+      else ctx.lineTo(kx, ky);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `rgba(254,243,199,${(0.9 * alpha).toFixed(2)})`;
+    ctx.beginPath();
+    ctx.arc(-pr * 0.18, -pr * 0.18, pr * 0.28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- F. 9 SCULPTED 3D NEURONS (Shrink by ~60% Area in Deep Sleep) ---
+  // Linear scale 1.0 -> 0.632 gives 0.632^2 = 0.40 -> 60% reduction!
+  const linearScale = lerp(1.0, 0.63, shrinkAmt);
+  for (let i = 0; i < NEURONS.length; i++) {
+    const n = NEURONS[i];
+    const nx = boxCx + n.x * halfW;
+    const ny = boxCy + n.y * halfH;
+    const origR = n.r * halfW;
+    const curR = origR * linearScale;
+    const fireGlow = awakeActivity * Math.pow(0.5 + 0.5 * Math.sin(t * 5.2 + n.phase * 2.1), 4);
+    drawNeuron(nx, ny, curR, origR, shrinkAmt, fireGlow, sleepBlend, i + 1, n.branches, S);
+  }
+
+  // --- G. COMPACT IN-VIEWPORT ANATOMY CALLOUTS ---
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const modeLabel = sleepBlend < 0.35 ? 'STATE: AWAKE • NEURONS PACKED' : (flushAmt > 0.18 ? 'STATE: DEEP SLEEP • CSF WASH' : 'STATE: DEEP SLEEP • -60% VOLUME');
+  const modeColor = sleepBlend < 0.35 ? '#fbbf24' : '#38bdf8';
+  fitFont(modeLabel, 13 * S, boxW - 36 * S, '800');
+  ctx.fillStyle = 'rgba(5,7,18,0.74)';
+  ctx.beginPath();
+  ctx.roundRect(boxX + 12 * S, boxY + 12 * S, Math.min(boxW - 60 * S, ctx.measureText(modeLabel).width + 20 * S), 26 * S, 8 * S);
+  ctx.fill();
+  ctx.fillStyle = modeColor;
+  ctx.fillText(modeLabel, boxX + 22 * S, boxY + 18 * S);
+
+  // Callout for waste or CSF drainage
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  if (phaseIdx === 1) {
+    fitFont('BETA-AMYLOID WASTE', 13 * S, 180 * S, '800');
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText('BETA-AMYLOID WASTE', boxX + boxW - 44 * S, boxY + boxH - 14 * S);
+  } else if (phaseIdx >= 3) {
+    fitFont('CSF DRAINAGE →', 13 * S, 160 * S, '800');
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillText('CSF DRAINAGE →', boxX + boxW - 42 * S, boxY + boxH - 14 * S);
+  }
+  ctx.restore();
+
+  ctx.restore(); // end cutaway clip
+
+  // Cutaway outer neon rim
+  ctx.strokeStyle = sleepBlend > 0.45 ? 'rgba(56,189,248,0.58)' : 'rgba(251,191,36,0.45)';
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 22 * S);
+  ctx.stroke();
+  ctx.restore();
+
+  // === 3. LIVE EEG SLOW-WAVE MONITOR (y: H*0.560 to H*0.624) ===
+  const eegX = safeLeft;
+  const eegY = H * 0.560;
+  const eegW = safeW;
+  const eegH = H * 0.064;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(9,16,32,0.88)';
+  ctx.strokeStyle = sleepBlend > 0.45 ? 'rgba(56,189,248,0.68)' : 'rgba(251,191,36,0.42)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.roundRect(eegX, eegY, eegW, eegH, 12 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  const padX = 14 * S;
+  const traceW = eegW - padX * 2;
+  const baseLineY = eegY + eegH * 0.58;
+  const ampY = eegH * 0.34;
+  const samples = 110;
+
+  ctx.strokeStyle = sleepBlend > 0.45 ? '#38bdf8' : '#fbbf24';
+  ctx.lineWidth = 2.6 * S;
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = sleepBlend > 0.45 ? '#38bdf8' : '#fbbf24';
+  ctx.shadowBlur = 11 * S;
+  ctx.beginPath();
+  let lastX = eegX + padX;
+  let lastY = baseLineY;
+  for (let i = 0; i <= samples; i++) {
+    const frac = i / samples;
+    const sx = eegX + padX + frac * traceW;
+    const u = t * 0.9 - (1 - frac) * 2.2;
+    const sy = baseLineY - eegSample(u, sleepBlend) * ampY;
+    if (i === 0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+    lastX = sx;
+    lastY = sy;
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 4 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const eegLabel = sleepBlend > 0.45 ? 'DEEP DELTA SLEEP • CSF PULSE' : 'AWAKE BETA • WASTE ACCUMULATING';
+  fitFont(eegLabel, 13 * S, eegW - 28 * S, '800');
+  ctx.fillStyle = sleepBlend > 0.45 ? '#7dd3fc' : '#fde68a';
+  ctx.fillText(eegLabel, eegX + 14 * S, eegY + 8 * S);
+  ctx.restore();
+
+  // === 4. LIVE STAT CARDS (y: H*0.634, h: H*0.052) ===
+  const cardY = H * 0.634;
+  const cardH = H * 0.052;
+  const gap = 12 * S;
+  const cardW = (safeW - gap) * 0.5;
+
+  const channelSpacePct = Math.round(lerp(14, 74, shrinkAmt));
+  const wastePct = Math.round(clamp(lerp(24, 94, buildupAmt) * (1 - 0.94 * cleanAmt), 4, 96));
+
+  function drawStatCard(x, label, valueText, accent, valColor) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.88)';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(label, 12.5 * S, cardW - 16 * S, '800');
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
+
+    fitFont(valueText, 23 * S, cardW - 16 * S, '900');
+    ctx.fillStyle = valColor;
+    ctx.fillText(valueText, x + cardW * 0.5, cardY + cardH * 0.70);
+    ctx.restore();
+  }
+
+  drawStatCard(
+    safeLeft,
+    'CHANNEL SPACE',
+    shrinkAmt > 0.55 ? `+${channelSpacePct - 14}% OPEN` : `${channelSpacePct}% TIGHT`,
+    shrinkAmt > 0.55 ? 'rgba(56,189,248,0.68)' : 'rgba(148,163,184,0.45)',
+    shrinkAmt > 0.55 ? '#38bdf8' : '#e2e8f0'
+  );
+  drawStatCard(
+    safeLeft + cardW + gap,
+    'TOXIC AMYLOID',
+    cleanAmt > 0.65 ? `${wastePct}% CLEAN` : `${wastePct}% LOAD`,
+    cleanAmt > 0.65 ? 'rgba(52,211,153,0.68)' : 'rgba(251,191,36,0.65)',
+    cleanAmt > 0.65 ? '#34d399' : '#fbbf24'
+  );
+
+  // === 5. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  fitFont('BIO MECHANICS • GLYMPHATIC WASH', 21 * S, safeW, '800');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('BIO MECHANICS • GLYMPHATIC WASH', cx, H * 0.155);
+
+  const pillW = Math.min(safeW, 430 * S);
+  const pillH = 52 * S;
+  const pillY = H * 0.714;
+  const pop = 1 + 0.05 * Math.exp(-phaseProg * 14);
+
+  ctx.save();
+  ctx.translate(cx, pillY);
+  ctx.scale(pop, pop);
+
+  let c0 = '#fbbf24', c1 = '#f59e0b', txtCol = '#090d16';
+  if (phaseIdx >= 2 && phaseIdx <= 4) {
+    c0 = '#38bdf8'; c1 = '#0284c7'; txtCol = '#ffffff';
+  } else if (phaseIdx === 5) {
+    c0 = '#34d399'; c1 = '#059669'; txtCol = '#052e16';
+  } else if (phaseIdx === 0) {
+    c0 = '#fb7185'; c1 = '#e11d48'; txtCol = '#ffffff';
+  }
+
+  ctx.shadowColor = c0;
+  ctx.shadowBlur = 18 * S;
+  const pillG = ctx.createLinearGradient(-pillW * 0.5, 0, pillW * 0.5, 0);
+  pillG.addColorStop(0, c0);
+  pillG.addColorStop(1, c1);
+  ctx.fillStyle = pillG;
+  ctx.beginPath();
+  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  fitFont(activeLine.caption, 27 * S, pillW - 36 * S, '900');
+  ctx.fillStyle = txtCol;
+  ctx.fillText(activeLine.caption, 0, 1 * S);
+  ctx.restore();
+  ctx.restore();
+}
+
+window.renderFrame = drawFrame;
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

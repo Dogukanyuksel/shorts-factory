@@ -57,7 +57,7 @@ jobs:
           YOUTUBE_CLIENT_SECRET_BIO: ${{ secrets.YOUTUBE_CLIENT_SECRET_BIO }}
           YOUTUBE_REFRESH_TOKEN_BIO: ${{ secrets.YOUTUBE_REFRESH_TOKEN_BIO }}
           IG_USER_ID_BIO: ${{ secrets.IG_USER_ID_BIO }}
-          META_ACCESS_TOKEN_BIO: ${{ secrets.META_ACCESS_TOKEN_BIO }}
+          META_ACCESS_TOKEN_BIO: ${{ secrets.META_ACCESS_TOKEN_BIO || secrets.ETA_ACCESS_TOKEN_BIO || secrets.META_ACCESS_TOKEN_WEALTH }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
         run: npx tsx src/publish-expansion.ts --channel bio

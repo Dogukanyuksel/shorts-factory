@@ -32,6 +32,8 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
           META_ACCESS_TOKEN_PHYSICS: ${{ secrets.META_ACCESS_TOKEN_PHYSICS }}
           META_ACCESS_TOKEN_EXPLAINER: ${{ secrets.META_ACCESS_TOKEN_EXPLAINER }}
+          META_ACCESS_TOKEN_WEALTH: ${{ secrets.META_ACCESS_TOKEN_WEALTH }}
+          META_ACCESS_TOKEN_BIO: ${{ secrets.META_ACCESS_TOKEN_BIO || secrets.ETA_ACCESS_TOKEN_BIO || secrets.META_ACCESS_TOKEN_WEALTH }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
         run: npx tsx src/channel-director.ts

@@ -123,8 +123,17 @@ export function resolveMinGapHours(env: NodeJS.ProcessEnv = process.env): number
  * Kanal için Meta (Instagram) erişim token'ı: önce kanala özel (META_ACCESS_TOKEN_PHYSICS / _EXPLAINER),
  * yoksa ortak META_ACCESS_TOKEN. Kanallar ayrı Business portföylerindeyse her biri kendi system-user token'ını kullanır.
  */
-export function resolveMetaToken(channel: "physics" | "explainer", env: NodeJS.ProcessEnv = process.env): string {
-  const specific = (channel === "explainer" ? env.META_ACCESS_TOKEN_EXPLAINER : env.META_ACCESS_TOKEN_PHYSICS)?.trim();
+export function resolveMetaToken(
+  channel: "physics" | "explainer" | "wealth" | "bio",
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const keyMap: Record<"physics" | "explainer" | "wealth" | "bio", string> = {
+    physics: "META_ACCESS_TOKEN_PHYSICS",
+    explainer: "META_ACCESS_TOKEN_EXPLAINER",
+    wealth: "META_ACCESS_TOKEN_WEALTH",
+    bio: "META_ACCESS_TOKEN_BIO",
+  };
+  const specific = env[keyMap[channel]]?.trim();
   return specific || env.META_ACCESS_TOKEN?.trim() || "";
 }
 

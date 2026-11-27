@@ -1,0 +1,592 @@
+<!doctype html>
+<!--
+  Wealth Mechanics — The 50/30/20 Money Split That Builds Wealth on Any Salary (60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const easeOutCubic = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
+
+const SCRIPT = [
+  { id: 'hook', text: 'Most people earn five thousand dollars a month and still end the year broke. Here is the split that changes everything.', caption: 'THE 50/30/20 SPLIT' },
+  { id: 'needs', text: 'First, fifty percent — twenty-five hundred dollars — flows straight into Needs: rent, groceries, and essential bills.', caption: '50% NEEDS · $2,500' },
+  { id: 'wants', text: 'Next, thirty percent — fifteen hundred dollars — funds your Wants, so you actually enjoy life guilt-free.', caption: '30% WANTS · $1,500' },
+  { id: 'future', text: 'The secret is the final twenty percent: one thousand dollars automatically locked into compounding investments every month.', caption: '20% FUTURE · $1,000' },
+  { id: 'compound', text: 'Now fast-forward twenty years. Even if your salary never rises once, that twenty percent tank compounds at ten percent a year.', caption: 'YEARS 1 → 20 AT 10%' },
+  { id: 'verdict', text: 'Two hundred forty thousand put in explodes to seven hundred fifty-nine thousand dollars. Systems beat willpower every time.', caption: '$759K ON FLAT PAY' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg = {}) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 23;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lNeeds = getLine('needs', 1);
+  const lWants = getLine('wants', 2);
+  const lFuture = getLine('future', 3);
+  const lComp = getLine('compound', 4);
+  const lVerd = getLine('verdict', 5);
+
+  EVENTS = [
+    { t: lNeeds.start + 0.15, type: 'bounce', pitchIndex: 3, intensity: 0.55 },
+    { t: lWants.start + 0.15, type: 'bounce', pitchIndex: 5, intensity: 0.62 },
+    { t: lFuture.start + 0.18, type: 'break', pitchIndex: 8, intensity: 0.80 },
+    { t: lComp.start + 0.20, type: 'bounce', pitchIndex: 10, intensity: 0.85 },
+    { t: lVerd.start + 0.18, type: 'win', pitchIndex: 12, intensity: 0.96 },
+  ];
+};
+
+// Exact monthly compounding: $1,000/mo at 10% annual (10%/12 monthly)
+const MONTHLY_RATE = 0.10 / 12;
+function fvFuture(years) {
+  if (years <= 0) return 0;
+  const n = years * 12;
+  return 1000 * (Math.pow(1 + MONTHLY_RATE, n) - 1) / MONTHLY_RATE;
+}
+
+const MAX_FV_20 = fvFuture(20); // $759,368.84
+const MAX_CONTRIB_20 = 240000;  // $240,000
+const CHART_MAX_Y = 820000;
+
+function fmtMoney(v) {
+  const n = Math.max(0, Math.round(v));
+  if (n >= 1000000) return '$' + (n / 1000000).toFixed(2) + 'M';
+  if (n >= 100000) return '$' + Math.round(n / 1000) + 'K';
+  return '$' + n.toLocaleString('en-US');
+}
+
+function fmtExact(v) {
+  return '$' + Math.max(0, Math.round(v)).toLocaleString('en-US');
+}
+
+function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function evalCubic(p0, p1, p2, p3, u) {
+  const m = 1 - u;
+  return {
+    x: m * m * m * p0.x + 3 * m * m * u * p1.x + 3 * m * u * u * p2.x + u * u * u * p3.x,
+    y: m * m * m * p0.y + 3 * m * m * u * p1.y + 3 * m * u * u * p2.y + u * u * u * p3.y,
+  };
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  // Strict Safe-Zone: x in [6.5%W, 84%W], y in [14%H, 74%H]
+  const safeL = W * 0.065;
+  const safeR = W * 0.84;
+  const safeW = safeR - safeL;
+  const cx = (safeL + safeR) * 0.5;
+
+  // Deep obsidian emerald background
+  ctx.fillStyle = '#030a08';
+  ctx.fillRect(0, 0, W, H);
+
+  // Ambient emerald & gold radial aura
+  const bgG = ctx.createRadialGradient(cx, H * 0.36, 18 * S, cx, H * 0.44, W * 0.65);
+  bgG.addColorStop(0, 'rgba(16, 185, 129, 0.12)');
+  bgG.addColorStop(0.55, 'rgba(245, 158, 11, 0.04)');
+  bgG.addColorStop(1, 'rgba(3, 10, 8, 0)');
+  ctx.fillStyle = bgG;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle emerald blueprint grid
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.045)';
+  ctx.lineWidth = 1 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const lHook = getLine('hook', 0);
+  const lNeeds = getLine('needs', 1);
+  const lWants = getLine('wants', 2);
+  const lFuture = getLine('future', 3);
+  const lComp = getLine('compound', 4);
+  const lVerd = getLine('verdict', 5);
+
+  // Phase activations (pure deterministic functions of t)
+  const pNeeds = smooth(lNeeds.start - 0.15, lNeeds.start + 0.65, t);
+  const pWants = smooth(lWants.start - 0.15, lWants.start + 0.65, t);
+  const pFuture = smooth(lFuture.start - 0.15, lFuture.start + 0.65, t);
+  const pComp = smooth(lComp.start, lVerd.start + 0.25, t);
+  const pVerd = smooth(lVerd.start, lVerd.start + 0.45, t);
+
+  // Simulated Year (0 -> 20)
+  let simYear = 0;
+  if (t >= lFuture.start && t < lComp.start) {
+    simYear = lerp(0, 1, smooth(lFuture.start, lComp.start, t));
+  } else if (t >= lComp.start) {
+    simYear = lerp(1, 20, easeOutCubic(clamp((t - lComp.start) / Math.max(0.1, lVerd.start - lComp.start + 0.35), 0, 1)));
+  }
+
+  const curFutureVal = fvFuture(simYear);
+  const curContrib = simYear * 12 * 1000;
+  const curGrowth = Math.max(0, curFutureVal - curContrib);
+
+  // === 1. HEADER (y: 14.3%H .. 18.4%H) ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('THE 50 / 30 / 20 SPLIT', 30 * S, safeW, '900');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText('THE 50 / 30 / 20 SPLIT', cx, H * 0.155);
+
+  fitFont('$5,000/MO FLAT SALARY · 10% ANNUAL RETURN', 13.5 * S, safeW, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#6ee7b7';
+  ctx.fillText('$5,000/MO FLAT SALARY · 10% ANNUAL RETURN', cx, H * 0.178);
+  ctx.restore();
+
+  // === 2. PAYCHECK SOURCE NODE + GLASS CONDUITS + 3 TANKS (y: 19.6%H .. 48.8%H) ===
+  const payW = Math.min(safeW * 0.72, 340 * S);
+  const payH = 44 * S;
+  const payX = cx - payW * 0.5;
+  const payY = H * 0.198;
+  const payPulse = 0.5 + 0.5 * Math.sin(t * 5.2);
+
+  // Source node pill
+  ctx.save();
+  ctx.fillStyle = 'rgba(6, 78, 59, 0.45)';
+  ctx.strokeStyle = `rgba(52, 211, 153, ${(0.55 + 0.3 * payPulse).toFixed(3)})`;
+  ctx.lineWidth = 2 * S;
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = (12 + 8 * payPulse) * S;
+  ctx.beginPath();
+  ctx.roundRect(payX, payY, payW, payH, 22 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('PAYCHECK  $5,000 / MO', 18 * S, payW - 24 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText('PAYCHECK  $5,000 / MO', cx, payY + payH * 0.5);
+  ctx.restore();
+
+  // Tank geometry
+  const tankGap = 12 * S;
+  const tankW = (safeW - tankGap * 2) / 3;
+  const tankTop = H * 0.296;
+  const tankH = H * 0.188; // ends at H * 0.484
+
+  const tanks = [
+    {
+      label: 'NEEDS',
+      pct: '50%',
+      amt: '$2,500',
+      fillTarget: 0.78,
+      active: Math.max(0.18, pNeeds),
+      lit: pNeeds,
+      color: '#38bdf8',
+      dark: 'rgba(12, 74, 110, 0.34)',
+      glow: '#0ea5e9',
+      flowSpeed: 1.35,
+      particles: 5,
+      x: safeL,
+    },
+    {
+      label: 'WANTS',
+      pct: '30%',
+      amt: '$1,500',
+      fillTarget: 0.54,
+      active: Math.max(0.18, pWants),
+      lit: pWants,
+      color: '#f59e0b',
+      dark: 'rgba(120, 53, 15, 0.34)',
+      glow: '#f59e0b',
+      flowSpeed: 1.05,
+      particles: 4,
+      x: safeL + tankW + tankGap,
+    },
+    {
+      label: 'FUTURE',
+      pct: '20%',
+      amt: '$1,000',
+      fillTarget: lerp(0.36, 0.94, pComp),
+      active: Math.max(0.18, pFuture),
+      lit: pFuture,
+      color: '#10b981',
+      dark: 'rgba(6, 78, 59, 0.40)',
+      glow: '#10b981',
+      flowSpeed: 1.5 + pComp * 0.9,
+      particles: 5,
+      x: safeL + (tankW + tankGap) * 2,
+      isFuture: true,
+    },
+  ];
+
+  // Draw glowing glass conduits from Paycheck Node to each Tank
+  const srcY = payY + payH;
+  for (let idx = 0; idx < tanks.length; idx++) {
+    const tk = tanks[idx];
+    const startX = cx + (idx - 1) * (payW * 0.26);
+    const endX = tk.x + tankW * 0.5;
+    const endY = tankTop;
+    const midY = lerp(srcY, endY, 0.52);
+
+    const p0 = { x: startX, y: srcY };
+    const p1 = { x: startX, y: midY };
+    const p2 = { x: endX, y: midY };
+    const p3 = { x: endX, y: endY };
+
+    // Outer glass tube
+    ctx.save();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)';
+    ctx.lineWidth = 10 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+    ctx.stroke();
+
+    // Inner glowing energy stream
+    ctx.strokeStyle = tk.color;
+    ctx.globalAlpha = 0.22 + 0.65 * tk.lit;
+    ctx.lineWidth = 3.5 * S;
+    ctx.shadowColor = tk.glow;
+    ctx.shadowBlur = 10 * tk.lit * S;
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Deterministic flowing cash packets along Bezier conduit
+    if (tk.lit > 0.05) {
+      for (let k = 0; k < tk.particles; k++) {
+        const u = (t * tk.flowSpeed + k / tk.particles + idx * 0.19) % 1;
+        const pt = evalCubic(p0, p1, p2, p3, u);
+        ctx.globalAlpha = tk.lit * (0.45 + 0.55 * Math.sin(u * Math.PI));
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = tk.glow;
+        ctx.shadowBlur = 10 * S;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 4.2 * S, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Draw the 3 Glass Tanks
+  for (let idx = 0; idx < tanks.length; idx++) {
+    const tk = tanks[idx];
+    const tx = tk.x;
+    const ty = tankTop;
+    const boostGlow = tk.isFuture ? pComp : 0;
+
+    ctx.save();
+    // Tank shell
+    ctx.fillStyle = tk.dark;
+    ctx.strokeStyle = tk.lit > 0.3 ? tk.color : 'rgba(148, 163, 184, 0.25)';
+    ctx.lineWidth = (1.6 + boostGlow * 1.8) * S;
+    ctx.shadowColor = tk.glow;
+    ctx.shadowBlur = (6 * tk.lit + 18 * boostGlow) * S;
+    ctx.beginPath();
+    ctx.roundRect(tx, ty, tankW, tankH, 14 * S);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Liquid inside clipped to tank rounded rect
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(tx + 2 * S, ty + 2 * S, tankW - 4 * S, tankH - 4 * S, 12 * S);
+    ctx.clip();
+
+    const fillFrac = tk.fillTarget * clamp(tk.lit * 1.12, 0.08, 1);
+    const liqTop = ty + tankH * (1 - fillFrac);
+    const liqG = ctx.createLinearGradient(0, liqTop, 0, ty + tankH);
+    liqG.addColorStop(0, tk.color);
+    liqG.addColorStop(1, tk.isFuture ? 'rgba(6, 95, 70, 0.92)' : 'rgba(15, 23, 42, 0.85)');
+
+    ctx.fillStyle = liqG;
+    ctx.globalAlpha = 0.36 + 0.36 * tk.lit + 0.16 * boostGlow;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty + tankH);
+    const waveSteps = 22;
+    for (let s = 0; s <= waveSteps; s++) {
+      const frac = s / waveSteps;
+      const wx = tx + frac * tankW;
+      const amp = (2.6 + boostGlow * 2.2) * S;
+      const wy = liqTop + Math.sin(frac * Math.PI * 2.4 + t * (4.2 + idx * 0.7) + idx * 1.7) * amp;
+      ctx.lineTo(wx, wy);
+    }
+    ctx.lineTo(tx + tankW, ty + tankH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Rising deterministic bubbles in the Future compounding tank
+    if (tk.isFuture && tk.lit > 0.2) {
+      ctx.globalAlpha = 0.65 * tk.lit;
+      for (let b = 0; b < 8; b++) {
+        const bu = (t * (0.55 + (b % 3) * 0.18 + boostGlow * 0.5) + b * 0.17) % 1;
+        const bx = tx + (0.15 + ((b * 37) % 70) / 100) * tankW;
+        const by = lerp(ty + tankH - 6 * S, liqTop + 6 * S, bu);
+        const br = (2 + (b % 3) * 1.1) * S;
+        ctx.fillStyle = '#a7f3d0';
+        ctx.beginPath();
+        ctx.arc(bx, by, br, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore(); // end liquid clip
+
+    // Glass highlight streak on left edge
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(tx + 9 * S, ty + 14 * S);
+    ctx.lineTo(tx + 9 * S, ty + tankH - 14 * S);
+    ctx.stroke();
+
+    // Tank typography
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const tcx = tx + tankW * 0.5;
+
+    fitFont(tk.pct, 30 * S, tankW - 18 * S, '900', 'ui-monospace, monospace');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(tk.pct, tcx, ty + 34 * S);
+
+    fitFont(tk.label, 14 * S, tankW - 18 * S, '800');
+    ctx.fillStyle = tk.color;
+    ctx.fillText(tk.label, tcx, ty + 62 * S);
+
+    fitFont(tk.amt + '/mo', 16 * S, tankW - 16 * S, '800', 'ui-monospace, monospace');
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillText(tk.amt + '/mo', tcx, ty + tankH - 44 * S);
+
+    const subLbl = tk.isFuture
+      ? (pComp > 0.05 ? '10% COMPOUND' : 'AUTO-INVEST')
+      : (idx === 0 ? 'RENT · FOOD' : 'FUN · TRAVEL');
+    fitFont(subLbl, 10.5 * S, tankW - 14 * S, '700', 'ui-monospace, monospace');
+    ctx.fillStyle = tk.isFuture ? '#6ee7b7' : '#cbd5e1';
+    ctx.fillText(subLbl, tcx, ty + tankH - 20 * S);
+
+    ctx.restore();
+  }
+
+  // === 3. 20-YEAR COMPOUNDING ENGINE PANEL (y: 50.2%H .. 73.6%H) ===
+  const panelY = H * 0.502;
+  const panelH = H * 0.234; // ends at H * 0.736 <= 0.74
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 20, 16, 0.84)';
+  ctx.strokeStyle = pComp > 0.1 ? 'rgba(52, 211, 153, 0.65)' : 'rgba(16, 185, 129, 0.24)';
+  ctx.lineWidth = (1.6 + pComp * 1.2) * S;
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = 12 * pComp * S;
+  ctx.beginPath();
+  ctx.roundRect(safeL, panelY, safeW, panelH, 16 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Top HUD row inside panel
+  const hudY = panelY + 26 * S;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  fitFont('20% TANK · 20-YEAR GROWTH', 13 * S, safeW * 0.56, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('20% TANK · 20-YEAR GROWTH', safeL + 16 * S, hudY);
+
+  // Live Year badge top-right
+  const yrBadgeW = 104 * S, yrBadgeH = 24 * S;
+  const yrBadgeX = safeR - 14 * S - yrBadgeW;
+  const yrBadgeY = hudY - yrBadgeH * 0.5;
+  ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
+  ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.beginPath();
+  ctx.roundRect(yrBadgeX, yrBadgeY, yrBadgeW, yrBadgeH, 12 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  fitFont(`YEAR ${Math.round(simYear)} / 20`, 12.5 * S, yrBadgeW - 10 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText(`YEAR ${Math.round(simYear)} / 20`, yrBadgeX + yrBadgeW * 0.5, hudY);
+
+  // Big live wealth readout
+  ctx.textAlign = 'left';
+  const bigValStr = simYear < 0.05 ? '$0' : fmtExact(curFutureVal);
+  fitFont(bigValStr, 34 * S, safeW * 0.52, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText(bigValStr, safeL + 16 * S, panelY + 62 * S);
+
+  // Multiplier badge next to big readout
+  if (simYear >= 1) {
+    const mult = curContrib > 0 ? (curFutureVal / curContrib).toFixed(2) + '×' : '1.00×';
+    ctx.textAlign = 'right';
+    fitFont(`+${fmtMoney(curGrowth)} GROWTH (${mult})`, 13.5 * S, safeW * 0.44, '800', 'ui-monospace, monospace');
+    ctx.fillStyle = '#34d399';
+    ctx.fillText(`+${fmtMoney(curGrowth)} GROWTH (${mult})`, safeR - 16 * S, panelY + 62 * S);
+  }
+
+  // Mini exponential chart inside panel
+  const chL = safeL + 48 * S;
+  const chR = safeR - 16 * S;
+  const chTop = panelY + 90 * S;
+  const chBot = panelY + panelH - 54 * S;
+  const chW = chR - chL;
+  const chH = chBot - chTop;
+
+  const yrToX = (yr) => chL + (yr / 20) * chW;
+  const valToY = (v) => chBot - clamp(v / CHART_MAX_Y, 0, 1) * chH;
+
+  // Gridlines
+  const yMarks = [0, 250000, 500000, 750000];
+  ctx.font = `700 ${Math.round(11 * S)}px ui-monospace, monospace`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (const ym of yMarks) {
+    const gy = valToY(ym);
+    ctx.strokeStyle = ym === 0 ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = ym === 0 ? 1.5 * S : 1 * S;
+    ctx.setLineDash(ym === 0 ? [] : [4 * S, 4 * S]);
+    ctx.beginPath(); ctx.moveTo(chL, gy); ctx.lineTo(chR, gy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(ym === 0 ? '$0' : `$${ym / 1000}K`, chL - 6 * S, gy);
+  }
+
+  // Contributed straight line (dashed gold/white) + Compounded curve (glowing emerald)
+  if (simYear > 0.05) {
+    const steps = 70;
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const yVal = lerp(0, simYear, i / steps);
+      pts.push({ x: yrToX(yVal), y: valToY(fvFuture(yVal)) });
+    }
+
+    // Area fill under compound curve
+    const ag = ctx.createLinearGradient(0, chTop, 0, chBot);
+    ag.addColorStop(0, 'rgba(16, 185, 129, 0.34)');
+    ag.addColorStop(1, 'rgba(16, 185, 129, 0.02)');
+    ctx.fillStyle = ag;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, chBot);
+    for (const p of pts) ctx.lineTo(p.x, p.y);
+    ctx.lineTo(pts[pts.length - 1].x, chBot);
+    ctx.closePath();
+    ctx.fill();
+
+    // Dashed principal line (cash you put in)
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.78)';
+    ctx.lineWidth = 2.2 * S;
+    ctx.setLineDash([6 * S, 5 * S]);
+    ctx.beginPath();
+    ctx.moveTo(yrToX(0), valToY(0));
+    ctx.lineTo(yrToX(simYear), valToY(curContrib));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Glowing emerald compound line
+    ctx.save();
+    ctx.strokeStyle = '#10b981';
+    ctx.shadowColor = '#10b981';
+    ctx.shadowBlur = 12 * S;
+    ctx.lineWidth = 3.6 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      if (i === 0) ctx.moveTo(pts[i].x, pts[i].y);
+      else ctx.lineTo(pts[i].x, pts[i].y);
+    }
+    ctx.stroke();
+
+    // Leading orb
+    const last = pts[pts.length - 1];
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(last.x, last.y, 4.8 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2.2 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Bottom stat strip inside panel (strictly <= 73.6%H)
+  const stripY = panelY + panelH - 24 * S;
+  const cols = [
+    { lbl: 'PUT IN', val: fmtMoney(curContrib), col: '#f59e0b' },
+    { lbl: 'COMPOUND', val: '+' + fmtMoney(curGrowth), col: '#34d399' },
+    { lbl: 'SALARY', val: 'FLAT $5K', col: '#94a3b8' },
+  ];
+  const colW = (safeW - 32 * S) / 3;
+  for (let c = 0; c < cols.length; c++) {
+    const ccx = safeL + 16 * S + colW * (c + 0.5);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(`${cols[c].lbl}: ${cols[c].val}`, 12.5 * S, colW - 8 * S, '800', 'ui-monospace, monospace');
+    ctx.fillStyle = cols[c].col;
+    ctx.fillText(`${cols[c].lbl}: ${cols[c].val}`, ccx, stripY);
+  }
+
+  // Finale highlight badge on chart when verdict hits
+  if (pVerd > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = pVerd;
+    const bW = 148 * S, bH = 26 * S;
+    const bX = chR - bW - 6 * S;
+    const bY = chTop + 4 * S;
+    ctx.fillStyle = '#065f46';
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.8 * S;
+    ctx.shadowColor = '#10b981';
+    ctx.shadowBlur = 12 * S;
+    ctx.beginPath();
+    ctx.roundRect(bX, bY, bW, bH, 9 * S);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont('$759K TOTAL!', 13.5 * S, bW - 12 * S, '900', 'ui-monospace, monospace');
+    ctx.fillStyle = '#ecfdf5';
+    ctx.fillText('$759K TOTAL!', bX + bW * 0.5, bY + bH * 0.5);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+window.renderFrame = (t) => { drawFrame(t); };
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

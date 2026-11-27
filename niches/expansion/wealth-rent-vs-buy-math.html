@@ -1,0 +1,656 @@
+<!doctype html>
+<!--
+  Wealth Mechanics — Renting vs Buying a $400,000 House: The Hidden Math (60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Everyone says renting is throwing money away. Let\'s run the real math on a four hundred thousand dollar house.', caption: 'RENT VS BUY: $400K MATH' },
+  { id: 'hidden', text: 'With twenty percent down at six point five percent, your first seven years bleed over two hundred thousand in unrecoverable interest, taxes, and upkeep.', caption: '$208K UNRECOVERABLE' },
+  { id: 'equity', text: 'Meanwhile, only about thirty-one thousand dollars of your mortgage payments actually builds real home equity in those early years.', caption: 'ONLY $31K IN EQUITY' },
+  { id: 'renter', text: 'Now compare a renter who invests that eighty thousand dollar down payment plus monthly savings at eight percent in the market.', caption: 'RENT + INVEST AT 8%' },
+  { id: 'crossover', text: 'For the first seven years, the disciplined renter actually builds more net worth. Buying only breaks even around year eight.', caption: 'YEAR 8 BREAK-EVEN' },
+  { id: 'law', text: 'Buying is a ten-year wealth play, not a quick win. If you move early, renting and investing quietly wins.', caption: 'THE 8-YEAR RULE' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 24;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lHid = getLine('hidden', 1);
+  const lEq = getLine('equity', 2);
+  const lRent = getLine('renter', 3);
+  const lCross = getLine('crossover', 4);
+  const lLaw = getLine('law', 5);
+
+  EVENTS = [
+    { t: lHid.start + 0.18, type: 'break', pitchIndex: 3, intensity: 0.78 },
+    { t: lEq.start + 0.20, type: 'bounce', pitchIndex: 5, intensity: 0.65 },
+    { t: lRent.start + 0.18, type: 'bounce', pitchIndex: 7, intensity: 0.72 },
+    { t: lCross.start + 0.20, type: 'win', pitchIndex: 10, intensity: 0.92 },
+    { t: lLaw.start + 0.22, type: 'win', pitchIndex: 12, intensity: 0.88 },
+  ];
+};
+
+// === REAL MORTGAGE & RENT-VS-BUY FINANCIAL MODEL ===
+const HOME_PRICE = 400000;
+const DOWN_PMT = 80000;
+const LOAN_AMT = 320000;
+const MORT_R = 0.065 / 12;
+const MORT_N = 360;
+const POW_360 = Math.pow(1 + MORT_R, MORT_N);
+const MONTHLY_PI = LOAN_AMT * (MORT_R * POW_360) / (POW_360 - 1); // $2,022.62
+const MONTHLY_TAX_UPKEEP = 900; // $400 tax + $500 maint/ins
+const MONTHLY_OWN = MONTHLY_PI + MONTHLY_TAX_UPKEEP; // $2,922.62
+const HOME_APPREC = 0.039; // 3.9%/yr appreciation
+const SELL_COST = 0.06; // 6% selling friction
+const RENT_START = 2050;
+const RENT_GROWTH = 0.035;
+const MKT_R = 0.08 / 12;
+
+function loanBalanceAtMonth(m) {
+  const pm = Math.pow(1 + MORT_R, clamp(m, 0, MORT_N));
+  return LOAN_AMT * (POW_360 - pm) / (POW_360 - 1);
+}
+
+// Precompute monthly table for 15 years (180 months) for instant deterministic O(1) lookup
+const MAX_YR = 15;
+const MONTHS = MAX_YR * 12;
+const BUY_NW = new Float64Array(MONTHS + 1);
+const RENT_NW = new Float64Array(MONTHS + 1);
+const CUM_INT = new Float64Array(MONTHS + 1);
+const CUM_TAX = new Float64Array(MONTHS + 1);
+const CUM_PRIN = new Float64Array(MONTHS + 1);
+
+(() => {
+  let rPort = DOWN_PMT;
+  let cInt = 0, cTax = 0, cPrin = 0;
+  let bal = LOAN_AMT;
+
+  BUY_NW[0] = HOME_PRICE * (1 - SELL_COST) - LOAN_AMT; // $56,000 liquid equity after 6% sell cost
+  RENT_NW[0] = DOWN_PMT; // $80,000 invested
+
+  for (let m = 1; m <= MONTHS; m++) {
+    const interest = bal * MORT_R;
+    const principal = MONTHLY_PI - interest;
+    bal = Math.max(0, bal - principal);
+    cInt += interest;
+    cTax += MONTHLY_TAX_UPKEEP;
+    cPrin += principal;
+
+    const yr = m / 12;
+    const homeVal = HOME_PRICE * Math.pow(1 + HOME_APPREC, yr);
+    BUY_NW[m] = homeVal * (1 - SELL_COST) - bal;
+
+    const curRent = RENT_START * Math.pow(1 + RENT_GROWTH, yr);
+    const diff = MONTHLY_OWN - curRent; // positive = renter invests savings; negative = renter draws/saves less
+    rPort = rPort * (1 + MKT_R) + diff;
+    RENT_NW[m] = rPort;
+
+    CUM_INT[m] = cInt;
+    CUM_TAX[m] = cTax;
+    CUM_PRIN[m] = cPrin;
+  }
+})();
+
+// Find exact crossover year deterministically
+let CROSSOVER_YR = 8.0;
+for (let m = 1; m <= MONTHS; m++) {
+  if (BUY_NW[m] >= RENT_NW[m] && BUY_NW[m - 1] < RENT_NW[m - 1]) {
+    const frac = (RENT_NW[m - 1] - BUY_NW[m - 1]) / Math.max(1e-5, (BUY_NW[m] - BUY_NW[m - 1]) - (RENT_NW[m] - RENT_NW[m - 1]));
+    CROSSOVER_YR = (m - 1 + clamp(frac, 0, 1)) / 12;
+    break;
+  }
+}
+
+function sampleArr(arr, yr) {
+  const m = clamp(yr * 12, 0, MONTHS);
+  const i0 = Math.floor(m);
+  const i1 = Math.min(MONTHS, i0 + 1);
+  return lerp(arr[i0], arr[i1], m - i0);
+}
+
+function fmtK(v) {
+  const n = Math.max(0, Math.round(v));
+  if (n >= 1000000) return '$' + (n / 1000000).toFixed(2) + 'M';
+  if (n >= 10000) return '$' + Math.round(n / 1000) + 'K';
+  return '$' + n.toLocaleString('en-US');
+}
+
+function fmtExact(v) {
+  return '$' + Math.max(0, Math.round(v)).toLocaleString('en-US');
+}
+
+function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function computeSimYear(t) {
+  const lHook = getLine('hook', 0);
+  const lHid = getLine('hidden', 1);
+  const lEq = getLine('equity', 2);
+  const lRent = getLine('renter', 3);
+  const lCross = getLine('crossover', 4);
+  const lLaw = getLine('law', 5);
+
+  if (t < lHid.start) return lerp(0, 1.5, smooth(lHook.start, lHid.start, t));
+  if (t < lEq.start) return lerp(1.5, 5.2, smooth(lHid.start, lEq.start, t));
+  if (t < lRent.start) return lerp(5.2, 7.0, smooth(lEq.start, lRent.start, t));
+  if (t < lCross.start) return lerp(7.0, CROSSOVER_YR + 0.5, smooth(lRent.start, lCross.start, t));
+  if (t < lLaw.start) return lerp(CROSSOVER_YR + 0.5, 13.5, smooth(lCross.start, lLaw.start, t));
+  return lerp(13.5, 15.0, smooth(lLaw.start, lLaw.start + 1.4, t));
+}
+
+// Draw architectural blueprint of $400K house with live equity fill vs unrecoverable cost glow
+function drawHouseBlueprint(cx, baseY, hw, hh, equityFrac, pulse, S) {
+  ctx.save();
+  const left = cx - hw * 0.5;
+  const right = cx + hw * 0.5;
+  const wallTop = baseY - hh * 0.60;
+  const roofPeak = baseY - hh;
+
+  // Blueprint micro-grid behind house
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.10)';
+  ctx.lineWidth = 0.9 * S;
+  const step = 12 * S;
+  for (let gx = left - 12 * S; gx <= right + 12 * S; gx += step) {
+    ctx.beginPath(); ctx.moveTo(gx, roofPeak - 6 * S); ctx.lineTo(gx, baseY + 6 * S); ctx.stroke();
+  }
+  for (let gy = roofPeak - 6 * S; gy <= baseY + 6 * S; gy += step) {
+    ctx.beginPath(); ctx.moveTo(left - 12 * S, gy); ctx.lineTo(right + 12 * S, gy); ctx.stroke();
+  }
+
+  // House silhouette clip path
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(left, baseY);
+  ctx.lineTo(left, wallTop);
+  ctx.lineTo(cx, roofPeak);
+  ctx.lineTo(right, wallTop);
+  ctx.lineTo(right, baseY);
+  ctx.closePath();
+  ctx.clip();
+
+  // Crimson unrecoverable wash in upper portion
+  const redGrad = ctx.createLinearGradient(0, roofPeak, 0, baseY);
+  redGrad.addColorStop(0, 'rgba(239, 68, 68, 0.28)');
+  redGrad.addColorStop(1, 'rgba(239, 68, 68, 0.06)');
+  ctx.fillStyle = redGrad;
+  ctx.fillRect(left, roofPeak, hw, hh);
+
+  // Emerald equity fill rising from foundation
+  const eqH = hh * clamp(equityFrac, 0.05, 0.92);
+  const eqY = baseY - eqH;
+  const eqGrad = ctx.createLinearGradient(0, eqY, 0, baseY);
+  eqGrad.addColorStop(0, 'rgba(16, 185, 129, 0.62)');
+  eqGrad.addColorStop(1, 'rgba(6, 95, 70, 0.78)');
+  ctx.fillStyle = eqGrad;
+  ctx.fillRect(left, eqY, hw, eqH);
+
+  // Glowing equity waterline
+  ctx.strokeStyle = '#34d399';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.moveTo(left, eqY); ctx.lineTo(right, eqY); ctx.stroke();
+  ctx.restore();
+
+  // Outer blueprint walls & pitched roof
+  ctx.strokeStyle = '#34d399';
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = (8 + pulse * 6) * S;
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.moveTo(left, baseY);
+  ctx.lineTo(left, wallTop);
+  ctx.lineTo(cx, roofPeak);
+  ctx.lineTo(right, wallTop);
+  ctx.lineTo(right, baseY);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Architectural roof eaves & chimney
+  ctx.strokeStyle = 'rgba(110, 231, 183, 0.75)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.moveTo(left - 8 * S, wallTop + 5 * S);
+  ctx.lineTo(cx, roofPeak - 3 * S);
+  ctx.lineTo(right + 8 * S, wallTop + 5 * S);
+  ctx.stroke();
+
+  // Door & windows
+  const doorW = hw * 0.18, doorH = hh * 0.28;
+  ctx.strokeStyle = 'rgba(236, 253, 245, 0.65)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.strokeRect(cx - doorW * 0.5, baseY - doorH, doorW, doorH);
+
+  const winS = hw * 0.17;
+  ctx.strokeRect(left + hw * 0.13, wallTop + hh * 0.12, winS, winS);
+  ctx.strokeRect(right - hw * 0.13 - winS, wallTop + hh * 0.12, winS, winS);
+
+  // Dimension ticks
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.lineWidth = 1 * S;
+  ctx.beginPath();
+  ctx.moveTo(left, baseY + 8 * S); ctx.lineTo(right, baseY + 8 * S);
+  ctx.moveTo(left, baseY + 4 * S); ctx.lineTo(left, baseY + 11 * S);
+  ctx.moveTo(right, baseY + 4 * S); ctx.lineTo(right, baseY + 11 * S);
+  ctx.stroke();
+
+  ctx.font = `800 ${Math.round(10.5 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('$400K · 6.5% APR', cx, baseY + 11 * S);
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  // Safe zone: x in [6.5%W, 84%W], y in [14%H, 74%H]
+  const safeL = W * 0.065;
+  const safeR = W * 0.84;
+  const safeW = safeR - safeL;
+  const cx = (safeL + safeR) * 0.5;
+
+  // Deep obsidian #030a08 background
+  ctx.fillStyle = '#030a08';
+  ctx.fillRect(0, 0, W, H);
+
+  // Ambient emerald & gold radial glows
+  const g1 = ctx.createRadialGradient(safeL + safeW * 0.26, H * 0.32, 12 * S, safeL + safeW * 0.26, H * 0.36, W * 0.44);
+  g1.addColorStop(0, 'rgba(16, 185, 129, 0.11)');
+  g1.addColorStop(1, 'rgba(3, 10, 8, 0)');
+  ctx.fillStyle = g1;
+  ctx.fillRect(0, 0, W, H);
+
+  const g2 = ctx.createRadialGradient(safeL + safeW * 0.76, H * 0.32, 12 * S, safeL + safeW * 0.76, H * 0.36, W * 0.44);
+  g2.addColorStop(0, 'rgba(245, 158, 11, 0.10)');
+  g2.addColorStop(1, 'rgba(3, 10, 8, 0)');
+  ctx.fillStyle = g2;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle blueprint grid
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.042)';
+  ctx.lineWidth = 1 * S;
+  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const lRent = getLine('renter', 3);
+  const lCross = getLine('crossover', 4);
+  const lLaw = getLine('law', 5);
+
+  const simYr = computeSimYear(t);
+  const costYr = clamp(simYr, 0, 7); // 7-year cost breakdown window
+  const buyNW = sampleArr(BUY_NW, simYr);
+  const rentNW = sampleArr(RENT_NW, simYr);
+  const cInt = sampleArr(CUM_INT, costYr);
+  const cTax = sampleArr(CUM_TAX, costYr);
+  const cPrin = sampleArr(CUM_PRIN, costYr);
+  const unrec = cInt + cTax;
+
+  const renterFocus = smooth(lRent.start - 0.15, lRent.start + 0.35, t);
+  const crossReveal = smooth(lCross.start, lCross.start + 0.5, t);
+  const lawReveal = smooth(lLaw.start, lLaw.start + 0.45, t);
+  const pulse = 0.5 + 0.5 * Math.sin(t * 5.2);
+
+  // === 1. HEADER TITLE (y: 0.145H .. 0.186H) ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('RENT vs BUY: $400K HOUSE', 29 * S, safeW, '900');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText('RENT vs BUY: $400K HOUSE', cx, H * 0.155);
+
+  fitFont('6.5% MORTGAGE · 20% DOWN · 15-YEAR MATH', 13 * S, safeW, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#6ee7b7';
+  ctx.fillText('6.5% MORTGAGE · 20% DOWN · 15-YEAR MATH', cx, H * 0.178);
+  ctx.restore();
+
+  // === 2. UPPER SPLIT CARDS (y: 0.196H .. 0.452H) ===
+  const gap = 11 * S;
+  const cardW = (safeW - gap) * 0.5;
+  const cardY = H * 0.196;
+  const cardH = H * 0.256;
+
+  // --- LEFT CARD: $400K HOUSE BLUEPRINT + FIRST 7-YEAR COST STACK ---
+  const leftX = safeL;
+  ctx.save();
+  ctx.fillStyle = 'rgba(6, 26, 20, 0.78)';
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.48)';
+  ctx.lineWidth = 1.7 * S;
+  ctx.beginPath(); ctx.roundRect(leftX, cardY, cardW, cardH, 15 * S); ctx.fill(); ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  fitFont('BUYER · FIRST 7 YRS', 13 * S, cardW - 16 * S, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#34d399';
+  ctx.fillText('BUYER · FIRST 7 YRS', leftX + cardW * 0.5, cardY + 10 * S);
+
+  // Blueprint house graphic
+  const eqShare = (cPrin + 1) / (unrec + cPrin + 1);
+  drawHouseBlueprint(leftX + cardW * 0.5, cardY + 132 * S, 118 * S, 86 * S, clamp(eqShare * 1.4, 0.08, 0.55), pulse, S);
+
+  // Stacked Cost Breakdown Bar (Interest + Tax/Upkeep vs Equity)
+  const sbX = leftX + 12 * S;
+  const sbW = cardW - 24 * S;
+  const sbY = cardY + 172 * S;
+  const sbH = 18 * S;
+  const total7 = Math.max(1, cInt + cTax + cPrin);
+  const wInt = sbW * (cInt / total7);
+  const wTax = sbW * (cTax / total7);
+  const wPrin = Math.max(4 * S, sbW - wInt - wTax);
+
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.12)';
+  ctx.beginPath(); ctx.roundRect(sbX, sbY, sbW, sbH, 5 * S); ctx.fill();
+
+  if (costYr > 0.05) {
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.roundRect(sbX, sbY, wInt, sbH, [5 * S, 0, 0, 5 * S]); ctx.fill();
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(sbX + wInt, sbY, wTax, sbH);
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath(); ctx.roundRect(sbX + wInt + wTax, sbY, wPrin, sbH, [0, 5 * S, 5 * S, 0]); ctx.fill();
+  }
+
+  // Cost Breakdown Legend Rows
+  const row1Y = sbY + 32 * S;
+  const row2Y = sbY + 54 * S;
+  const row3Y = sbY + 76 * S;
+  const row4Y = sbY + 102 * S;
+
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.font = `700 ${Math.round(11.5 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#fca5a5';
+  ctx.fillText('■ INTEREST', sbX, row1Y);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#fecaca';
+  ctx.fillText(fmtK(cInt), sbX + sbW, row1Y);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#fcd34d';
+  ctx.fillText('■ TAX+UPKEEP', sbX, row2Y);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#fef3c7';
+  ctx.fillText(fmtK(cTax), sbX + sbW, row2Y);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#6ee7b7';
+  ctx.fillText('■ EQUITY', sbX, row3Y);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText(fmtK(cPrin), sbX + sbW, row3Y);
+
+  // Net worth live footer
+  ctx.textAlign = 'center';
+  fitFont(`NET WORTH: ${fmtK(buyNW)}`, 14.5 * S, cardW - 18 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#34d399';
+  ctx.fillText(`NET WORTH: ${fmtK(buyNW)}`, leftX + cardW * 0.5, row4Y);
+  ctx.restore();
+
+  // --- RIGHT CARD: RENTER + INVESTOR ($80K DOWN + SAVINGS AT 8%) ---
+  const rightX = safeL + cardW + gap;
+  ctx.save();
+  ctx.globalAlpha = lerp(0.55, 1.0, renterFocus);
+  ctx.fillStyle = 'rgba(38, 24, 6, 0.72)';
+  ctx.strokeStyle = renterFocus > 0.4 ? 'rgba(245, 158, 11, 0.72)' : 'rgba(245, 158, 11, 0.30)';
+  ctx.lineWidth = 1.7 * S;
+  ctx.shadowColor = '#f59e0b';
+  ctx.shadowBlur = 10 * renterFocus * S;
+  ctx.beginPath(); ctx.roundRect(rightX, cardY, cardW, cardH, 15 * S); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  fitFont('RENT + INVEST (8%)', 13 * S, cardW - 16 * S, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText('RENT + INVEST (8%)', rightX + cardW * 0.5, cardY + 10 * S);
+
+  // Compounding Gold Portfolio Columns (Y0, Y3, Y7, Y10, Y15)
+  const bL = rightX + 16 * S;
+  const bW = cardW - 32 * S;
+  const bTop = cardY + 46 * S;
+  const bBot = cardY + 150 * S;
+  const bH = bBot - bTop;
+  const milYrs = [0, 3, 7, 10, 15];
+  const colGap = 8 * S;
+  const colW = (bW - colGap * (milYrs.length - 1)) / milYrs.length;
+
+  for (let i = 0; i < milYrs.length; i++) {
+    const my = milYrs[i];
+    const active = clamp((simYr - my + 1.5) / 1.5, 0.15, 1);
+    const val = sampleArr(RENT_NW, Math.min(simYr, my));
+    const h = Math.max(8 * S, clamp(val / 460000, 0, 1) * bH);
+    const bx = bL + i * (colW + colGap);
+    const by = bBot - h;
+
+    const cg = ctx.createLinearGradient(0, by, 0, bBot);
+    cg.addColorStop(0, '#fbbf24');
+    cg.addColorStop(1, '#b45309');
+    ctx.fillStyle = cg;
+    ctx.globalAlpha = lerp(0.55, 1.0, renterFocus) * active;
+    ctx.beginPath(); ctx.roundRect(bx, by, colW, h, [5 * S, 5 * S, 2 * S, 2 * S]); ctx.fill();
+
+    ctx.fillStyle = '#fde68a';
+    ctx.font = `700 ${Math.round(10 * S)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`Y${my}`, bx + colW * 0.5, bBot + 4 * S);
+  }
+  ctx.globalAlpha = lerp(0.55, 1.0, renterFocus);
+
+  // Strategy bullets inside right card
+  const rbX = rightX + 12 * S;
+  const rbW = cardW - 24 * S;
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${Math.round(11.5 * S)}px ui-monospace, monospace`;
+
+  ctx.textAlign = 'left'; ctx.fillStyle = '#fde68a'; ctx.fillText('DOWN PMT', rbX, sbY + 10 * S);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#fef3c7'; ctx.fillText('$80K @ 8%', rbX + rbW, sbY + 10 * S);
+
+  ctx.textAlign = 'left'; ctx.fillStyle = '#fde68a'; ctx.fillText('YR 1 SAVINGS', rbX, sbY + 34 * S);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#fef3c7'; ctx.fillText('+$873/MO', rbX + rbW, sbY + 34 * S);
+
+  ctx.textAlign = 'left'; ctx.fillStyle = '#fde68a'; ctx.fillText('SELL FRICTION', rbX, sbY + 58 * S);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#34d399'; ctx.fillText('$0 (LIQUID)', rbX + rbW, sbY + 58 * S);
+
+  // Leader status pill
+  const rentLeads = rentNW > buyNW;
+  ctx.textAlign = 'center';
+  fitFont(`NET WORTH: ${fmtK(rentNW)}`, 14.5 * S, cardW - 18 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText(`NET WORTH: ${fmtK(rentNW)}`, rightX + cardW * 0.5, row4Y);
+  ctx.restore();
+
+  // === 3. LOWER FULL-WIDTH 15-YEAR CROSSOVER CHART (y: 0.466H .. 0.736H) ===
+  const chartBoxY = H * 0.466;
+  const chartBoxH = H * 0.270; // ends at 0.736H <= 0.74H
+  const cL = safeL + 48 * S;
+  const cR = safeR - 12 * S;
+  const cTop = chartBoxY + 38 * S;
+  const cBot = chartBoxY + chartBoxH - 46 * S;
+  const cW = cR - cL;
+  const cH = cBot - cTop;
+
+  const yrToX = (yr) => cL + (clamp(yr, 0, MAX_YR) / MAX_YR) * cW;
+  const valToY = (v) => cBot - clamp(v / 520000, 0, 1) * cH;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 20, 16, 0.82)';
+  ctx.strokeStyle = lawReveal > 0.3 ? 'rgba(52, 211, 153, 0.58)' : 'rgba(16, 185, 129, 0.24)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath(); ctx.roundRect(safeL, chartBoxY, safeW, chartBoxH, 16 * S); ctx.fill(); ctx.stroke();
+
+  // Chart header + live Year Pill
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  fitFont('15-YEAR NET WORTH CROSSOVER', 13 * S, safeW - 120 * S, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText('15-YEAR NET WORTH CROSSOVER', safeL + 14 * S, chartBoxY + 20 * S);
+
+  const pillW = 86 * S, pillH = 22 * S;
+  ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
+  ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.beginPath(); ctx.roundRect(safeR - 14 * S - pillW, chartBoxY + 9 * S, pillW, pillH, 11 * S); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ecfdf5';
+  ctx.font = `900 ${Math.round(12 * S)}px ui-monospace, monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`YEAR ${simYr.toFixed(1)}`, safeR - 14 * S - pillW * 0.5, chartBoxY + 20 * S);
+
+  // Shaded zones: RENT WINS (0..CROSSOVER) vs BUY WINS (CROSSOVER..15)
+  const xCross = yrToX(CROSSOVER_YR);
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.06)';
+  ctx.fillRect(cL, cTop, xCross - cL, cH);
+  ctx.fillStyle = 'rgba(16, 185, 129, 0.06)';
+  ctx.fillRect(xCross, cTop, cR - xCross, cH);
+
+  // Horizontal Y gridlines
+  const yTicks = [0, 150000, 300000, 450000];
+  ctx.font = `700 ${Math.round(11 * S)}px ui-monospace, monospace`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (const yt of yTicks) {
+    const gy = valToY(yt);
+    ctx.strokeStyle = yt === 0 ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = yt === 0 ? 1.5 * S : 1 * S;
+    ctx.setLineDash(yt === 0 ? [] : [4 * S, 4 * S]);
+    ctx.beginPath(); ctx.moveTo(cL, gy); ctx.lineTo(cR, gy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(yt === 0 ? '$0' : `$${yt / 1000}K`, cL - 6 * S, gy);
+  }
+
+  // X year ticks
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (const yr of [0, 3, 6, 8, 12, 15]) {
+    ctx.fillStyle = yr === 8 ? '#fbbf24' : '#94a3b8';
+    ctx.fillText(`Y${yr}`, yrToX(yr), cBot + 6 * S);
+  }
+
+  // Vertical Break-Even Crossover line
+  ctx.strokeStyle = `rgba(250, 204, 21, ${(0.25 + crossReveal * 0.55).toFixed(3)})`;
+  ctx.lineWidth = 1.6 * S;
+  ctx.setLineDash([5 * S, 4 * S]);
+  ctx.beginPath(); ctx.moveTo(xCross, cTop); ctx.lineTo(xCross, cBot); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw Rent + Invest Curve (Gold)
+  function drawCurve(arr, strokeCol, glowCol) {
+    if (simYr < 0.05) return;
+    const steps = 90;
+    ctx.save();
+    ctx.strokeStyle = strokeCol;
+    ctx.shadowColor = glowCol;
+    ctx.shadowBlur = 12 * S;
+    ctx.lineWidth = 3.5 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const yr = (i / steps) * simYr;
+      const px = yrToX(yr);
+      const py = valToY(sampleArr(arr, yr));
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    const ex = yrToX(simYr);
+    const ey = valToY(sampleArr(arr, simYr));
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(ex, ey, 4.8 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = 2.2 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawCurve(RENT_NW, '#f59e0b', '#f59e0b');
+  drawCurve(BUY_NW, '#10b981', '#10b981');
+
+  // Break-Even Crossover Pulsing Beacon + Badge
+  if (simYr >= CROSSOVER_YR - 0.3) {
+    const cAlpha = clamp((simYr - (CROSSOVER_YR - 0.3)) / 0.6, 0, 1);
+    const yCross = valToY(sampleArr(BUY_NW, CROSSOVER_YR));
+    ctx.save();
+    ctx.globalAlpha = cAlpha;
+    const rRing = (10 + 5 * Math.sin(t * 6)) * S;
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath(); ctx.arc(xCross, yCross, rRing, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath(); ctx.arc(xCross, yCross, 4.5 * S, 0, Math.PI * 2); ctx.fill();
+
+    // Callout pill above crossover
+    const bw = 136 * S, bh = 25 * S;
+    const bx = clamp(xCross - bw * 0.5, cL + 4 * S, cR - bw - 4 * S);
+    const by = cTop + 4 * S;
+    ctx.fillStyle = 'rgba(66, 32, 6, 0.94)';
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 8 * S); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fefce8';
+    ctx.font = `900 ${Math.round(11.5 * S)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`YR ${CROSSOVER_YR.toFixed(1)} BREAK-EVEN`, bx + bw * 0.5, by + bh * 0.5);
+    ctx.restore();
+  }
+
+  // Bottom summary strip inside chart box (y ~ 0.722H <= 0.74H)
+  const footY = chartBoxY + chartBoxH - 16 * S;
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${Math.round(12 * S)}px ui-monospace, monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText(`● RENT+INV: ${fmtK(rentNW)}`, safeL + 14 * S, footY);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#34d399';
+  ctx.fillText(`● BUY: ${fmtK(buyNW)}`, safeR - 14 * S, footY);
+  ctx.restore();
+}
+
+window.renderFrame = drawFrame;
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>
