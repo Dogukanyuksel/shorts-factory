@@ -21,6 +21,11 @@ import {
   uploadReelToInstagram,
 } from "./instagram.js";
 import { hoursSinceLastPublish, resolveMetaToken, resolveMinGapHours } from "./devops.js";
+import {
+  buildInstagramSisterTagLine,
+  buildInstagramYouTubeCallout,
+  buildYouTubeNetworkFooter,
+} from "./network-links.js";
 import { assertUploadChannel, ChannelMismatchError } from "./channel-guard.js";
 import {
   buildFunnelMetadata,
@@ -316,7 +321,7 @@ async function main() {
           mp4Path,
           {
             title: derivedItem.title,
-            description: funnel.description,
+            description: `${funnel.description}\n\n${buildYouTubeNetworkFooter(channel)}`,
             tags: derivedItem.tags,
             categoryId: parentSpec.categoryId,
             privacyStatus,
@@ -388,13 +393,13 @@ async function main() {
       const metaToken = resolveMetaToken(channel);
       if (igUserId && metaToken) {
         try {
-          const ytHandle = channel === "explainer" ? "@clearmechanicsshorts" : "@kineticlabshorts";
-          const igFunnelLine = `\n\n🎬 Full 4-min deep dive on YouTube → ${ytHandle} (Link in Bio!)`;
-          const igCaption = buildInstagramCaption(derivedItem.title, `${funnel.description}${igFunnelLine}`);
+          const igCallout = buildInstagramYouTubeCallout(channel, true);
+          const igSisters = buildInstagramSisterTagLine(channel);
+          const igCaption = buildInstagramCaption(derivedItem.title, `${igCallout}\n${igSisters}\n\n${funnel.description}`);
           const igRes = await uploadReelToInstagram(mp4Path, igCaption, { igUserId, accessToken: metaToken });
           record.instagramMediaId = igRes.mediaId;
           await saveState(state);
-          const igComment = `${funnel.pinnedComment}\n\n🎬 Watch full video on YouTube → Search ${ytHandle} (Link in Bio!)`;
+          const igComment = `${funnel.pinnedComment}\n\n${igCallout}\n${igSisters}`;
           await postInstagramComment(igRes.mediaId, igComment, { igUserId, accessToken: metaToken }).catch(() => {});
         } catch (igErr) {
           console.warn("[auto-publish] Vitrin Short IG uyarısı:", igErr);
@@ -544,7 +549,7 @@ async function main() {
       mp4Path,
       {
         title: job.title,
-        description: kit.enrichedDescription,
+        description: `${kit.enrichedDescription}\n\n${buildYouTubeNetworkFooter(channel)}`,
         tags: job.tags,
         categoryId: job.categoryId,
         privacyStatus,
@@ -597,15 +602,16 @@ async function main() {
   if (igUserId && metaToken) {
     try {
       console.log("[auto-publish] Instagram Reels'e yükleniyor...");
-      const ytHandle = channel === "explainer" ? "@clearmechanicsshorts" : "@kineticlabshorts";
-      const igAnchor = `🎬 Full 4-min extreme breakdown on YouTube → ${ytHandle} (Link in Bio!)\n\n`;
+      const igCallout = buildInstagramYouTubeCallout(channel, true);
+      const igSisters = buildInstagramSisterTagLine(channel);
+      const igAnchor = `${igCallout}\n${igSisters}\n\n`;
       const igCaption = buildInstagramCaption(job.title, `${igAnchor}${kit.enrichedDescription}`);
       const igCreds = { igUserId, accessToken: metaToken };
       const igRes = await uploadReelToInstagram(mp4Path, igCaption, igCreds);
       instagramMediaId = igRes.mediaId;
       console.log(`✅ [auto-publish] INSTAGRAM REELS YAYINLANDI: mediaId=${igRes.mediaId}`);
       try {
-        const igComment = `🔥 Want to see what breaks when we push this 10x further? Full 4-min video is LIVE on YouTube → ${ytHandle} (Link in Bio!)\n\n${kit.commentPrompt}`;
+        const igComment = `🔥 Want to see what breaks when we push this 10x further? ${igCallout}\n${igSisters}\n\n${kit.commentPrompt}`;
         const commentId = await postInstagramComment(igRes.mediaId, igComment, igCreds);
         console.log(`💬 [auto-publish] INSTAGRAM A/B + YOUTUBE ÇAPA YORUMU ATILDI: ${commentId}`);
       } catch (cErr) {

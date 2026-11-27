@@ -13,6 +13,11 @@ import {
   type ExpansionJob,
 } from "./catalog-expansion.js";
 import { buildInstagramCaption, postInstagramComment, uploadReelToInstagram } from "./instagram.js";
+import {
+  buildInstagramSisterTagLine,
+  buildInstagramYouTubeCallout,
+  buildYouTubeNetworkFooter,
+} from "./network-links.js";
 import { runVideoQc } from "./qc.js";
 import { synthesizeVoice } from "./voice.js";
 import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
@@ -300,7 +305,7 @@ async function main() {
     return;
   }
 
-  const ytDescription = `${job.description}\n\n📲 Daily 60fps Reels on Instagram: https://instagram.com/${meta.igHandle}`;
+  const ytDescription = `${job.description}\n\n${buildYouTubeNetworkFooter(channel)}`;
   const uploaded = await uploadVideoToYouTube(
     mp4Path,
     { title: job.title, description: ytDescription, tags: job.tags, categoryId: job.categoryId, privacyStatus: privacy },
@@ -335,11 +340,13 @@ async function main() {
   const igToken = (channel === "wealth" ? process.env.META_ACCESS_TOKEN_WEALTH : process.env.META_ACCESS_TOKEN_BIO)?.trim() || "";
   if (igUserId && igToken) {
     try {
-      const cap = buildInstagramCaption(job.title, `🎬 Full breakdowns on YouTube → ${meta.ytHandle} (Link in Bio!)\n\n${job.description}`);
+      const igCallout = buildInstagramYouTubeCallout(channel, false);
+      const igSisters = buildInstagramSisterTagLine(channel);
+      const cap = buildInstagramCaption(job.title, `${igCallout}\n${igSisters}\n\n${job.description}`);
       const igRes = await uploadReelToInstagram(mp4Path, cap, { igUserId, accessToken: igToken });
       record.instagramMediaId = igRes.mediaId;
       await writeFile(STATE_PATH, `${JSON.stringify({ published }, null, 2)}\n`, "utf8");
-      await postInstagramComment(igRes.mediaId, `🔔 Full breakdowns on YouTube → ${meta.ytHandle} (Link in Bio!)`, { igUserId, accessToken: igToken }).catch(() => {});
+      await postInstagramComment(igRes.mediaId, `${igCallout}\n${igSisters}`, { igUserId, accessToken: igToken }).catch(() => {});
     } catch (e) {
       console.warn("[expansion] Instagram Reels uyarısı:", e);
     }
