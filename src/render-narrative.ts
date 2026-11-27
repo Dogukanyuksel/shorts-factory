@@ -122,8 +122,9 @@ export async function renderNarrativeLongformVideo(
   });
 
   try {
-    console.log(`\n[narrative-longform] ${spec.title} (${spec.beats.length} beat, 4 perde) seslendiriliyor...`);
-    const { timed, voiceMono, totalSec } = await synthesizeTimedBeats(spec.beats, tmpDir, 0.35, 0.65);
+    console.log(`\n[narrative-longform] ${spec.title} (${spec.beats.length} beat, 4 perde, sinematik nefes aralıkları) seslendiriliyor...`);
+    // İzleyiciyi aralıksız sesle boğmadan, her beat arasında 2.6 sn ve perde geçişlerinde 4.2 sn görsel+müzik nefes payı
+    const { timed, voiceMono, totalSec } = await synthesizeTimedBeats(spec.beats, tmpDir, 2.6, 4.2);
 
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     await page.setContent(await readFile(scenePath, "utf8"));
@@ -193,16 +194,19 @@ export async function renderNarrativeLongformVideo(
 
     const totalSamples = voiceMono.length;
     const mixed = new Int16Array(Math.max(totalSamples, sfxStereo.length / 2) * 2);
-    const sfxGain = spec.channel === "physics" ? 0.55 : 0.36;
+    const sfxGain = spec.channel === "physics" ? 0.58 : 0.38;
+    // Yumuşak envelope takipçisi: anlatım durduğunda müzik sinematik olarak yükselir, konuşma başlayınca nazikçe kısılır
+    let smoothDuck = 0.28;
     for (let i = 0; i < totalSamples; i++) {
       const v = voiceMono[i] / 32768;
       const sl = (sfxStereo[i * 2] ?? 0) / 32768;
       const sr = (sfxStereo[i * 2 + 1] ?? 0) / 32768;
       const ml = (bgmStereo[i * 2] ?? 0) / 32768;
       const mr = (bgmStereo[i * 2 + 1] ?? 0) / 32768;
-      const duck = Math.abs(v) > 0.015 ? 0.13 : 0.24;
-      mixed[i * 2] = Math.round(Math.tanh(v * 0.94 + sl * sfxGain + ml * duck) * 32000);
-      mixed[i * 2 + 1] = Math.round(Math.tanh(v * 0.94 + sr * sfxGain + mr * duck) * 32000);
+      const targetDuck = Math.abs(v) > 0.014 ? 0.13 : 0.34;
+      smoothDuck += (targetDuck - smoothDuck) * 0.0008;
+      mixed[i * 2] = Math.round(Math.tanh(v * 0.94 + sl * sfxGain + ml * smoothDuck) * 32000);
+      mixed[i * 2 + 1] = Math.round(Math.tanh(v * 0.94 + sr * sfxGain + mr * smoothDuck) * 32000);
     }
     applyIntroSubBass(mixed, SAMPLE_RATE, 0.28);
     const mixPcm = join(tmpDir, "mix.pcm");

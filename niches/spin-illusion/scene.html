@@ -211,7 +211,7 @@ function drawFrame(t) {
   ctx.font = `700 ${Math.round(26 * S)}px -apple-system, sans-serif`;
   ctx.fillStyle = 'rgba(255,255,255,0.72)';
   const sub = t < DUR * 0.5 ? 'Stare at the center. Blink. Try again.' : 'Did it flip? Most people need 3 tries.';
-  ctx.fillText(sub, W * 0.5, H * 0.87);
+  ctx.fillText(sub, W * 0.5, H * 0.695);
   ctx.restore();
 }
 

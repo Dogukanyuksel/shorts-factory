@@ -1,0 +1,37 @@
+name: Autonomous Channel Director (12h Quality & Growth Audit)
+
+on:
+  schedule:
+    # Günde 2 kez (UTC 08:20 ve 20:20) otomatik kanal sağlığı, huni kuyruğu ve viral patlama denetimi
+    - cron: "20 8,20 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  director-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Bağımlılıkları kur
+        run: npm ci --ignore-scripts
+
+      - name: Kanal Müdürü denetimini çalıştır
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+        run: npx tsx src/channel-director.ts
+
+      - name: Denetim raporunu (state/director-report.json) kaydet
+        run: npx tsx src/safe-git-push.ts state/director-report.json "chore(director): 12 saatlik kanal denetim raporu"

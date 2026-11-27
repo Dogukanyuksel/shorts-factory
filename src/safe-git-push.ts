@@ -20,6 +20,7 @@ function main() {
   const abs = resolve(filePath);
   const localContent = readFileSync(abs, "utf8");
   const isPublishedJson = filePath.endsWith("published.json");
+  const isDerivedQueueJson = filePath.endsWith("derived-shorts-queue.json");
 
   const status = runGit(["status", "--porcelain", filePath]);
   if (!status) {
@@ -47,6 +48,24 @@ function main() {
         // Silinenler listesi her iki taraftan birleşir → eski kopya silinmiş kaydı geri getiremez
         const merged = mergePublishedFiles(remoteFile, localFile);
         writeFileSync(abs, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+      } else if (isDerivedQueueJson) {
+        type QItem = { id: string; publishedAt?: string; shortVideoId?: string; [k: string]: unknown };
+        let remoteItems: QItem[] = [];
+        try {
+          const remoteParsed = JSON.parse(runGit(["show", `origin/main:${filePath}`])) as { items?: QItem[] };
+          if (Array.isArray(remoteParsed.items)) remoteItems = remoteParsed.items;
+        } catch {
+          // Uzakta dosya yoksa boş başla
+        }
+        const localParsed = JSON.parse(localContent) as { items?: QItem[] };
+        const localItems = Array.isArray(localParsed.items) ? localParsed.items : [];
+        const byId = new Map<string, QItem>();
+        for (const it of remoteItems) byId.set(it.id, it);
+        for (const it of localItems) {
+          const prev = byId.get(it.id);
+          byId.set(it.id, prev ? { ...prev, ...it, publishedAt: it.publishedAt || prev.publishedAt, shortVideoId: it.shortVideoId || prev.shortVideoId } : it);
+        }
+        writeFileSync(abs, `${JSON.stringify({ items: [...byId.values()] }, null, 2)}\n`, "utf8");
       } else {
         writeFileSync(abs, localContent, "utf8");
       }
