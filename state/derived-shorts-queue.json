@@ -1,85 +1,89 @@
 {
   "items": [
     {
-      "id": "narrative-physics-butterfly-effect-short-1-exact-split",
-      "channel": "physics",
-      "parentEpisodeId": "narrative-physics-butterfly-effect",
-      "parentSlug": "butterfly-effect-chaos-deep-dive",
-      "parentVideoId": "MxssRTWI2jI",
-      "parentTitle": "Why 0.001° Destroys Predictability: 100 Double Pendulums Explained (60fps Deep Dive)",
-      "parentUrl": "https://www.youtube.com/watch?v=MxssRTWI2jI",
+      "id": "narrative-explainer-four-stroke-engine-short-1-four-strokes",
+      "channel": "explainer",
+      "parentEpisodeId": "narrative-explainer-four-stroke-engine",
+      "parentSlug": "four-stroke-engine-deep-dive",
+      "parentVideoId": "wj_8h5LAmng",
+      "parentTitle": "How a 4-Stroke Engine Survives 7,000 Explosions Per Minute (Animated Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=wj_8h5LAmng",
       "shortIndex": 0,
-      "hook": "SPOT THE EXACT SPLIT SECOND",
+      "hook": "4 STROKES IN 30 SECONDS",
       "partLabel": "PART 1 / 3 · FULL 4-MIN VIDEO ↓",
-      "title": "100 Pendulums Dropped 0.001° Apart: Watch Second 7 #shorts",
-      "descriptionLead": "Pure Newton's laws, zero randomness — watch 100 identical pendulums stay locked for 5 seconds before exploding into rainbow chaos.",
+      "title": "How 1 Piston Survives 7,000 Explosions/Min (3D Cutaway) #shorts",
+      "descriptionLead": "Watch all four strokes — Intake, Compression, Power, Exhaust — slowed down 50x so you can see the exact millisecond timing.",
       "tags": [
-        "butterfly effect",
-        "double pendulum",
-        "chaos theory",
+        "4 stroke engine",
+        "how engines work",
+        "engineering",
         "shorts"
       ],
       "beatIds": [
-        "p1-hook-1",
-        "p1-hook-2",
-        "p1-hook-3"
+        "a1-hook-1",
+        "a2-intake",
+        "a2-compression",
+        "a2-power",
+        "a2-exhaust"
       ],
-      "ctaText": "PART 2: WHY WEATHER FAILS → SUBSCRIBE",
-      "enqueuedAt": "2026-11-27T17:27:16.314Z"
+      "ctaText": "PART 2: REDLINE FAILURE → SUBSCRIBE",
+      "enqueuedAt": "2026-11-27T17:29:10.508Z"
     },
     {
-      "id": "narrative-physics-butterfly-effect-short-2-weather-wall",
-      "channel": "physics",
-      "parentEpisodeId": "narrative-physics-butterfly-effect",
-      "parentSlug": "butterfly-effect-chaos-deep-dive",
-      "parentVideoId": "MxssRTWI2jI",
-      "parentTitle": "Why 0.001° Destroys Predictability: 100 Double Pendulums Explained (60fps Deep Dive)",
-      "parentUrl": "https://www.youtube.com/watch?v=MxssRTWI2jI",
+      "id": "narrative-explainer-four-stroke-engine-short-2-valve-float",
+      "channel": "explainer",
+      "parentEpisodeId": "narrative-explainer-four-stroke-engine",
+      "parentSlug": "four-stroke-engine-deep-dive",
+      "parentVideoId": "wj_8h5LAmng",
+      "parentTitle": "How a 4-Stroke Engine Survives 7,000 Explosions Per Minute (Animated Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=wj_8h5LAmng",
       "shortIndex": 1,
-      "hook": "WHY WEATHER CAPS AT 14 DAYS",
+      "hook": "WHAT HAPPENS PAST REDLINE?",
       "partLabel": "PART 2 / 3 · FULL 4-MIN VIDEO ↓",
-      "title": "The Math Wall That Breaks Every Weather Forecast #shorts",
-      "descriptionLead": "The Lyapunov exponent doubles tiny errors every 0.6 seconds — the exact same math that caps Earth's weather forecasts at two weeks.",
+      "title": "What Actually Breaks When You Over-Rev an Engine? #shorts",
+      "descriptionLead": "Engine knock shockwaves and valve float: watch the exact millisecond an open valve collides with a rising piston.",
       "tags": [
-        "lyapunov exponent",
-        "weather chaos",
-        "physics",
+        "engine knock",
+        "valve float",
+        "redline",
+        "engineering",
         "shorts"
       ],
       "beatIds": [
-        "p3-bridge",
-        "p3-lyapunov",
-        "p3-weather"
+        "a3-bridge",
+        "a3-knock",
+        "a3-valve-float"
       ],
-      "ctaText": "PART 3: ORDER VS CHAOS → SUBSCRIBE",
-      "enqueuedAt": "2026-11-27T17:27:16.314Z"
+      "ctaText": "PART 3: GAS VS EV → SUBSCRIBE",
+      "enqueuedAt": "2026-11-27T17:29:10.508Z"
     },
     {
-      "id": "narrative-physics-butterfly-effect-short-3-order-vs-chaos",
-      "channel": "physics",
-      "parentEpisodeId": "narrative-physics-butterfly-effect",
-      "parentSlug": "butterfly-effect-chaos-deep-dive",
-      "parentVideoId": "MxssRTWI2jI",
-      "parentTitle": "Why 0.001° Destroys Predictability: 100 Double Pendulums Explained (60fps Deep Dive)",
-      "parentUrl": "https://www.youtube.com/watch?v=MxssRTWI2jI",
+      "id": "narrative-explainer-four-stroke-engine-short-3-engine-battle",
+      "channel": "explainer",
+      "parentEpisodeId": "narrative-explainer-four-stroke-engine",
+      "parentSlug": "four-stroke-engine-deep-dive",
+      "parentVideoId": "wj_8h5LAmng",
+      "parentTitle": "How a 4-Stroke Engine Survives 7,000 Explosions Per Minute (Animated Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=wj_8h5LAmng",
       "shortIndex": 2,
-      "hook": "LOW ENERGY VS HIGH ENERGY",
+      "hook": "35% GAS VS 92% ELECTRIC",
       "partLabel": "PART 3 / 3 · FULL 4-MIN VIDEO ↓",
-      "title": "Order vs Chaos: One Energy Threshold Changes Everything #shorts",
-      "descriptionLead": "Left: low-angle double pendulums stay locked in harmony. Right: cross the energy threshold and chaos detonates.",
+      "title": "4-Stroke vs Rotary vs Electric: The Real Efficiency Gap #shorts",
+      "descriptionLead": "Why does a gas engine lose 65% of its energy as heat while a brushless electric motor hits 92% efficiency?",
       "tags": [
-        "order vs chaos",
-        "physics simulation",
-        "science",
+        "engine efficiency",
+        "ev vs gas",
+        "wankel rotary",
+        "engineering",
         "shorts"
       ],
       "beatIds": [
-        "p4-bridge",
-        "p4-compare",
-        "p4-outro"
+        "a4-bridge",
+        "a4-compare",
+        "a4-outro"
       ],
       "ctaText": "WATCH FULL 4-MIN DEEP DIVE ↓",
-      "enqueuedAt": "2026-11-27T17:27:16.314Z"
+      "enqueuedAt": "2026-11-27T17:29:10.508Z"
     }
   ]
 }
