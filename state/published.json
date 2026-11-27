@@ -355,6 +355,14 @@
       "videoId": "MxssRTWI2jI",
       "url": "https://www.youtube.com/watch?v=MxssRTWI2jI",
       "publishedAt": "2026-11-27T17:27:16.312Z"
+    },
+    {
+      "id": "narrative-explainer-four-stroke-engine",
+      "channel": "explainer",
+      "title": "How a 4-Stroke Engine Survives 7,000 Explosions Per Minute (Animated Deep Dive)",
+      "videoId": "wj_8h5LAmng",
+      "url": "https://www.youtube.com/watch?v=wj_8h5LAmng",
+      "publishedAt": "2026-11-27T17:29:10.506Z"
     }
   ],
   "removedVideoIds": [
