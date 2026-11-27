@@ -84,6 +84,87 @@
       ],
       "ctaText": "WATCH FULL 4-MIN DEEP DIVE ↓",
       "enqueuedAt": "2026-11-27T17:29:10.508Z"
+    },
+    {
+      "id": "narrative-physics-butterfly-effect-short-1-exact-split",
+      "channel": "physics",
+      "parentEpisodeId": "narrative-physics-butterfly-effect",
+      "parentSlug": "butterfly-effect-chaos-deep-dive",
+      "parentVideoId": "MxssRTWI2jI",
+      "parentTitle": "Why 0.001° Destroys Predictability: 100 Double Pendulums Explained (60fps Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=MxssRTWI2jI",
+      "shortIndex": 0,
+      "hook": "SPOT THE EXACT SPLIT SECOND",
+      "partLabel": "PART 1 / 3 · FULL 4-MIN VIDEO ↓",
+      "title": "100 Pendulums Dropped 0.001° Apart: Watch Second 7 #shorts",
+      "descriptionLead": "Pure Newton's laws, zero randomness — watch 100 identical pendulums stay locked for 5 seconds before exploding into rainbow chaos.",
+      "tags": [
+        "butterfly effect",
+        "double pendulum",
+        "chaos theory",
+        "shorts"
+      ],
+      "beatIds": [
+        "p1-hook-1",
+        "p1-hook-2",
+        "p1-hook-3"
+      ],
+      "ctaText": "PART 2: WHY WEATHER FAILS → SUBSCRIBE",
+      "enqueuedAt": "2026-11-27T17:36:50.491Z"
+    },
+    {
+      "id": "narrative-physics-butterfly-effect-short-2-weather-wall",
+      "channel": "physics",
+      "parentEpisodeId": "narrative-physics-butterfly-effect",
+      "parentSlug": "butterfly-effect-chaos-deep-dive",
+      "parentVideoId": "MxssRTWI2jI",
+      "parentTitle": "Why 0.001° Destroys Predictability: 100 Double Pendulums Explained (60fps Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=MxssRTWI2jI",
+      "shortIndex": 1,
+      "hook": "WHY WEATHER CAPS AT 14 DAYS",
+      "partLabel": "PART 2 / 3 · FULL 4-MIN VIDEO ↓",
+      "title": "The Math Wall That Breaks Every Weather Forecast #shorts",
+      "descriptionLead": "The Lyapunov exponent doubles tiny errors every 0.6 seconds — the exact same math that caps Earth's weather forecasts at two weeks.",
+      "tags": [
+        "lyapunov exponent",
+        "weather chaos",
+        "physics",
+        "shorts"
+      ],
+      "beatIds": [
+        "p3-bridge",
+        "p3-lyapunov",
+        "p3-weather"
+      ],
+      "ctaText": "PART 3: ORDER VS CHAOS → SUBSCRIBE",
+      "enqueuedAt": "2026-11-27T17:36:50.491Z"
+    },
+    {
+      "id": "narrative-physics-butterfly-effect-short-3-order-vs-chaos",
+      "channel": "physics",
+      "parentEpisodeId": "narrative-physics-butterfly-effect",
+      "parentSlug": "butterfly-effect-chaos-deep-dive",
+      "parentVideoId": "MxssRTWI2jI",
+      "parentTitle": "Why 0.001° Destroys Predictability: 100 Double Pendulums Explained (60fps Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=MxssRTWI2jI",
+      "shortIndex": 2,
+      "hook": "LOW ENERGY VS HIGH ENERGY",
+      "partLabel": "PART 3 / 3 · FULL 4-MIN VIDEO ↓",
+      "title": "Order vs Chaos: One Energy Threshold Changes Everything #shorts",
+      "descriptionLead": "Left: low-angle double pendulums stay locked in harmony. Right: cross the energy threshold and chaos detonates.",
+      "tags": [
+        "order vs chaos",
+        "physics simulation",
+        "science",
+        "shorts"
+      ],
+      "beatIds": [
+        "p4-bridge",
+        "p4-compare",
+        "p4-outro"
+      ],
+      "ctaText": "WATCH FULL 4-MIN DEEP DIVE ↓",
+      "enqueuedAt": "2026-11-27T17:36:50.491Z"
     }
   ]
 }
