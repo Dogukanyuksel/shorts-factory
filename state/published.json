@@ -241,6 +241,21 @@
       },
       "publishedAt": "2026-11-26T23:09:36.873Z",
       "instagramMediaId": "18213566296366304"
+    },
+    {
+      "id": "langtons-ant-seed115",
+      "channel": "physics",
+      "title": "This Ant Goes Crazy… Then Builds a Highway #shorts",
+      "videoId": "6n3YRBVcH6A",
+      "url": "https://youtube.com/shorts/6n3YRBVcH6A",
+      "poll": {
+        "optionAKey": "double-pendulum",
+        "optionBKey": "marble-drop",
+        "optionA": "Double Pendulum",
+        "optionB": "Marble Drop"
+      },
+      "publishedAt": "2026-11-27T04:58:43.412Z",
+      "instagramMediaId": "18363803881169502"
     }
   ]
 }
