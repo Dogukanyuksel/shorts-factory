@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-27T18:12:19.859Z",
+  "generatedAt": "2026-11-27T18:22:48.071Z",
   "healthy": true,
   "missingSceneFiles": [],
   "channels": {
@@ -8,11 +8,11 @@
       "totalPublished": 18,
       "shortsCount": 12,
       "longformCount": 4,
-      "hoursSinceLastShort": 0.8,
-      "hoursSinceLastLongform": 2.8,
+      "hoursSinceLastShort": 0.9,
+      "hoursSinceLastLongform": 3,
       "pendingDerivedShorts": 3,
       "missingInstagramCount": 0,
-      "totalYtViews": 14151,
+      "totalYtViews": 14247,
       "totalIgViews": 0,
       "topPerformers": [
         {
@@ -22,8 +22,8 @@
           "title": "100 Double Pendulums Dropped 0.001° Apart: Pure Chaos #shorts",
           "url": "https://youtube.com/shorts/H92qhYlJvOQ",
           "publishedAt": "2026-11-27T14:58:41.321Z",
-          "ageHours": 3.2,
-          "ytViews": 911,
+          "ageHours": 3.4,
+          "ytViews": 958,
           "ytLikes": 10,
           "ytComments": 1,
           "igViews": 0,
@@ -31,9 +31,9 @@
           "igComments": 1,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 911,
-          "viewsPerHour": 284.7,
-          "viralScore": 333.2
+          "totalViews": 958,
+          "viewsPerHour": 281.8,
+          "viralScore": 330.3
         },
         {
           "id": "chladni-sand-seed123",
@@ -42,18 +42,18 @@
           "title": "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts",
           "url": "https://youtube.com/shorts/H69nPT99Jrk",
           "publishedAt": "2026-11-27T17:09:43.279Z",
-          "ageHours": 1,
-          "ytViews": 286,
-          "ytLikes": 4,
+          "ageHours": 1.2,
+          "ytViews": 331,
+          "ytLikes": 5,
           "ytComments": 1,
           "igViews": 0,
-          "igLikes": 4,
+          "igLikes": 6,
           "igComments": 0,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 286,
-          "viewsPerHour": 286,
-          "viralScore": 302
+          "totalViews": 331,
+          "viewsPerHour": 275.8,
+          "viralScore": 296.3
         },
         {
           "id": "langtons-ant-seed115",
@@ -62,7 +62,7 @@
           "title": "This Ant Goes Crazy… Then Builds a Highway #shorts",
           "url": "https://youtube.com/shorts/6n3YRBVcH6A",
           "publishedAt": "2026-11-27T04:58:43.412Z",
-          "ageHours": 13.2,
+          "ageHours": 13.4,
           "ytViews": 1256,
           "ytLikes": 14,
           "ytComments": 3,
@@ -72,8 +72,8 @@
           "igSaves": 0,
           "igShares": 0,
           "totalViews": 1256,
-          "viewsPerHour": 95.2,
-          "viralScore": 148.7
+          "viewsPerHour": 93.7,
+          "viralScore": 147.2
         },
         {
           "id": "doubling-ladder-seed4",
@@ -82,7 +82,7 @@
           "title": "One Bacterium Doubling… When Does It Reach the Sun? #shorts",
           "url": "https://youtube.com/shorts/k0dVVW_hhj0",
           "publishedAt": "2026-11-27T11:09:48.218Z",
-          "ageHours": 7,
+          "ageHours": 7.2,
           "ytViews": 810,
           "ytLikes": 5,
           "ytComments": 1,
@@ -92,8 +92,8 @@
           "igSaves": 0,
           "igShares": 0,
           "totalViews": 810,
-          "viewsPerHour": 115.7,
-          "viralScore": 140.2
+          "viewsPerHour": 112.5,
+          "viralScore": 137
         },
         {
           "id": "spin-illusion-seed10",
@@ -102,7 +102,7 @@
           "title": "Can You Make This Cone Spin BOTH Ways? #shorts",
           "url": "https://youtube.com/shorts/LRJfPvTilI4",
           "publishedAt": "2026-11-26T23:09:36.873Z",
-          "ageHours": 19,
+          "ageHours": 19.2,
           "ytViews": 1302,
           "ytLikes": 7,
           "ytComments": 1,
@@ -112,8 +112,8 @@
           "igSaves": 0,
           "igShares": 0,
           "totalViews": 1302,
-          "viewsPerHour": 68.5,
-          "viralScore": 130.5
+          "viewsPerHour": 67.8,
+          "viralScore": 129.8
         }
       ],
       "issues": [],
@@ -124,8 +124,8 @@
       "totalPublished": 14,
       "shortsCount": 8,
       "longformCount": 4,
-      "hoursSinceLastShort": 0.7,
-      "hoursSinceLastLongform": 11.3,
+      "hoursSinceLastShort": 0.9,
+      "hoursSinceLastLongform": 11.5,
       "pendingDerivedShorts": 3,
       "missingInstagramCount": 0,
       "totalYtViews": 2765,
@@ -138,7 +138,7 @@
           "title": "What If Earth Were Compressed to the Size of a Marble? #shorts",
           "url": "https://youtube.com/shorts/4hWKnZfXP0I",
           "publishedAt": "2026-11-26T08:34:49.975Z",
-          "ageHours": 33.6,
+          "ageHours": 33.8,
           "ytViews": 1312,
           "ytLikes": 24,
           "ytComments": 2,
@@ -148,8 +148,8 @@
           "igSaves": 0,
           "igShares": 0,
           "totalViews": 1312,
-          "viewsPerHour": 39,
-          "viralScore": 91.5
+          "viewsPerHour": 38.8,
+          "viralScore": 91.3
         },
         {
           "id": "explainer-airplane-wing",
@@ -158,7 +158,7 @@
           "title": "How Does 400 Tons of Metal Float in Thin Air? #shorts",
           "url": "https://youtube.com/shorts/f7D81Xv-AMk",
           "publishedAt": "2026-11-25T11:08:54.612Z",
-          "ageHours": 55.1,
+          "ageHours": 55.2,
           "ytViews": 1201,
           "ytLikes": 15,
           "ytComments": 0,
@@ -178,7 +178,7 @@
           "title": "Why Thieves Can't Just Record Your Car Key #shorts",
           "url": "https://youtube.com/shorts/6UufvZUWh20",
           "publishedAt": "2026-11-27T06:49:25.843Z",
-          "ageHours": 11.4,
+          "ageHours": 11.6,
           "ytViews": 4,
           "ytLikes": 0,
           "ytComments": 1,
@@ -188,8 +188,8 @@
           "igSaves": 0,
           "igShares": 0,
           "totalViews": 4,
-          "viewsPerHour": 0.4,
-          "viralScore": 27.9
+          "viewsPerHour": 0.3,
+          "viralScore": 27.8
         },
         {
           "id": "explainer-tape-measure-hook",
@@ -198,7 +198,7 @@
           "title": "Why Every Tape Measure Hook Is Deliberately Loose #shorts",
           "url": "https://youtube.com/shorts/14i-C8Jfr6g",
           "publishedAt": "2026-11-25T17:55:10.000Z",
-          "ageHours": 48.3,
+          "ageHours": 48.5,
           "ytViews": 6,
           "ytLikes": 0,
           "ytComments": 0,
@@ -218,7 +218,7 @@
           "title": "Why Does ONLY Your Key Open Your Door? #shorts",
           "url": "https://youtube.com/shorts/YKVBMuQOwC0",
           "publishedAt": "2026-11-25T10:16:12.546Z",
-          "ageHours": 55.9,
+          "ageHours": 56.1,
           "ytViews": 236,
           "ytLikes": 2,
           "ytComments": 0,
@@ -237,7 +237,7 @@
     }
   },
   "strategy": {
-    "updatedAt": "2026-11-27T18:12:19.859Z",
+    "updatedAt": "2026-11-27T18:22:48.071Z",
     "physics": {
       "boostedNiches": [
         "pendulum-chaos-100",
