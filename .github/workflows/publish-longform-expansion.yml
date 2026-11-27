@@ -1,0 +1,78 @@
+name: Publish Wealth & Bio 16:9 Deep Dive (4,000h YPP Accelerator)
+
+on:
+  schedule:
+    # Salı & Cuma UTC 17:30 (ABD Doğu 12:30 / Batı 09:30 / TR 20:30)
+    - cron: "30 17 * * 2,5"
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Kanal (wealth | bio)"
+        required: true
+        default: "wealth"
+        type: choice
+        options:
+          - wealth
+          - bio
+      privacy:
+        description: "YouTube gizlilik"
+        required: false
+        default: "public"
+        type: choice
+        options:
+          - public
+          - unlisted
+          - private
+      dry_run:
+        description: "Sadece render/QC testi (yükleme yapma)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-longform-expansion-${{ inputs.channel || 'wealth' }}
+  cancel-in-progress: false
+
+jobs:
+  publish-longform-expansion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Bağımlılıkları kur
+        run: npm ci
+
+      - name: Chromium & espeak-ng kur
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng
+          npx playwright-core install chromium
+
+      - name: 4-Perdeli 16:9 Deep Dive üret ve yayınla
+        env:
+          CHANNEL_ID: ${{ inputs.channel || 'wealth' }}
+          YOUTUBE_CLIENT_ID_EXPANSION: ${{ secrets.YOUTUBE_CLIENT_ID_EXPANSION }}
+          YOUTUBE_CLIENT_SECRET_EXPANSION: ${{ secrets.YOUTUBE_CLIENT_SECRET_EXPANSION }}
+          YOUTUBE_REFRESH_TOKEN_WEALTH: ${{ secrets.YOUTUBE_REFRESH_TOKEN_WEALTH }}
+          YOUTUBE_REFRESH_TOKEN_BIO: ${{ secrets.YOUTUBE_REFRESH_TOKEN_BIO }}
+          YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+        run: npx tsx src/publish-longform-expansion.ts --channel "${CHANNEL_ID}"
+
+      - name: Yayın durumunu kaydet
+        if: always() && inputs.dry_run != true
+        run: |
+          if [ -f state/published-expansion.json ]; then
+            npx tsx src/safe-git-push.ts state/published-expansion.json "chore(publish): expansion 16:9 deep dive yayinlandi"
+          fi

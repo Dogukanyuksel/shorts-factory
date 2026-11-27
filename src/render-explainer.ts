@@ -162,20 +162,38 @@ async function main() {
                   ctx.fillStyle = "#38bdf8";
                   ctx.fillText("SUBSCRIBE TO SEE THE WINNER 🔔", W * 0.5, by + 86 * S);
                 }
-                if (tSec >= durVal - 1.6) {
-                  const alpha = Math.min(1, (tSec - (durVal - 1.6)) / 0.25);
+                // 2026 Viewed-vs-Swiped-Away Kancası: ilk 1.75 sn sessiz kanca pill'i
+                if (tSec <= 1.75) {
+                  const enter = Math.min(1, tSec / 0.16);
+                  const exit = tSec > 1.45 ? Math.max(0, 1 - (tSec - 1.45) / 0.30) : 1;
+                  const alpha = enter * exit;
+                  const scale = 0.88 + 0.12 * (1 - Math.pow(1 - enter, 3));
+                  ctx.save();
                   ctx.globalAlpha = Math.max(0, alpha);
-                  const boxW = W * 0.80, boxH = 74 * S, bx = (W - boxW) * 0.5, by = H * 0.705;
-                  ctx.fillStyle = "rgba(220, 38, 38, 0.94)";
-                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 18 * S); ctx.fill();
-                  ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.5 * S; ctx.stroke();
+                  const hw = W * 0.58, hh = 44 * S, hx = W * 0.25, hy = H * 0.068;
+                  ctx.translate(hx + hw * 0.5, hy + hh * 0.5);
+                  ctx.scale(scale, scale);
+                  ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+                  ctx.beginPath(); ctx.roundRect(-hw * 0.5, -hh * 0.5, hw, hh, 22 * S); ctx.fill();
+                  ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.4 * S; ctx.stroke();
                   ctx.textAlign = "center";
-                  fitText(ctx, "🔔 SUBSCRIBE @CLEARMECHANICSSHORTS", boxW - 26 * S, 19, 12, S, 900);
-                  ctx.fillStyle = "#ffffff";
-                  ctx.fillText("🔔 SUBSCRIBE @CLEARMECHANICSSHORTS", W * 0.5, by + 31 * S);
-                  fitText(ctx, "FULL 4-MIN BREAKDOWN ON YOUTUBE (LINK IN BIO) →", boxW - 26 * S, 14, 10, S, 800);
+                  fitText(ctx, "HOW IT ACTUALLY WORKS 👀", hw - 24 * S, 18, 12, S, 900);
                   ctx.fillStyle = "#fef08a";
-                  ctx.fillText("FULL 4-MIN BREAKDOWN ON YOUTUBE (LINK IN BIO) →", W * 0.5, by + 58 * S);
+                  ctx.fillText("HOW IT ACTUALLY WORKS 👀", 0, 7 * S);
+                  ctx.restore();
+                }
+                // Kesintisiz Loop Dostu Yüzer Cam Rozet (son 2.4 sn)
+                if (tSec >= durVal - 2.4) {
+                  const alpha = Math.min(1, (tSec - (durVal - 2.4)) / 0.28);
+                  ctx.globalAlpha = Math.max(0, alpha * 0.92);
+                  const boxW = W * 0.80, boxH = 44 * S, bx = (W - boxW) * 0.5, by = H * 0.725;
+                  ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
+                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 22 * S); ctx.fill();
+                  ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.2 * S; ctx.stroke();
+                  ctx.textAlign = "center";
+                  fitText(ctx, "🔔 CLEAR MECHANICS • FULL 4-MIN ON YOUTUBE →", boxW - 26 * S, 15, 10, S, 900);
+                  ctx.fillStyle = "#ffffff";
+                  ctx.fillText("🔔 CLEAR MECHANICS • FULL 4-MIN ON YOUTUBE →", W * 0.5, by + 28 * S);
                 }
                 ctx.restore();
               }

@@ -6,7 +6,7 @@ import type { DerivedShortSpec, NarrativeLongformSpec } from "./longform-narrati
 
 export interface DerivedShortQueueItem {
   id: string;
-  channel: ChannelId;
+  channel: NarrativeLongformSpec["channel"];
   parentEpisodeId: string;
   parentSlug: string;
   parentVideoId: string;

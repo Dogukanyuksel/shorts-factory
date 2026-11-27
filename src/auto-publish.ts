@@ -20,8 +20,10 @@ import {
   tallyABVotes,
   uploadReelToInstagram,
 } from "./instagram.js";
+import { uploadReelToFacebook } from "./facebook.js";
 import { hoursSinceLastPublish, resolveMetaToken, resolveMinGapHours } from "./devops.js";
 import {
+  buildDmShareTrigger,
   buildInstagramSisterTagLine,
   buildInstagramYouTubeCallout,
   buildYouTubeNetworkFooter,
@@ -395,12 +397,16 @@ async function main() {
         try {
           const igCallout = buildInstagramYouTubeCallout(channel, true);
           const igSisters = buildInstagramSisterTagLine(channel);
-          const igCaption = buildInstagramCaption(derivedItem.title, `${igCallout}\n${igSisters}\n\n${funnel.description}`);
+          const dmTrigger = buildDmShareTrigger(channel, derivedItem.title);
+          const igCaption = buildInstagramCaption(derivedItem.title, `${dmTrigger}\n${igCallout}\n${igSisters}\n\n${funnel.description}`);
           const igRes = await uploadReelToInstagram(mp4Path, igCaption, { igUserId, accessToken: metaToken });
           record.instagramMediaId = igRes.mediaId;
           await saveState(state);
-          const igComment = `${funnel.pinnedComment}\n\n${igCallout}\n${igSisters}`;
+          const igComment = `${funnel.pinnedComment}\n${dmTrigger}\n${igCallout}\n${igSisters}`;
           await postInstagramComment(igRes.mediaId, igComment, { igUserId, accessToken: metaToken }).catch(() => {});
+          await uploadReelToFacebook(mp4Path, igCaption, { igUserId, accessToken: metaToken }).catch((fbErr) => {
+            console.warn("[auto-publish] Vitrin Short FB Reels uyarısı:", fbErr);
+          });
         } catch (igErr) {
           console.warn("[auto-publish] Vitrin Short IG uyarısı:", igErr);
         }
@@ -604,19 +610,23 @@ async function main() {
       console.log("[auto-publish] Instagram Reels'e yükleniyor...");
       const igCallout = buildInstagramYouTubeCallout(channel, true);
       const igSisters = buildInstagramSisterTagLine(channel);
-      const igAnchor = `${igCallout}\n${igSisters}\n\n`;
+      const dmTrigger = buildDmShareTrigger(channel, job.title);
+      const igAnchor = `${dmTrigger}\n${igCallout}\n${igSisters}\n\n`;
       const igCaption = buildInstagramCaption(job.title, `${igAnchor}${kit.enrichedDescription}`);
       const igCreds = { igUserId, accessToken: metaToken };
       const igRes = await uploadReelToInstagram(mp4Path, igCaption, igCreds);
       instagramMediaId = igRes.mediaId;
       console.log(`✅ [auto-publish] INSTAGRAM REELS YAYINLANDI: mediaId=${igRes.mediaId}`);
       try {
-        const igComment = `🔥 Want to see what breaks when we push this 10x further? ${igCallout}\n${igSisters}\n\n${kit.commentPrompt}`;
+        const igComment = `🔥 Want to see what breaks when we push this 10x further? ${igCallout}\n${dmTrigger}\n${igSisters}\n\n${kit.commentPrompt}`;
         const commentId = await postInstagramComment(igRes.mediaId, igComment, igCreds);
         console.log(`💬 [auto-publish] INSTAGRAM A/B + YOUTUBE ÇAPA YORUMU ATILDI: ${commentId}`);
       } catch (cErr) {
         console.warn("[auto-publish] Instagram otomatik yorum uyarısı:", cErr);
       }
+      await uploadReelToFacebook(mp4Path, igCaption, igCreds).catch((fbErr) => {
+        console.warn("[auto-publish] Facebook Reels uyarısı (YT+IG başarılı):", fbErr);
+      });
     } catch (igErr) {
       // Instagram hatası YouTube yayın kaydını engellemesin
       console.error("[auto-publish] Instagram Reels uyarısı (YouTube başarılı):", igErr);

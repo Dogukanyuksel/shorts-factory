@@ -12,10 +12,13 @@ import {
   type ExpansionChannelId,
   type ExpansionJob,
 } from "./catalog-expansion.js";
+import { uploadReelToFacebook } from "./facebook.js";
 import { buildInstagramCaption, postInstagramComment, uploadReelToInstagram } from "./instagram.js";
 import {
+  buildDmShareTrigger,
   buildInstagramSisterTagLine,
   buildInstagramYouTubeCallout,
+  buildScrollStopHook,
   buildYouTubeNetworkFooter,
 } from "./network-links.js";
 import { runVideoQc } from "./qc.js";
@@ -121,12 +124,14 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
     );
 
     const epBadge = `EP. ${String(epNumber).padStart(2, "0")}`;
+    const hookBanner = buildScrollStopHook(job.title);
     await page.addScriptTag({
       content: `(() => {
         const fpsVal = ${JSON.stringify(fps)};
         const durVal = ${JSON.stringify(totalSec)};
         const badgeText = ${JSON.stringify(epBadge)};
-        const handleText = ${JSON.stringify(`🔔 SUBSCRIBE ${meta.ytHandle.toUpperCase()}`)};
+        const hookText = ${JSON.stringify(hookBanner)};
+        const handleText = ${JSON.stringify(`🔔 ${meta.brandName.toUpperCase()} • FOLLOW FOR DAILY 60FPS`)};
         const accent = ${JSON.stringify(meta.accentHex)};
         let frameIdx = 0;
         const orig = HTMLCanvasElement.prototype.toDataURL;
@@ -157,19 +162,37 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
               ctx.fillStyle = "#ffffff";
               ctx.fillText(badgeText, bx + bw * 0.5, by + 27 * S);
 
-              if (tSec >= durVal - 1.6) {
-                const alpha = Math.min(1, (tSec - (durVal - 1.6)) / 0.25);
+              // 2026 Viewed-vs-Swiped-Away Kancası: ilk 1.75 sn yüksek kontrastlı sessiz kanca pill'i
+              if (tSec <= 1.75 && hookText) {
+                const enter = Math.min(1, tSec / 0.16);
+                const exit = tSec > 1.45 ? Math.max(0, 1 - (tSec - 1.45) / 0.30) : 1;
+                const alpha = enter * exit;
+                const scale = 0.88 + 0.12 * (1 - Math.pow(1 - enter, 3));
+                ctx.save();
                 ctx.globalAlpha = Math.max(0, alpha);
-                const cw = W * 0.80, ch = 74 * S, cx = (W - cw) * 0.5, cy = H * 0.705;
-                ctx.fillStyle = "rgba(220, 38, 38, 0.94)";
-                ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 18 * S); ctx.fill();
-                ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.5 * S; ctx.stroke();
-                fitText(ctx, handleText, cw - 26 * S, 19, 12, S, 900);
-                ctx.fillStyle = "#ffffff";
-                ctx.fillText(handleText, W * 0.5, cy + 31 * S);
-                fitText(ctx, "NEW 60FPS BREAKDOWN EVERY DAY →", cw - 26 * S, 14, 10, S, 800);
+                const hw = W * 0.66, hh = 46 * S, hx = bx + bw + 14 * S, hy = by - 3 * S;
+                ctx.translate(hx + hw * 0.5, hy + hh * 0.5);
+                ctx.scale(scale, scale);
+                ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
+                ctx.beginPath(); ctx.roundRect(-hw * 0.5, -hh * 0.5, hw, hh, 23 * S); ctx.fill();
+                ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.6 * S; ctx.stroke();
+                fitText(ctx, hookText, hw - 26 * S, 21, 13, S, 900);
                 ctx.fillStyle = "#fef08a";
-                ctx.fillText("NEW 60FPS BREAKDOWN EVERY DAY →", W * 0.5, cy + 58 * S);
+                ctx.fillText(hookText, 0, 7 * S);
+                ctx.restore();
+              }
+
+              // Kesintisiz Loop Dostu Yüzer Rozet (son 2.4 sn — animasyonu kesmeden hafif cam pill)
+              if (tSec >= durVal - 2.4) {
+                const alpha = Math.min(1, (tSec - (durVal - 2.4)) / 0.28);
+                ctx.globalAlpha = Math.max(0, alpha * 0.92);
+                const cw = W * 0.78, ch = 44 * S, cx = (W - cw) * 0.5, cy = H * 0.725;
+                ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
+                ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 22 * S); ctx.fill();
+                ctx.strokeStyle = accent; ctx.lineWidth = 2.2 * S; ctx.stroke();
+                fitText(ctx, handleText, cw - 28 * S, 16, 11, S, 900);
+                ctx.fillStyle = "#ffffff";
+                ctx.fillText(handleText, W * 0.5, cy + 28 * S);
               }
               ctx.restore();
             }
@@ -335,18 +358,22 @@ async function main() {
     console.warn("[expansion] YouTube ilk yorum/playlist uyarısı:", e);
   }
 
-  // İsteğe bağlı Instagram Reels
+  // İsteğe bağlı Instagram Reels + Facebook Reels (sıfır ek secret — aynı Meta token ile!)
   const igUserId = (channel === "wealth" ? process.env.IG_USER_ID_WEALTH : process.env.IG_USER_ID_BIO)?.trim() || "";
   const igToken = (channel === "wealth" ? process.env.META_ACCESS_TOKEN_WEALTH : process.env.META_ACCESS_TOKEN_BIO)?.trim() || "";
   if (igUserId && igToken) {
     try {
       const igCallout = buildInstagramYouTubeCallout(channel, false);
       const igSisters = buildInstagramSisterTagLine(channel);
-      const cap = buildInstagramCaption(job.title, `${igCallout}\n${igSisters}\n\n${job.description}`);
+      const dmTrigger = buildDmShareTrigger(channel, job.title);
+      const cap = buildInstagramCaption(job.title, `${dmTrigger}\n${igCallout}\n${igSisters}\n\n${job.description}`);
       const igRes = await uploadReelToInstagram(mp4Path, cap, { igUserId, accessToken: igToken });
       record.instagramMediaId = igRes.mediaId;
       await writeFile(STATE_PATH, `${JSON.stringify({ published }, null, 2)}\n`, "utf8");
-      await postInstagramComment(igRes.mediaId, `${igCallout}\n${igSisters}`, { igUserId, accessToken: igToken }).catch(() => {});
+      await postInstagramComment(igRes.mediaId, `${dmTrigger}\n${igCallout}\n${igSisters}`, { igUserId, accessToken: igToken }).catch(() => {});
+      await uploadReelToFacebook(mp4Path, cap, { igUserId, accessToken: igToken }).catch((fbErr) => {
+        console.warn("[expansion] Facebook Reels uyarısı:", fbErr);
+      });
     } catch (e) {
       console.warn("[expansion] Instagram Reels uyarısı:", e);
     }

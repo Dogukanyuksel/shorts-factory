@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ChannelId } from "./catalog.js";
+import type { ExpansionChannelId } from "./catalog-expansion.js";
 
+export type NarrativeChannelId = ChannelId | ExpansionChannelId;
 export type ActKind = "hook" | "mechanism" | "failure" | "comparison";
 
 export interface NarrativeBeat {
@@ -35,7 +37,7 @@ export interface DerivedShortSpec {
 export interface NarrativeLongformSpec {
   id: string;
   slug: string;
-  channel: ChannelId;
+  channel: NarrativeChannelId;
   brandName: string;
   accentHex: string;
   title: string;
@@ -1095,10 +1097,148 @@ export const NARRATIVE_LONGFORM_SPECS: NarrativeLongformSpec[] = [
       },
     ],
   },
+
+  // =========================================================================
+  // WEALTH MECHANICS — DEEP DIVE #1: COMPOUND WEALTH BLUEPRINT (4:00–4:45)
+  // =========================================================================
+  {
+    id: "narrative-wealth-compound-blueprint",
+    slug: "wealth-compound-wealth-blueprint-deep-dive",
+    channel: "wealth",
+    brandName: "WEALTH MECHANICS",
+    accentHex: "#10b981",
+    title: "How Compound Math Turns Ordinary Salaries Into Millions (4-Act Visual Breakdown)",
+    descriptionLead:
+      "Why does $100/month starting at age 20 crush $500/month starting at 35? In this 4-act visual finance breakdown, we dissect the Rule of 72, expose inflation and 24% APR debt traps, compare renting vs buying, and watch a 30-year dividend snowball unfold.\n\n(Educational math simulation only — not financial advice.)",
+    tags: ["compound interest", "personal finance", "wealth mechanics", "rule of 72", "investing math"],
+    categoryId: "27",
+    nextEpisodeTeaser: "Next up on Wealth Mechanics: How $10,000 Survived Every Stock Market Crash in History.",
+    beats: [
+      { id: "w1-hook-1", actIndex: 0, actKind: "hook", actTitle: "1. The Time Multiplier", visualPhase: "time-race-preview", caption: "$100/MO VS $500/MO", text: "Can investing one hundred dollars a month at age twenty actually beat five hundred dollars a month at thirty-five? Watch the curves race." },
+      { id: "w1-hook-2", actIndex: 0, actKind: "hook", actTitle: "1. The Time Multiplier", visualPhase: "rule-of-72-grid", caption: "72 ÷ RATE = DOUBLING YEARS", text: "The secret is the Rule of Seventy-Two: divide seventy-two by your return rate to know instantly when your money doubles." },
+      { id: "w1-hook-3", actIndex: 0, actKind: "hook", actTitle: "1. The Time Multiplier", visualPhase: "exponential-knee", caption: "THE AGE-50 INFLECTION KNEE", text: "For the first decade compounding looks boring — then past the inflection knee, your interest starts earning more than your paycheck." },
+      { id: "w2-bridge", actIndex: 1, actKind: "mechanism", actTitle: "2. The Silent Wealth Killers", visualPhase: "inflation-drain", caption: "SILENT EROSION: 3.8%/YR", isBridge: true, text: "If compounding builds wealth automatically, what silently drains it in reverse? Meet the three invisible leaks." },
+      { id: "w2-inflation", actIndex: 1, actKind: "mechanism", actTitle: "2. The Silent Wealth Killers", visualPhase: "inflation-drain", caption: "$10,000 → $4,700 REAL POWER", text: "At three point eight percent inflation, ten thousand dollars sitting idle in cash quietly loses over half its purchasing power in twenty years." },
+      { id: "w2-credit", actIndex: 1, actKind: "mechanism", actTitle: "2. The Silent Wealth Killers", visualPhase: "credit-card-vortex", caption: "24% APR MINIMUM TRAP", text: "Worse is reverse compounding: paying only the minimum on a five thousand dollar credit card at twenty-four percent APR stretches repayment to sixteen years." },
+      { id: "w2-tax", actIndex: 1, actKind: "mechanism", actTitle: "2. The Silent Wealth Killers", visualPhase: "tax-buckets-truth", caption: "MARGINAL TAX BUCKETS", text: "And stop fearing raises — marginal tax brackets work like separate buckets, so only your top dollars ever get taxed at the higher rate." },
+      { id: "w3-bridge", actIndex: 2, actKind: "failure", actTitle: "3. The Real-World Crossover", visualPhase: "paycheck-split-50-30-20", caption: "50 / 30 / 20 CASHFLOW SPLIT", isBridge: true, text: "Now apply these exact rules to a real five thousand dollar monthly paycheck and watch where ordinary decisions diverge." },
+      { id: "w3-split", actIndex: 2, actKind: "failure", actTitle: "3. The Real-World Crossover", visualPhase: "paycheck-split-50-30-20", caption: "20% AUTOMATED → $759K", text: "Routing fifty percent to needs, thirty to wants, and twenty percent automatically into investments turns one thousand a month into seven hundred fifty-nine thousand in twenty years." },
+      { id: "w3-rentbuy", actIndex: 2, actKind: "failure", actTitle: "3. The Real-World Crossover", visualPhase: "rent-vs-buy-crossover", caption: "RENT VS BUY: YEAR 8.9 CROSSOVER", text: "Even on a four hundred thousand dollar home, early mortgage interest and taxes mean renting and investing the difference often leads until year nine." },
+      { id: "w3-crashes", actIndex: 2, actKind: "failure", actTitle: "3. The Real-World Crossover", visualPhase: "panic-sell-mistake", caption: "2000 • 2008 • 2020 CRASHES", text: "Every major market crash looks terrifying in the moment — yet panic selling locks in losses while staying invested turned ten thousand into over one hundred seventy thousand." },
+      { id: "w4-bridge", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "dividend-snowball-drip", caption: "DRIP DIVIDEND SNOWBALL", isBridge: true, text: "Put time, low fees, and automatic reinvestment together and watch the final phase take over." },
+      { id: "w4-snowball", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "dividend-snowball-drip", caption: "$150/YR → $1,550/MO PASSIVE", text: "Every reinvested dividend buys more shares that pay their own dividends — growing a tiny trickle into over fifteen hundred dollars a month by year thirty." },
+      { id: "w4-scorecard", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "final-blueprint-scorecard", caption: "4-PILLAR WEALTH BLUEPRINT", text: "Start early, eliminate high-APR drag, automate twenty percent, and never interrupt compounding during crashes." },
+      { id: "w4-outro", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "series-outro", caption: "SUBSCRIBE TO WEALTH MECHANICS", text: "Subscribe to Wealth Mechanics for daily sixty-frames-per-second breakdowns of how money actually works." },
+    ],
+    derivedShorts: [
+      {
+        shortIndex: 0,
+        slugSuffix: "short-1-time-multiplier",
+        hook: "RULE OF 72 IN 3 SECONDS",
+        partLabel: "PART 1 / 3 · FULL 4-MIN VIDEO ↓",
+        title: "The Age-50 Compounding Knee Nobody Talks About #shorts",
+        descriptionLead: "Why compounding looks slow for 10 years — then suddenly explodes vertically past the inflection knee.",
+        tags: ["compound interest", "rule of 72", "investing", "shorts"],
+        beatIds: ["w1-hook-1", "w1-hook-2", "w1-hook-3"],
+        ctaText: "WATCH FULL 4-MIN BLUEPRINT ↓",
+      },
+      {
+        shortIndex: 1,
+        slugSuffix: "short-2-wealth-killers",
+        hook: "3 SILENT WEALTH LEAKS",
+        partLabel: "PART 2 / 3 · FULL 4-MIN VIDEO ↓",
+        title: "Inflation + 24% APR: How Reverse Compounding Drains You #shorts",
+        descriptionLead: "Cash erosion at 3.8% and credit card minimum payments at 24% APR visualized side by side.",
+        tags: ["inflation", "credit card trap", "personal finance", "shorts"],
+        beatIds: ["w2-bridge", "w2-inflation", "w2-credit"],
+        ctaText: "WATCH FULL 4-MIN BLUEPRINT ↓",
+      },
+      {
+        shortIndex: 2,
+        slugSuffix: "short-3-dividend-snowball",
+        hook: "$150/YR → $1,550/MO DRIP",
+        partLabel: "PART 3 / 3 · FULL 4-MIN VIDEO ↓",
+        title: "How Reinvested Dividends Quietly Build a Second Paycheck #shorts",
+        descriptionLead: "Watch how automatic DRIP reinvestment turns tiny dividend payouts into an unstoppable 30-year snowball.",
+        tags: ["dividends", "passive income", "wealth mechanics", "shorts"],
+        beatIds: ["w4-bridge", "w4-snowball", "w4-outro"],
+        ctaText: "WATCH FULL 4-MIN BLUEPRINT ↓",
+      },
+    ],
+  },
+
+  // =========================================================================
+  // BIO MECHANICS — DEEP DIVE #1: HUMAN BODY SURVIVAL ENGINE (4:00–4:45)
+  // =========================================================================
+  {
+    id: "narrative-bio-human-body-engine",
+    slug: "bio-human-body-survival-engine-deep-dive",
+    channel: "bio",
+    brandName: "BIO MECHANICS",
+    accentHex: "#fb7185",
+    title: "Inside the Human Body: 4 Microscopic Systems Keeping You Alive Right Now",
+    descriptionLead:
+      "Right now, your heart is beating 100,000 times a day, 480 million alveoli are swapping oxygen across a 0.5-micron wall, and 500 million gut neurons are signaling your brain. Dive inside the human body in this 4-act 60fps medical visualization.",
+    tags: ["human body", "anatomy animation", "bio mechanics", "biology", "neuroscience"],
+    categoryId: "28",
+    nextEpisodeTeaser: "Next up on Bio Mechanics: What Happens to Your Body Every Hour Without Sleep.",
+    beats: [
+      { id: "bio1-hook-1", actIndex: 0, actKind: "hook", actTitle: "1. The 100,000-Beat Engine", visualPhase: "heart-cutaway-live", caption: "100,000 BEATS • 7,200 L/DAY", text: "Every twenty-four hours, your fist-sized heart fires one hundred thousand electrical beats and pumps over seven thousand two hundred liters of blood." },
+      { id: "bio1-hook-2", actIndex: 0, actKind: "hook", actTitle: "1. The 100,000-Beat Engine", visualPhase: "alveoli-gas-exchange", caption: "480 MILLION ALVEOLI SACS", text: "Beside it, four hundred eighty million microscopic lung sacs pass fresh oxygen across a wall fifty times thinner than a human hair." },
+      { id: "bio1-hook-3", actIndex: 0, actKind: "hook", actTitle: "1. The 100,000-Beat Engine", visualPhase: "circulatory-sync", caption: "CLOSED-LOOP OXYGEN TURBINE", text: "Together, heart and lungs form a closed-loop biological turbine that never shuts down for a single second of your life." },
+      { id: "bio2-bridge", actIndex: 1, actKind: "mechanism", actTitle: "2. The 0.2-Second Alarm System", visualPhase: "amygdala-adrenaline-surge", caption: "0.2 SEC FIGHT-OR-FLIGHT", isBridge: true, text: "Now watch what happens when sudden danger, caffeine, or liquid sugar hijacks this precision machinery." },
+      { id: "bio2-adrenaline", actIndex: 1, actKind: "mechanism", actTitle: "2. The 0.2-Second Alarm System", visualPhase: "amygdala-adrenaline-surge", caption: "68 → 152 BPM IN MILLISECONDS", text: "Within two hundred milliseconds of fear, your amygdala floods your bloodstream with adrenaline — dilating pupils and shunting blood straight to skeletal muscles." },
+      { id: "bio2-caffeine", actIndex: 1, actKind: "mechanism", actTitle: "2. The 0.2-Second Alarm System", visualPhase: "caffeine-adenosine-block", caption: "CAFFEINE BLOCKS ADENOSINE", text: "Caffeine doesn't create new energy either — it plugs your brain's sleepiness receptors while tired adenosine piles up behind the dam." },
+      { id: "bio2-sugar", actIndex: 1, actKind: "mechanism", actTitle: "2. The 0.2-Second Alarm System", visualPhase: "sugar-insulin-wave", caption: "39G SUGAR → INSULIN SURGE", text: "One can of soda dumps ten teaspoons of sugar into your blood, forcing your pancreas to fire an emergency insulin wave that ends in a sharp energy crash." },
+      { id: "bio3-bridge", actIndex: 2, actKind: "failure", actTitle: "3. Microscopic Defense & Rebuild", visualPhase: "immune-antibody-hunt", caption: "MICROSCOPIC WARFARE", isBridge: true, text: "What happens when invaders break in or heavy physical stress literally tears your tissue apart?" },
+      { id: "bio3-immune", actIndex: 2, actKind: "failure", actTitle: "3. Microscopic Defense & Rebuild", visualPhase: "immune-antibody-hunt", caption: "MILLIONS OF CUSTOM ANTIBODIES", text: "Frontline macrophages swallow viral spikes and summon helper T-cells, unleashing millions of custom Y-shaped antibodies that lock targets down." },
+      { id: "bio3-muscle", actIndex: 2, actKind: "failure", actTitle: "3. Microscopic Defense & Rebuild", visualPhase: "muscle-microtear-repair", caption: "Z-DISC TEARS → THICKER FIBERS", text: "When you lift heavy weights, microscopic Z-disc tears summon satellite stem cells during rest to fuse and rebuild each muscle fiber thicker than before." },
+      { id: "bio3-resilience", actIndex: 2, actKind: "failure", actTitle: "3. Microscopic Defense & Rebuild", visualPhase: "cellular-resilience", caption: "STRESS + RECOVERY = ADAPTATION", text: "Every biological upgrade follows one law: controlled stress signals the blueprint, but deep recovery actually builds the tissue." },
+      { id: "bio4-bridge", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "glymphatic-brain-wash", caption: "THE BRAIN'S DISHWASHER", isBridge: true, text: "And every night when you finally close your eyes, your body switches on its most astonishing hidden maintenance cycle." },
+      { id: "bio4-sleep", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "glymphatic-brain-wash", caption: "NEURONS SHRINK 60% TO FLUSH", text: "During deep sleep, brain cells shrink by up to sixty percent, opening microscopic channels so cerebrospinal fluid can flush out toxic metabolic plaques." },
+      { id: "bio4-gut", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "gut-brain-vagus-highway", caption: "500M GUT NEURONS • 90% SEROTONIN", text: "Meanwhile, five hundred million gut neurons manufacture ninety percent of your serotonin and beam eighty percent of vagus nerve signals upward to your brain." },
+      { id: "bio4-outro", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "series-outro", caption: "SUBSCRIBE TO BIO MECHANICS", text: "Subscribe to Bio Mechanics for daily sixty-frames-per-second journeys inside the human machine." },
+    ],
+    derivedShorts: [
+      {
+        shortIndex: 0,
+        slugSuffix: "short-1-heart-lungs-turbine",
+        hook: "100,000 BEATS + 480M AIR SACS",
+        partLabel: "PART 1 / 3 · FULL 4-MIN VIDEO ↓",
+        title: "Your Heart & Lungs Synchronized in 60fps #shorts",
+        descriptionLead: "7,200 liters of blood and 11,000 liters of air powered by a closed-loop turbine that never stops.",
+        tags: ["human heart", "lungs", "anatomy", "shorts"],
+        beatIds: ["bio1-hook-1", "bio1-hook-2", "bio1-hook-3"],
+        ctaText: "WATCH FULL 4-MIN DEEP DIVE ↓",
+      },
+      {
+        shortIndex: 1,
+        slugSuffix: "short-2-adrenaline-caffeine",
+        hook: "0.2 SECONDS TO 152 BPM",
+        partLabel: "PART 2 / 3 · FULL 4-MIN VIDEO ↓",
+        title: "Adrenaline vs Caffeine: How Your Nervous System Gets Hijacked #shorts",
+        descriptionLead: "Watch how fear spikes your heart rate in 200ms while caffeine plugs your brain's sleep receptors.",
+        tags: ["adrenaline", "caffeine", "neuroscience", "shorts"],
+        beatIds: ["bio2-bridge", "bio2-adrenaline", "bio2-caffeine"],
+        ctaText: "WATCH FULL 4-MIN DEEP DIVE ↓",
+      },
+      {
+        shortIndex: 2,
+        slugSuffix: "short-3-sleep-gut-brain",
+        hook: "NEURONS SHRINK 60% AT NIGHT",
+        partLabel: "PART 3 / 3 · FULL 4-MIN VIDEO ↓",
+        title: "Your Brain's Nightly Dishwasher + Second Brain Explained #shorts",
+        descriptionLead: "Deep sleep flushes brain toxins while 500M gut neurons produce 90% of your serotonin.",
+        tags: ["sleep science", "gut brain", "serotonin", "shorts"],
+        beatIds: ["bio4-bridge", "bio4-sleep", "bio4-gut"],
+        ctaText: "WATCH FULL 4-MIN DEEP DIVE ↓",
+      },
+    ],
+  },
 ];
 
 export function pickNarrativeLongform(
-  channel: ChannelId,
+  channel: NarrativeChannelId,
   publishedIds: Set<string>,
 ): NarrativeLongformSpec | null {
   for (const spec of NARRATIVE_LONGFORM_SPECS) {

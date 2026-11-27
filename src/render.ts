@@ -137,19 +137,38 @@ async function main() {
                   ctx.fillStyle = "#38bdf8";
                   ctx.fillText("SUBSCRIBE FOR TOMORROW'S WINNER 🔔", W * 0.5, by + 88 * S);
                 }
-                if (t >= durVal - 1.6) {
-                  const alpha = Math.min(1, (t - (durVal - 1.6)) / 0.25);
+                // 2026 Viewed-vs-Swiped-Away Kancası: ilk 1.75 sn sessiz kanca pill'i
+                if (t <= 1.75) {
+                  const enter = Math.min(1, t / 0.16);
+                  const exit = t > 1.45 ? Math.max(0, 1 - (t - 1.45) / 0.30) : 1;
+                  const alpha = enter * exit;
+                  const scale = 0.88 + 0.12 * (1 - Math.pow(1 - enter, 3));
+                  ctx.save();
                   ctx.globalAlpha = Math.max(0, alpha);
-                  const boxW = W * 0.80, boxH = 74 * S, bx = (W - boxW) * 0.5, by = H * 0.725;
-                  ctx.fillStyle = "rgba(220, 38, 38, 0.94)";
-                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 18 * S); ctx.fill();
-                  ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.5 * S; ctx.stroke();
-                  fitText(ctx, "🔔 SUBSCRIBE @KINETICLABSHORTS", boxW - 26 * S, 19, 12, S, 900);
-                  ctx.fillStyle = "#ffffff";
-                  ctx.fillText("🔔 SUBSCRIBE @KINETICLABSHORTS", W * 0.5, by + 31 * S);
-                  fitText(ctx, "FULL 4-MIN ENDING ON YOUTUBE (LINK IN BIO) →", boxW - 26 * S, 14, 10, S, 800);
+                  const hw = W * 0.62, hh = 44 * S, hy = H * 0.068;
+                  ctx.translate(W * 0.5, hy + hh * 0.5);
+                  ctx.scale(scale, scale);
+                  ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+                  ctx.beginPath(); ctx.roundRect(-hw * 0.5, -hh * 0.5, hw, hh, 22 * S); ctx.fill();
+                  ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.4 * S; ctx.stroke();
+                  ctx.textAlign = "center";
+                  fitText(ctx, "WAIT FOR THE ENDING 👀", hw - 24 * S, 19, 12, S, 900);
                   ctx.fillStyle = "#fef08a";
-                  ctx.fillText("FULL 4-MIN ENDING ON YOUTUBE (LINK IN BIO) →", W * 0.5, by + 58 * S);
+                  ctx.fillText("WAIT FOR THE ENDING 👀", 0, 7 * S);
+                  ctx.restore();
+                }
+                // Kesintisiz Loop Dostu Yüzer Cam Rozet (son 2.4 sn)
+                if (t >= durVal - 2.4) {
+                  const alpha = Math.min(1, (t - (durVal - 2.4)) / 0.28);
+                  ctx.globalAlpha = Math.max(0, alpha * 0.92);
+                  const boxW = W * 0.80, boxH = 44 * S, bx = (W - boxW) * 0.5, by = H * 0.735;
+                  ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
+                  ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 22 * S); ctx.fill();
+                  ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.2 * S; ctx.stroke();
+                  ctx.textAlign = "center";
+                  fitText(ctx, "🔔 KINETIC LAB HQ • FULL 4-MIN ON YOUTUBE →", boxW - 26 * S, 15, 10, S, 900);
+                  ctx.fillStyle = "#ffffff";
+                  ctx.fillText("🔔 KINETIC LAB HQ • FULL 4-MIN ON YOUTUBE →", W * 0.5, by + 28 * S);
                 }
                 ctx.restore();
               }
