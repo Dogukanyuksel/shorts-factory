@@ -28,7 +28,8 @@ export type PhysicsNiche =
   | "spiral-escape"
   | "pendulum-chaos-100"
   | "chladni-sand"
-  | "gear-gauntlet-1000";
+  | "gear-gauntlet-1000"
+  | "gyroscope-3d";
 
 export type PhysicsJob = {
   id: string;
@@ -64,6 +65,7 @@ export type PublishJob = PhysicsJob | ExplainerJob;
 export const PHYSICS_ROTATION: PhysicsNiche[] = [
   "physics-ring",
   "duel-balls",
+  "gyroscope-3d",
   "pendulum-chaos-100",
   "chladni-sand",
   "gear-gauntlet-1000",
@@ -126,6 +128,21 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Even with nearly identical starting speeds, sensitive dependence on initial conditions sends these two simulated spheres on completely different paths. Watch who takes the final point.\n\n#shorts #chaos #physics #simulation",
     tags: ["chaos theory", "physics duel", "ball simulation", "shorts", "science"],
+    categoryId: "28",
+  },
+  {
+    id: "gyroscope-3d-seed125",
+    channel: "physics",
+    niche: "gyroscope-3d",
+    seed: 125,
+    seconds: 24,
+    hook: "WHY DOESN’T IT FALL? (3D)",
+    narration:
+      "Gravity tries to pull this spinning brass flywheel straight down — yet instead of falling, angular momentum twists that torque ninety degrees sideways into hypnotic 3D precession.",
+    title: "Why a Spinning Gyroscope Defies Gravity (3D Physics) #shorts",
+    description:
+      "Real-time 3D PBR physics simulation of gyroscopic precession: watch angular momentum convert downward gravitational torque into smooth horizontal orbit.\n\n#shorts #gyroscope #3dphysics #science",
+    tags: ["gyroscope", "angular momentum", "3d physics", "precession", "shorts"],
     categoryId: "28",
   },
   {
@@ -1269,6 +1286,15 @@ const INFINITE_ANGLES: Record<
     titlePrefix: "1,000 Balls vs Spinning Gears",
     topic: "rigid-body gear collisions and statistical survival",
   },
+  "gyroscope-3d": {
+    hooks: ["WHY DOESN’T IT FALL? (3D)", "GRAVITY DEFIED BY SPIN", "ANGULAR MOMENTUM MAGIC"],
+    narrations: [
+      "Spin a heavy golden flywheel at twelve thousand RPM and downward gravity bends sideways into impossible 3D precession.",
+      "Watch angular momentum lock a hovering gyroscope against gravity in real time.",
+    ],
+    titlePrefix: "3D Gyroscope Defying Gravity",
+    topic: "gyroscopic precession and conservation of angular momentum",
+  },
 };
 
 /**
@@ -1354,6 +1380,7 @@ export const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "pendulum-chaos-100": "100 Pendulums Chaos",
   "chladni-sand": "Chladni Sound Sand",
   "gear-gauntlet-1000": "1,000 Balls vs Gears",
+  "gyroscope-3d": "3D Gyroscope Precession",
 };
 
 const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
@@ -1385,6 +1412,7 @@ const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
   "pendulum-chaos-100": "SPOT THE EXACT SECOND IT SPLITS",
   "chladni-sand": "WAIT FOR 4,096 HZ GEOMETRY",
   "gear-gauntlet-1000": "GUESS HOW MANY REACH THE VAULT",
+  "gyroscope-3d": "WATCH GRAVITY BEND 90 DEGREES",
 };
 
 function formatEpisodeLabel(slug: string): string {

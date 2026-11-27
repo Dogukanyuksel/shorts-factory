@@ -1,0 +1,269 @@
+<!doctype html>
+<!--
+  Kinetic Lab — Three.js 3D PBR Production Line (Line B)
+  Scene: Real 3D Metallic Gyroscope Defying Gravity (Gyroscopic Precession & Angular Momentum)
+  Uses offline Three.js WebGL PBR renderer composited onto 2D HUD canvas (#c).
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'WHY DOESN’T IT FALL?';
+let renderer, scene, camera, glCanvas;
+let standGroup, pivotGroup, rotorMesh, innerGimbal, outerGimbal;
+let angArrow, gravArrow, precessTrail, trailPositions;
+let events = [];
+
+function buildScene() {
+  glCanvas = document.createElement('canvas');
+  const glW = Math.round(W * 0.75), glH = Math.round(H * 0.75);
+  glCanvas.width = glW;
+  glCanvas.height = glH;
+  renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+  renderer.setSize(glW, glH, false);
+  renderer.setPixelRatio(1);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.25;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x050712);
+  scene.fog = new THREE.FogExp2(0x050712, 0.045);
+
+  camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 100);
+  camera.position.set(0, 2.2, 8.2);
+  camera.lookAt(0, 0.4, 0);
+
+  // Studio 3-point PBR lighting
+  const hemi = new THREE.HemisphereLight(0x60a5fa, 0x0f172a, 0.9);
+  scene.add(hemi);
+  const keyLight = new THREE.DirectionalLight(0xffffff, 2.6);
+  keyLight.position.set(5, 8, 6);
+  scene.add(keyLight);
+  const rimCyan = new THREE.PointLight(0x38bdf8, 18, 18);
+  rimCyan.position.set(-4.5, 2.5, -3);
+  scene.add(rimCyan);
+  const rimGold = new THREE.PointLight(0xfacc15, 14, 16);
+  rimGold.position.set(4.5, -1.5, 4);
+  scene.add(rimGold);
+
+  // Subtle futuristic grid floor
+  const grid = new THREE.GridHelper(18, 24, 0x1e3a8a, 0x0f172a);
+  grid.position.y = -2.4;
+  scene.add(grid);
+
+  // Pedestal cone stand
+  standGroup = new THREE.Group();
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.25 });
+  const baseDisc = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.35, 0.28, 48), baseMat);
+  baseDisc.position.y = -2.26;
+  standGroup.add(baseDisc);
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.32, 2.5, 32), baseMat);
+  pillar.position.y = -1.0;
+  standGroup.add(pillar);
+  const tipSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.14, 24, 24),
+    new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 0.8, metalness: 0.5, roughness: 0.2 }),
+  );
+  tipSphere.position.y = 0.25;
+  standGroup.add(tipSphere);
+  scene.add(standGroup);
+
+  // Pivot group at pedestal tip (y = 0.25) — precesses around Y!
+  pivotGroup = new THREE.Group();
+  pivotGroup.position.set(0, 0.25, 0);
+  scene.add(pivotGroup);
+
+  // Gyroscope arm extending horizontally from pivot (+X)
+  const armGroup = new THREE.Group();
+  pivotGroup.add(armGroup);
+
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.92, roughness: 0.18 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.92, roughness: 0.20 });
+  const cyanGlowMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8, emissive: 0x0ea5e9, emissiveIntensity: 0.9, metalness: 0.4, roughness: 0.2,
+  });
+
+  const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 3.0, 24), steelMat);
+  axle.rotation.z = Math.PI / 2;
+  axle.position.x = 1.5;
+  armGroup.add(axle);
+
+  // Outer gimbal ring
+  outerGimbal = new THREE.Mesh(new THREE.TorusGeometry(1.22, 0.075, 20, 64), steelMat);
+  outerGimbal.rotation.y = Math.PI / 2;
+  outerGimbal.position.x = 1.75;
+  armGroup.add(outerGimbal);
+
+  // Inner cyan accent ring
+  innerGimbal = new THREE.Mesh(new THREE.TorusGeometry(1.06, 0.04, 16, 64), cyanGlowMat);
+  innerGimbal.rotation.y = Math.PI / 2;
+  innerGimbal.position.x = 1.75;
+  armGroup.add(innerGimbal);
+
+  // Heavy spinning golden flywheel rotor with spokes (so spin is vividly visible!)
+  rotorMesh = new THREE.Group();
+  rotorMesh.position.x = 1.75;
+  const flywheelRim = new THREE.Mesh(new THREE.TorusGeometry(0.88, 0.16, 24, 64), goldMat);
+  flywheelRim.rotation.y = Math.PI / 2;
+  rotorMesh.add(flywheelRim);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.36, 24), steelMat);
+  hub.rotation.z = Math.PI / 2;
+  rotorMesh.add(hub);
+  for (let i = 0; i < 6; i++) {
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.66, 0.08), i % 2 === 0 ? goldMat : cyanGlowMat);
+    spoke.rotation.x = (i * Math.PI) / 6;
+    rotorMesh.add(spoke);
+  }
+  armGroup.add(rotorMesh);
+
+  // 3D Angular Momentum Vector Arrow (Cyan, along +X)
+  angArrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(2.1, 0, 0), 1.35, 0x38bdf8, 0.35, 0.22);
+  armGroup.add(angArrow);
+
+  // 3D Gravity Force Arrow (Red, pointing straight down from center of mass)
+  gravArrow = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(1.75, 0, 0), 1.45, 0xf43f5e, 0.35, 0.22);
+  armGroup.add(gravArrow);
+
+  // Glowing 3D precession trail ring
+  const maxPts = 180;
+  trailPositions = new Float32Array(maxPts * 3);
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+  const trailMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 });
+  precessTrail = new THREE.Line(trailGeo, trailMat);
+  scene.add(precessTrail);
+}
+
+function fitText(text, maxW, maxPx, minPx, S, weight = 900) {
+  let px = Math.round(maxPx * S);
+  const minS = Math.round(minPx * S);
+  while (px > minS) {
+    ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
+    if (ctx.measureText(text).width <= maxW) break;
+    px -= 1;
+  }
+  ctx.font = `${weight} ${px}px -apple-system, sans-serif`;
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'WHY DOESN’T IT FALL?';
+  cv.width = W;
+  cv.height = H;
+  buildScene();
+
+  events = [];
+  // Rhythmic precession milestone chimes
+  for (let i = 0; i < 12; i++) {
+    const t = 1.4 + i * 1.65;
+    if (t < DUR - 3.2) {
+      events.push({ t, type: i % 3 === 2 ? 'break' : 'bounce', pitchIndex: i % 10, intensity: 0.55 + (i / 12) * 0.35 });
+    }
+  }
+  events.push({ t: DUR * 0.88, type: 'win', pitchIndex: 11, intensity: 1.0 });
+};
+
+function renderFrame(f) {
+  const t = f / FPS;
+  const prog = Math.min(1, t / DUR);
+  const S = W / 720;
+
+  // Phase 1 (0–3s): spinning up + slight dip; Phase 2 (3–21s): defies gravity in smooth 3D precession; Phase 3 (21–24s): golden lock!
+  const rpm = t < 2.5 ? 2000 + (t / 2.5) * 10000 : 12000;
+  const spinAngle = t * (rpm / 60) * 0.22;
+  const precessAngle = t * 1.15;
+  const tilt = t < 2.5 ? -0.35 * (1 - t / 2.5) : Math.sin(t * 5.2) * 0.04; // subtle nutation
+
+  rotorMesh.rotation.x = spinAngle;
+  pivotGroup.rotation.y = precessAngle;
+  pivotGroup.rotation.z = tilt;
+
+  // Orbiting 3D studio camera for cinematic depth!
+  const camAngle = Math.sin(t * 0.35) * 0.55;
+  camera.position.set(Math.sin(camAngle) * 8.2, 2.0 + Math.cos(t * 0.45) * 0.6, Math.cos(camAngle) * 8.2);
+  camera.lookAt(0, 0.1, 0);
+
+  // Update 3D precession trail
+  const maxPts = 180;
+  const ptsToDraw = Math.min(maxPts, Math.floor(t * 24) + 2);
+  for (let i = 0; i < maxPts; i++) {
+    const idx = Math.min(i, ptsToDraw - 1);
+    const a = precessAngle - (ptsToDraw - 1 - idx) * 0.045;
+    const r = 2.95;
+    trailPositions[i * 3 + 0] = Math.cos(a) * r;
+    trailPositions[i * 3 + 1] = 0.25 + Math.sin(a * 4) * 0.05;
+    trailPositions[i * 3 + 2] = -Math.sin(a) * r;
+  }
+  precessTrail.geometry.attributes.position.needsUpdate = true;
+
+  renderer.render(scene, camera);
+
+  // Composite WebGL 3D frame onto 2D HUD canvas (#c)
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(glCanvas, 0, 0, W, H);
+
+  // Top Safe-Zone HOOK + 3D PBR Telemetry HUD
+  ctx.save();
+  ctx.textAlign = 'center';
+  fitText(HOOK, W * 0.82, 42, 24, S, 900);
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(56,189,248,0.55)';
+  ctx.shadowBlur = 16 * S;
+  ctx.fillText(HOOK, W * 0.5, H * 0.125);
+  ctx.shadowBlur = 0;
+
+  // Live RPM & Precession angle pill
+  const hudW = W * 0.78, hudH = 44 * S, hx = (W - hudW) * 0.5, hy = H * 0.222;
+  ctx.fillStyle = 'rgba(8, 15, 34, 0.82)';
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath(); ctx.roundRect(hx, hy, hudW, hudH, 22 * S); ctx.fill(); ctx.stroke();
+  const deg = Math.round((precessAngle * 180) / Math.PI);
+  const hudTxt = `SPIN: ${Math.round(rpm).toLocaleString('en-US')} RPM  •  ORBIT: ${deg}°`;
+  fitText(hudTxt, hudW - 24 * S, 19, 12, S, 800);
+  ctx.fillStyle = '#fde047';
+  ctx.fillText(hudTxt, W * 0.5, hy + 28 * S);
+
+  // Vector legend pill (Safe-Zone)
+  const legY = H * 0.645;
+  ctx.font = `800 ${Math.round(16 * S)}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText('→ ANGULAR MOMENTUM (L)', W * 0.30, legY);
+  ctx.fillStyle = '#fb7185';
+  ctx.fillText('↓ GRAVITY TORQUE (τ)', W * 0.72, legY);
+
+  // Climax banner at 88%
+  if (prog >= 0.88) {
+    const a = Math.min(1, (prog - 0.88) / 0.04);
+    ctx.globalAlpha = a;
+    const bw = W * 0.76, bh = 58 * S, bx = (W - bw) * 0.5, by = H * 0.54;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 18 * S); ctx.fill(); ctx.stroke();
+    fitText('GRAVITY DEFIED BY SPIN! 🌀', bw - 24 * S, 26, 16, S, 900);
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('GRAVITY DEFIED BY SPIN! 🌀', W * 0.5, by + 38 * S);
+  }
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    renderFrame(startFrame + i);
+    out.push(cv.toDataURL('image/jpeg', 0.9).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

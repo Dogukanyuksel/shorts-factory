@@ -24,8 +24,9 @@ export type SlotDef = {
 const everyTwoHours: Array<[number, number]> = Array.from({ length: 12 }, (_, i) => [i * 2, 23] as [number, number]);
 
 export const SLOTS: SlotDef[] = [
-  { key: "physics-shorts", workflow: "auto-publish-physics.yml", times: [[11, 7], [17, 7], [23, 7]], lookbackMin: 300 },
-  { key: "explainer-shorts", workflow: "auto-publish-explainer.yml", times: [[11, 37], [17, 37], [23, 37]], lookbackMin: 300 },
+  // 100% ABD Prime Time: 09:07 / 14:07 / 19:07 New York (06:07 / 11:07 / 16:07 Los Angeles)
+  { key: "physics-shorts", workflow: "auto-publish-physics.yml", times: [[14, 7], [19, 7], [0, 7]], lookbackMin: 240 },
+  { key: "explainer-shorts", workflow: "auto-publish-explainer.yml", times: [[14, 37], [19, 37], [0, 37]], lookbackMin: 240 },
   {
     key: "longform-explainer",
     workflow: "auto-publish-longform.yml",

@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import { applyIntroSubBass, synthesizeBackgroundMusicPcm, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
 import { synthesizeVoice } from "./voice.js";
+import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
 
 const require = createRequire(import.meta.url);
 const ffmpegPath: string = require("ffmpeg-static");
@@ -66,11 +67,12 @@ async function main() {
   console.log(`[shorts-factory] Niş=${niche}, seed=${seed}, ${seconds}s @ ${fps}fps`);
   const browser = await chromium.launch({
     executablePath: findChrome(),
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    args: CHROMIUM_RENDER_ARGS,
   });
 
   try {
     const page = await browser.newPage({ viewport: { width, height } });
+    await attachLocalEngines(page);
     await page.setContent(await readFile(scenePath, "utf8"));
     await page.waitForFunction(() => (globalThis as unknown as { ready?: boolean }).ready === true);
     await page.evaluate(

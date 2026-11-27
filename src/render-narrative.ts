@@ -9,6 +9,7 @@ import { applyIntroSubBass, synthesizeBackgroundMusicPcm, synthesizeEventsPcm, t
 import type { DerivedShortQueueItem } from "./derive-shorts.js";
 import type { NarrativeBeat, NarrativeLongformSpec } from "./longform-narrative.js";
 import { synthesizeVoice } from "./voice.js";
+import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
 
 const require = createRequire(import.meta.url);
 const ffmpegPath: string = require("ffmpeg-static");
@@ -118,7 +119,7 @@ export async function renderNarrativeLongformVideo(
 
   const browser = await chromium.launch({
     executablePath: findChrome(),
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    args: CHROMIUM_RENDER_ARGS,
   });
 
   try {
@@ -127,6 +128,7 @@ export async function renderNarrativeLongformVideo(
     const { timed, voiceMono, totalSec } = await synthesizeTimedBeats(spec.beats, tmpDir, 2.6, 4.2);
 
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await attachLocalEngines(page);
     await page.setContent(await readFile(scenePath, "utf8"));
     await page.waitForFunction(() => (globalThis as unknown as { ready?: boolean }).ready === true);
 

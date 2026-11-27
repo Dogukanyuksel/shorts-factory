@@ -1,0 +1,38 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import type { Page } from "playwright-core";
+
+/**
+ * Headless Chromium'da hem 2D Canvas hem gerçek Three.js WebGL 3D PBR render'ı
+ * (GPU'suz GitHub Actions sunucularında SwiftShader ile) hatasız çalıştıran bayraklar.
+ */
+export const CHROMIUM_RENDER_ARGS = [
+  "--no-sandbox",
+  "--disable-dev-shm-usage",
+  "--use-gl=angle",
+  "--use-angle=swiftshader",
+  "--enable-webgl",
+  "--ignore-gpu-blocklist",
+];
+
+/**
+ * Three.js (ve ileride eklenecek diğer yerel motorları) %100 çevrimdışı, CDN bağımlılığı olmadan
+ * `https://local.shorts/...` üzerinden Playwright sayfasına servis eder.
+ */
+export async function attachLocalEngines(page: Page): Promise<void> {
+  const threeBuildDir = resolve("node_modules", "three", "build");
+  await page.route("https://local.shorts/**", async (route) => {
+    const url = route.request().url();
+    const rel = url.replace("https://local.shorts/", "").replace(/\?.*$/, "");
+    if (rel === "three.module.js" || rel === "three.core.js") {
+      const target = resolve(threeBuildDir, rel);
+      if (existsSync(target)) {
+        const body = await readFile(target, "utf8");
+        await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body });
+        return;
+      }
+    }
+    await route.abort();
+  });
+}

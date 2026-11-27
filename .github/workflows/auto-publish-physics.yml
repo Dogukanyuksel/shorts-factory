@@ -2,8 +2,8 @@ name: Auto-Publish Physics Shorts (3x Daily — 6h Spaced)
 
 on:
   schedule:
-    # 6 saat arayla günde 3 video (UTC 11:07, 17:07, 23:07 — :00 yoğunluğunu atlar, 0-view jail & kota güvenli)
-    - cron: "7 11,17,23 * * *"
+    # 100% ABD Prime Time (UTC 14:07, 19:07, 00:07 → New York 09:07, 14:07, 19:07 / LA 06:07, 11:07, 16:07)
+    - cron: "7 0,14,19 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
