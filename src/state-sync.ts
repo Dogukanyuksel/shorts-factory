@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { mergePublishedRecords, type MinimalPublishedRecord } from "./devops.js";
+import { mergePublishedFiles, type PublishedFile } from "./devops.js";
 
 /**
  * Workflow checkout'u tetiklenme anındaki commit'i alır; arada başka bir run (ör. watchdog'un
@@ -17,15 +17,17 @@ export function syncPublishedStateFromRemote(statePath = resolve("state", "publi
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
-    const remote = (JSON.parse(remoteRaw) as { published?: MinimalPublishedRecord[] }).published ?? [];
-    const local = existsSync(statePath)
-      ? ((JSON.parse(readFileSync(statePath, "utf8")) as { published?: MinimalPublishedRecord[] }).published ?? [])
-      : [];
-    const merged = mergePublishedRecords(local, remote);
-    const added = merged.length - local.length;
-    if (added > 0) {
-      writeFileSync(statePath, `${JSON.stringify({ published: merged }, null, 2)}\n`, "utf8");
-      console.log(`[state-sync] origin/main'den ${added} yeni yayın kaydı alındı.`);
+    const remote = JSON.parse(remoteRaw) as Partial<PublishedFile>;
+    const local: Partial<PublishedFile> = existsSync(statePath)
+      ? (JSON.parse(readFileSync(statePath, "utf8")) as Partial<PublishedFile>)
+      : {};
+    const merged = mergePublishedFiles(local, remote);
+    const before = JSON.stringify({ published: local.published ?? [], removedVideoIds: local.removedVideoIds ?? [] });
+    const after = JSON.stringify({ published: merged.published, removedVideoIds: merged.removedVideoIds ?? [] });
+    const added = merged.published.length - (local.published?.length ?? 0);
+    if (before !== after) {
+      writeFileSync(statePath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+      console.log(`[state-sync] origin/main ile senkronlandı (${added >= 0 ? "+" : ""}${added} kayıt).`);
     }
     return added;
   } catch (err) {

@@ -127,3 +127,25 @@ export function resolveMetaToken(channel: "physics" | "explainer", env: NodeJS.P
   const specific = (channel === "explainer" ? env.META_ACCESS_TOKEN_EXPLAINER : env.META_ACCESS_TOKEN_PHYSICS)?.trim();
   return specific || env.META_ACCESS_TOKEN?.trim() || "";
 }
+
+export type PublishedFile<T extends MinimalPublishedRecord = MinimalPublishedRecord> = {
+  published: T[];
+  /**
+   * "Silinenler listesi" (tombstone): bu videoId'lere sahip kayıtlar, birleştirmede eski bir kopyadan
+   * geri gelse bile her zaman düşürülür. (Yanlış kanala giden videoyu yeniden yayınlatmak için kullanılır.)
+   */
+  removedVideoIds?: string[];
+};
+
+/** İki published.json içeriğini birleştirir: kayıtlar birleşir, silinenler listesi birleşir ve uygulanır. */
+export function mergePublishedFiles<T extends MinimalPublishedRecord>(
+  base: Partial<PublishedFile<T>>,
+  incoming: Partial<PublishedFile<T>>,
+): PublishedFile<T> {
+  const removed = [...new Set([...(base.removedVideoIds || []), ...(incoming.removedVideoIds || [])])];
+  const removedSet = new Set(removed);
+  // Silinenler birleştirmeden ÖNCE ayıklanır: eski kopyadaki silinmiş kayıt, aynı işin yeni yayınını ezemez
+  const alive = (rs: T[] | undefined) => (rs || []).filter((r) => !(r.videoId && removedSet.has(r.videoId)));
+  const merged = mergePublishedRecords(alive(base.published), alive(incoming.published));
+  return { published: merged, ...(removed.length ? { removedVideoIds: removed } : {}) };
+}

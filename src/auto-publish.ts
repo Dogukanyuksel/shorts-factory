@@ -64,6 +64,8 @@ export type PublishedRecord = {
 
 export type PublishState = {
   published: PublishedRecord[];
+  /** Silinenler listesi (tombstone) — bkz. devops.mergePublishedFiles */
+  removedVideoIds?: string[];
 };
 
 const STATE_PATH = resolve("state", "published.json");
@@ -89,7 +91,10 @@ export async function loadState(statePath = STATE_PATH): Promise<PublishState> {
   if (!existsSync(statePath)) return { published: [] };
   const raw = await readFile(statePath, "utf8");
   const parsed = JSON.parse(raw) as Partial<PublishState>;
-  return { published: Array.isArray(parsed.published) ? parsed.published : [] };
+  const removed = Array.isArray(parsed.removedVideoIds) ? parsed.removedVideoIds : [];
+  const removedSet = new Set(removed);
+  const published = (Array.isArray(parsed.published) ? parsed.published : []).filter((r) => !removedSet.has(r.videoId));
+  return { published, ...(removed.length ? { removedVideoIds: removed } : {}) };
 }
 
 export async function saveState(state: PublishState, statePath = STATE_PATH): Promise<void> {
