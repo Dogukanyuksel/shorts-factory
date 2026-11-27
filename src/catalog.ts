@@ -21,7 +21,11 @@ export type PhysicsNiche =
   | "gravity-compare"
   | "giant-vs-swarm"
   | "spin-illusion"
-  | "doubling-ladder";
+  | "doubling-ladder"
+  | "crusher-split"
+  | "black-hole-eat"
+  | "gravity-funnel"
+  | "spiral-escape";
 
 export type PhysicsJob = {
   id: string;
@@ -57,6 +61,10 @@ export type PublishJob = PhysicsJob | ExplainerJob;
 export const PHYSICS_ROTATION: PhysicsNiche[] = [
   "physics-ring",
   "duel-balls",
+  "crusher-split",
+  "black-hole-eat",
+  "gravity-funnel",
+  "spiral-escape",
   "gravity-compare",
   "giant-vs-swarm",
   "pi-collisions",
@@ -112,6 +120,66 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Even with nearly identical starting speeds, sensitive dependence on initial conditions sends these two simulated spheres on completely different paths. Watch who takes the final point.\n\n#shorts #chaos #physics #simulation",
     tags: ["chaos theory", "physics duel", "ball simulation", "shorts", "science"],
+    categoryId: "28",
+  },
+  {
+    id: "crusher-split-seed118",
+    channel: "physics",
+    niche: "crusher-split",
+    seed: 118,
+    seconds: 24,
+    hook: "WILL IT BURST? (EACH SPLIT = 2X)",
+    narration:
+      "Every time the pendulum crushes a ball against the wall, it splits into two. Exponential doubling turns a single sphere into crushing pressure until the barrier shatters.",
+    title: "Will It Burst? Every Crushed Ball Splits in Two #shorts",
+    description:
+      "Exponential doubling in a confined arena: each slam splits every crushed sphere in two — 1, 2, 4, 8, 16, 64, 256 — building unstoppable pressure against the floor.\n\n#shorts #physics #exponential #simulation",
+    tags: ["exponential doubling", "physics simulation", "satisfying", "science", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "black-hole-eat-seed119",
+    channel: "physics",
+    niche: "black-hole-eat",
+    seed: 119,
+    seconds: 24,
+    hook: "CAN THE BLACK HOLE EAT THEM ALL?",
+    narration:
+      "Every orbiting particle swallowed by the singularity expands its event horizon and multiplies its gravitational pull. Watch the final containment ring collapse inward.",
+    title: "Can One Growing Black Hole Devour Every Orbit? #shorts",
+    description:
+      "As a black hole absorbs mass, its Schwarzschild radius grows proportionally — pulling outer orbits inward faster and faster until nothing escapes.\n\n#shorts #blackhole #space #physics",
+    tags: ["black hole", "gravity simulation", "astrophysics", "space", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "gravity-funnel-seed120",
+    channel: "physics",
+    niche: "gravity-funnel",
+    seed: 120,
+    seconds: 24,
+    hook: "WATCH SPACETIME BEND IN 3D",
+    narration:
+      "Einstein showed that gravity isn't an invisible string — it is the curvature of spacetime itself. Watch two thousand particles warp into a shimmering 3D wormhole funnel.",
+    title: "2,000 Particles Bending Into a 3D Wormhole Funnel #shorts",
+    description:
+      "A 3D-projected particle visualization of Einstein's spacetime curvature: watch a flat rotating disc warp smoothly into a glowing hourglass gravity well.\n\n#shorts #spacetime #physics #3d",
+    tags: ["spacetime curvature", "wormhole", "general relativity", "physics", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "spiral-escape-seed121",
+    channel: "physics",
+    niche: "spiral-escape",
+    seed: 121,
+    seconds: 24,
+    hook: "CAN IT SHATTER THE RAINBOW CORE?",
+    narration:
+      "As the comet accelerates down an Archimedean spiral, centripetal acceleration climbs with every curve — smashing through twenty-eight energy gates in sync with the beat.",
+    title: "Rainbow Spiral Acceleration: 28 Gates to the Core #shorts",
+    description:
+      "Watch three glowing comets race down a rainbow Archimedean spiral, shattering every color gate in sync with escalating harmonic beats.\n\n#shorts #spiral #satisfying #physics",
+    tags: ["spiral simulation", "satisfying physics", "archimedean spiral", "science", "shorts"],
     categoryId: "28",
   },
   {
@@ -1037,6 +1105,42 @@ const INFINITE_ANGLES: Record<
     titlePrefix: "How Many Doublings Does It Take?",
     topic: "exponential growth and the power of doubling",
   },
+  "crusher-split": {
+    hooks: ["WILL IT BURST? (2X SPLIT)", "EVERY SLAM DOUBLES THEM", "EXPONENTIAL CRUSHER"],
+    narrations: [
+      "Every time the pendulum slams a ball into the hazard wall, it splits into two — until exponential pressure shatters the floor.",
+      "Watch one single sphere multiply into hundreds of colliding balls under relentless kinetic slams.",
+    ],
+    titlePrefix: "Pendulum Crusher 2x Split",
+    topic: "exponential doubling and kinetic pressure",
+  },
+  "black-hole-eat": {
+    hooks: ["CAN IT EAT THEM ALL?", "GROWING EVENT HORIZON", "GRAVITY SINGULARITY"],
+    narrations: [
+      "Each swallowed orbit expands the black hole's Schwarzschild radius, pulling outer particles inward faster and faster.",
+      "Watch gravitational accretion devour an entire orbiting field until the outer ring collapses.",
+    ],
+    titlePrefix: "Growing Black Hole Accretion",
+    topic: "black hole accretion and Schwarzschild radius",
+  },
+  "gravity-funnel": {
+    hooks: ["WATCH SPACETIME BEND", "3D WORMHOLE FUNNEL", "EINSTEIN'S GRAVITY WELL"],
+    narrations: [
+      "Two thousand rotating particles warp smoothly downward to visualize Einstein's curved spacetime funnel.",
+      "Watch a flat shimmering disc bend into a glowing 3D gravitational wormhole.",
+    ],
+    titlePrefix: "3D Spacetime Gravity Funnel",
+    topic: "Einstein's spacetime curvature and 3D projection",
+  },
+  "spiral-escape": {
+    hooks: ["RAINBOW SPIRAL RUSH", "28 GATES TO THE CORE", "CENTRIPETAL BEAT RACE"],
+    narrations: [
+      "Three glowing comets accelerate down an Archimedean spiral, shattering twenty-eight color gates in sync with the beat.",
+      "Watch centripetal acceleration climb with every curve until the rainbow core explodes.",
+    ],
+    titlePrefix: "Rainbow Spiral Gate Smash",
+    topic: "Archimedean spirals and centripetal acceleration",
+  },
 };
 
 /**
@@ -1115,6 +1219,10 @@ export const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "giant-vs-swarm": "1 Giant vs 100 Balls",
   "spin-illusion": "Reverse The Spin Illusion",
   "doubling-ladder": "How Many Doublings?",
+  "crusher-split": "Pendulum Crusher 2x",
+  "black-hole-eat": "Growing Black Hole",
+  "gravity-funnel": "3D Gravity Funnel",
+  "spiral-escape": "Rainbow Spiral",
 };
 
 const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
@@ -1139,6 +1247,10 @@ const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
   "giant-vs-swarm": "COUNT THE ELASTIC COLLISIONS",
   "spin-illusion": "CAN YOU FLIP IT BOTH WAYS?",
   "doubling-ladder": "GUESS THE NUMBER BEFORE IT LANDS",
+  "crusher-split": "GUESS HOW MANY BALLS BREAK THE FLOOR",
+  "black-hole-eat": "WILL EVEN ONE ORBIT SURVIVE?",
+  "gravity-funnel": "WAIT FOR THE WORMHOLE THROAT",
+  "spiral-escape": "WAIT FOR THE CORE EXPLOSION",
 };
 
 function formatEpisodeLabel(slug: string): string {

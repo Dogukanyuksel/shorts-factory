@@ -1,0 +1,567 @@
+<!doctype html>
+<!-- Spiral Escape: Full-spectrum rainbow Archimedean spiral with 28 energy gates and 3 accelerating comet-balls smashing to the core -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'CAN THEY SHATTER ALL 28 RAINBOW GATES?';
+const TOTAL_GATES = 28;
+const TURNS = 4.6;
+const THETA_MAX = TURNS * Math.PI * 2;
+
+let rng = 1;
+let simTime = 0;
+let climaxTime = 21.12;
+let gates = [];
+let comets = [];
+let sparks = [];
+let waves = [];
+let events = [];
+
+let gatesBroken = 0;
+let coreShattered = false;
+let shake = 0;
+let flashAlpha = 0;
+let hudPop = 0;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+// Maps normalized spiral progress u in [0, 1] (0 = outer entry, 1 = inner core) to (x, y, theta, r, tangentAngle)
+function spiralPoint(u, cx, cy, S) {
+  const rOut = 304 * S;
+  const rIn = 42 * S;
+  const clamped = Math.max(0, Math.min(1, u));
+  const theta = (1 - clamped) * THETA_MAX;
+  const r = rIn + (rOut - rIn) * (1 - clamped);
+  const x = cx + Math.cos(theta) * r;
+  const y = cy + Math.sin(theta) * r;
+  // Derivative wrt u (moving inward): dTheta/du = -THETA_MAX, dr/du = -(rOut - rIn)
+  const dr = -(rOut - rIn);
+  const dth = -THETA_MAX;
+  const dx = dr * Math.cos(theta) - r * Math.sin(theta) * dth;
+  const dy = dr * Math.sin(theta) + r * Math.cos(theta) * dth;
+  const tang = Math.atan2(dy, dx);
+  return { x, y, r, theta, tang };
+}
+
+function spawnSparks(x, y, col, n, S, speedScale) {
+  const mul = speedScale || 1;
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const spd = (100 + rand() * 360) * S * mul;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd,
+      life: 0.42 + rand() * 0.48,
+      maxLife: 0.9,
+      size: (2.4 + rand() * 4.2) * S,
+      col
+    });
+  }
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'CAN THEY SHATTER ALL 28 RAINBOW GATES?';
+  cv.width = W;
+  cv.height = H;
+
+  rng = ((cfg.seed || 1) * 1664525 + 1013904223) >>> 0;
+  simTime = 0;
+  climaxTime = DUR * 0.88;
+  gatesBroken = 0;
+  coreShattered = false;
+  shake = 0;
+  flashAlpha = 0;
+  hudPop = 0;
+
+  sparks = [];
+  waves = [];
+  events = [];
+
+  // 28 evenly spaced rainbow energy gates from outer track (u=0.04) to inner core entrance (u=0.975)
+  gates = [];
+  for (let i = 0; i < TOTAL_GATES; i++) {
+    const u = 0.04 + (i / (TOTAL_GATES - 1)) * 0.935;
+    gates.push({
+      index: i,
+      u,
+      hue: (i / TOTAL_GATES) * 360,
+      broken: false,
+      breakAge: 0
+    });
+  }
+
+  // 3 glowing comet-balls racing in tight staggered formation along the spiral
+  comets = [
+    { offsetU: 0.0,    hue: 188, color: '#22d3ee', trail: [], rScale: 1.12 },
+    { offsetU: -0.022, hue: 312, color: '#f472b6', trail: [], rScale: 0.96 },
+    { offsetU: -0.044, hue: 48,  color: '#facc15', trail: [], rScale: 0.90 }
+  ];
+};
+
+// Accelerating progress curve u(t) in [0, 1] reaching 1.0 right at climaxTime
+function leadProgressAt(t) {
+  const p = Math.max(0, Math.min(1, t / climaxTime));
+  // Smooth accelerating power curve: steady early gates, thrilling rapid-fire crescendo near core!
+  return Math.pow(p, 1.38);
+}
+
+function stepPhysics(dt) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.51;
+
+  simTime += dt;
+  const leadU = leadProgressAt(simTime);
+
+  // Update 3 comets + sparkling trail particles
+  for (let c = 0; c < comets.length; c++) {
+    const cm = comets[c];
+    const u = Math.max(0, Math.min(1, leadU + cm.offsetU));
+    const pt = spiralPoint(u, cx, cy, S);
+    cm.x = pt.x;
+    cm.y = pt.y;
+    cm.u = u;
+
+    if (!coreShattered) {
+      cm.trail.push({ x: pt.x, y: pt.y, hue: (cm.hue + simTime * 90) % 360 });
+      if (cm.trail.length > 26) cm.trail.shift();
+
+      // Occasional micro-sparks trailing each comet
+      if (rand() < 0.65) {
+        const a = pt.tang + Math.PI + (rand() - 0.5) * 0.9;
+        const spd = (40 + rand() * 110) * S;
+        sparks.push({
+          x: pt.x + (rand() - 0.5) * 6 * S,
+          y: pt.y + (rand() - 0.5) * 6 * S,
+          vx: Math.cos(a) * spd,
+          vy: Math.sin(a) * spd,
+          life: 0.25 + rand() * 0.22,
+          maxLife: 0.47,
+          size: (1.8 + rand() * 2.4) * S,
+          col: cm.color
+        });
+      }
+    }
+  }
+
+  // Check gate smashes by lead comet
+  for (let i = 0; i < gates.length; i++) {
+    const g = gates[i];
+    if (!g.broken && leadU >= g.u) {
+      g.broken = true;
+      g.breakAge = 0;
+      gatesBroken++;
+      hudPop = 1.0;
+
+      const pt = spiralPoint(g.u, cx, cy, S);
+      const col = `hsl(${g.hue}, 98%, 62%)`;
+      const isMajor = (gatesBroken % 7 === 0) || (gatesBroken === TOTAL_GATES);
+
+      shake = Math.max(shake, (isMajor ? 10 : 4.5) * S);
+      spawnSparks(pt.x, pt.y, col, isMajor ? 22 : 12, S, isMajor ? 1.25 : 0.9);
+      waves.push({
+        x: pt.x,
+        y: pt.y,
+        r: 8 * S,
+        maxR: (isMajor ? 135 : 75) * S,
+        alpha: 0.9,
+        col
+      });
+
+      events.push({
+        t: simTime,
+        type: isMajor ? 'break' : 'bounce',
+        pitchIndex: Math.min(20, Math.floor((gatesBroken / TOTAL_GATES) * 18)),
+        intensity: isMajor ? 0.95 : (0.48 + (gatesBroken / TOTAL_GATES) * 0.35)
+      });
+    } else if (g.broken) {
+      g.breakAge += dt;
+    }
+  }
+
+  // Rainbow Core Explosion at ~88% of DUR
+  if (!coreShattered && simTime >= climaxTime) {
+    coreShattered = true;
+    // Ensure all 28 gates marked broken
+    for (let i = 0; i < gates.length; i++) gates[i].broken = true;
+    gatesBroken = TOTAL_GATES;
+
+    shake = 26 * S;
+    flashAlpha = 1.0;
+    hudPop = 1.2;
+
+    // Massive full-spectrum rainbow core explosion!
+    for (let k = 0; k < 140; k++) {
+      const a = (k / 140) * Math.PI * 2 + (rand() - 0.5) * 0.12;
+      const spd = (140 + rand() * 540) * S;
+      const hue = (k / 140) * 360;
+      sparks.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd,
+        life: 0.75 + rand() * 0.9,
+        maxLife: 1.65,
+        size: (3.2 + rand() * 5.2) * S,
+        col: `hsl(${hue}, 98%, 62%)`
+      });
+    }
+
+    const ringCols = ['#facc15', '#22d3ee', '#f472b6', '#a855f7'];
+    for (let r = 0; r < ringCols.length; r++) {
+      waves.push({
+        x: cx,
+        y: cy,
+        r: (14 + r * 14) * S,
+        maxR: (540 - r * 70) * S,
+        alpha: 1.0,
+        col: ringCols[r]
+      });
+    }
+
+    events.push({ t: simTime, type: 'win', pitchIndex: 16, intensity: 1.0 });
+  }
+
+  // Decay visual FX
+  shake *= Math.pow(0.05, dt);
+  flashAlpha = Math.max(0, flashAlpha - dt * 1.75);
+  hudPop = Math.max(0, hudPop - dt * 4.5);
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    sp.x += sp.vx * dt;
+    sp.y += sp.vy * dt;
+    sp.vx *= 0.975;
+    sp.vy *= 0.975;
+    sp.life -= dt * 1.15;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+  for (let i = waves.length - 1; i >= 0; i--) {
+    const w = waves[i];
+    w.r += (w.maxR - w.r) * Math.min(1, dt * 7.2);
+    w.alpha -= dt * 1.5;
+    if (w.alpha <= 0) waves.splice(i, 1);
+  }
+}
+
+function drawHook(text, S) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const maxW = W * 0.82;
+  let fontSize = Math.round(36 * S);
+  ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  while (ctx.measureText(text).width > maxW && fontSize > Math.round(21 * S)) {
+    fontSize -= 2;
+    ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  }
+  ctx.shadowColor = 'rgba(244,114,182,0.55)';
+  ctx.shadowBlur = 16 * S;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, W * 0.5, H * 0.105, maxW);
+  ctx.restore();
+}
+
+function drawFrame() {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.51;
+  const leadU = leadProgressAt(simTime);
+
+  // Dark neon background
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle rainbow ambiance behind spiral
+  const ambHue = (simTime * 36) % 360;
+  const bgGrad = ctx.createRadialGradient(cx, cy, 18 * S, cx, cy, 420 * S);
+  bgGrad.addColorStop(0, coreShattered ? `hsla(${ambHue}, 95%, 60%, 0.26)` : `hsla(${ambHue}, 90%, 55%, 0.12)`);
+  bgGrad.addColorStop(0.6, 'rgba(15,23,42,0.16)');
+  bgGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  if (shake > 0.2) {
+    ctx.translate((rand() - 0.5) * 2 * shake, (rand() - 0.5) * 2 * shake);
+  }
+
+  // Draw Full-Spectrum Rainbow Archimedean Spiral Track
+  const segs = 260;
+  const railHalfW = 14 * S;
+  for (let i = 0; i < segs; i++) {
+    const u0 = i / segs;
+    const u1 = (i + 1) / segs;
+    const p0 = spiralPoint(u0, cx, cy, S);
+    const p1 = spiralPoint(u1, cx, cy, S);
+
+    const passed = u0 <= leadU || coreShattered;
+    const hue = (u0 * 360 * 1.35 + (coreShattered ? simTime * 180 : 0)) % 360;
+    const alpha = coreShattered ? 0.92 : (passed ? 0.85 : 0.32);
+
+    // Subtle glowing track lane
+    ctx.strokeStyle = `hsla(${hue}, 96%, ${passed ? 60 : 52}%, ${alpha * 0.26})`;
+    ctx.lineWidth = railHalfW * 1.9;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+
+    // Crisp neon rainbow center-guide & outer/inner rails
+    const n0x = -Math.sin(p0.tang), n0y = Math.cos(p0.tang);
+    const n1x = -Math.sin(p1.tang), n1y = Math.cos(p1.tang);
+
+    ctx.strokeStyle = `hsla(${hue}, 98%, ${passed ? 66 : 58}%, ${alpha})`;
+    ctx.lineWidth = (passed ? 3.2 : 2.1) * S;
+
+    // Outer rail
+    ctx.beginPath();
+    ctx.moveTo(p0.x + n0x * railHalfW, p0.y + n0y * railHalfW);
+    ctx.lineTo(p1.x + n1x * railHalfW, p1.y + n1y * railHalfW);
+    ctx.stroke();
+
+    // Inner rail
+    ctx.beginPath();
+    ctx.moveTo(p0.x - n0x * railHalfW, p0.y - n0y * railHalfW);
+    ctx.lineTo(p1.x - n1x * railHalfW, p1.y - n1y * railHalfW);
+    ctx.stroke();
+  }
+
+  // Draw 28 Glowing Colored Energy Gates across the spiral track
+  for (let i = 0; i < gates.length; i++) {
+    const g = gates[i];
+    if (g.broken) continue;
+    const pt = spiralPoint(g.u, cx, cy, S);
+    const nx = -Math.sin(pt.tang);
+    const ny = Math.cos(pt.tang);
+    const x1 = pt.x + nx * (railHalfW + 3 * S);
+    const y1 = pt.y + ny * (railHalfW + 3 * S);
+    const x2 = pt.x - nx * (railHalfW + 3 * S);
+    const y2 = pt.y - ny * (railHalfW + 3 * S);
+    const col = `hsl(${g.hue}, 98%, 62%)`;
+
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 5.5 * S;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 14 * S;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    // Bright white laser core
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 2.0 * S;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    // Gate node caps
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(x1, y1, 3.2 * S, 0, Math.PI * 2);
+    ctx.arc(x2, y2, 3.2 * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Center Rainbow Energy Core (pulses intensely before shattering at ~88% DUR)
+  if (!coreShattered) {
+    const pulse = 1 + 0.14 * Math.sin(simTime * (6 + leadU * 14));
+    const coreR = 32 * S * pulse;
+    const coreGrad = ctx.createRadialGradient(cx, cy, 4 * S, cx, cy, coreR * 1.8);
+    coreGrad.addColorStop(0, '#ffffff');
+    coreGrad.addColorStop(0.32, `hsl(${(simTime * 140) % 360}, 98%, 62%)`);
+    coreGrad.addColorStop(0.7, `hsla(${(simTime * 140 + 120) % 360}, 96%, 55%, 0.45)`);
+    coreGrad.addColorStop(1, 'rgba(5,7,18,0)');
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, coreR * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3 * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy, coreR * 0.72, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Shockwaves
+  for (const w of waves) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, w.alpha);
+    ctx.strokeStyle = w.col;
+    ctx.lineWidth = 4.5 * S;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 3 Glowing Comet-Balls & Sparkling Ribbon Trails
+  if (!coreShattered) {
+    for (let c = comets.length - 1; c >= 0; c--) {
+      const cm = comets[c];
+      const tr = cm.trail;
+      // Tapered glowing ribbon trail
+      for (let t = 1; t < tr.length; t++) {
+        const frac = t / tr.length;
+        ctx.strokeStyle = `hsla(${tr[t].hue}, 98%, 66%, ${frac * 0.78})`;
+        ctx.lineWidth = frac * 11 * cm.rScale * S;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(tr[t - 1].x, tr[t - 1].y);
+        ctx.lineTo(tr[t].x, tr[t].y);
+        ctx.stroke();
+      }
+
+      // Comet head
+      const rad = 11.5 * cm.rScale * S;
+      ctx.save();
+      ctx.fillStyle = cm.color;
+      ctx.shadowColor = cm.color;
+      ctx.shadowBlur = 22 * S;
+      ctx.beginPath();
+      ctx.arc(cm.x, cm.y, rad, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(cm.x, cm.y, rad * 0.52, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Burst Sparks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
+    ctx.fillStyle = sp.col;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Prismatic Core Explosion Flash
+  if (flashAlpha > 0.01) {
+    const fl = ctx.createRadialGradient(cx, cy, 10 * S, cx, cy, W * 0.85);
+    fl.addColorStop(0, `rgba(255,255,255,${flashAlpha * 0.88})`);
+    fl.addColorStop(0.45, `hsla(${(simTime * 220) % 360}, 98%, 65%, ${flashAlpha * 0.45})`);
+    fl.addColorStop(1, 'rgba(5,7,18,0)');
+    ctx.fillStyle = fl;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.restore(); // end camera shake
+
+  // Top HOOK text
+  drawHook(HOOK, S);
+
+  // Live Progress HUD
+  const hudY = H * 0.825;
+  ctx.save();
+  ctx.translate(cx, hudY);
+  const popScale = 1 + hudPop * 0.12;
+  ctx.scale(popScale, popScale);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.round(42 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.shadowColor = coreShattered ? '#facc15' : '#f472b6';
+  ctx.shadowBlur = 18 * S;
+  ctx.fillStyle = coreShattered ? '#fde047' : '#ffffff';
+  ctx.fillText(`GATES BROKEN: ${gatesBroken} / ${TOTAL_GATES}`, 0, 0, W * 0.84);
+  ctx.restore();
+
+  // Rainbow progress bar + Speed indicator
+  const speedMult = (1.0 + Math.pow(Math.min(1, simTime / climaxTime), 1.2) * 3.8).toFixed(1);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(24 * S)}px monospace`;
+  ctx.fillStyle = '#67e8f9';
+  ctx.fillText(`COMET SPEED: ${speedMult}x`, cx, hudY + 46 * S);
+
+  const barW = W * 0.66;
+  const barH = 14 * S;
+  const barX = cx - barW * 0.5;
+  const barY = hudY + 70 * S;
+  ctx.fillStyle = 'rgba(30,41,59,0.85)';
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, barH, 7 * S);
+  ctx.fill();
+
+  const fillW = barW * (gatesBroken / TOTAL_GATES);
+  if (fillW > 1) {
+    const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    grad.addColorStop(0.0, '#ef4444');
+    grad.addColorStop(0.2, '#facc15');
+    grad.addColorStop(0.4, '#22c55e');
+    grad.addColorStop(0.6, '#22d3ee');
+    grad.addColorStop(0.8, '#818cf8');
+    grad.addColorStop(1.0, '#f472b6');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, fillW, barH, 7 * S);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Climax Banner at ~88% of DUR
+  if (coreShattered) {
+    const finAge = Math.min(1, (simTime - climaxTime) / 0.35);
+    const scale = 0.86 + 0.14 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(cx, H * 0.50);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.92)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.43, -68 * S, W * 0.86, 136 * S, 26 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#f472b6';
+    ctx.shadowBlur = 26 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('CORE SHATTERED! 🌈', 0, 4 * S, W * 0.8);
+    ctx.font = `800 ${Math.round(22 * S)}px monospace`;
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText('28 / 28 RAINBOW GATES  •  MAX OVERDRIVE', 0, 44 * S, W * 0.8);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    stepPhysics(1 / FPS);
+    drawFrame();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

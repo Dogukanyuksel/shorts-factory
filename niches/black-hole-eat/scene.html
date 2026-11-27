@@ -1,0 +1,627 @@
+<!doctype html>
+<!-- Black Hole Eat: 120 orbiting glowing orbs & mini-rings spiraled into a growing black hole until supernova collapse -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'CAN THE BLACK HOLE EAT THEM ALL?';
+const TOTAL_ORBS = 120;
+
+let rng = 1;
+let simTime = 0;
+let climaxTime = 21.12;
+let orbs = [];
+let stars = [];
+let sparks = [];
+let waves = [];
+let events = [];
+
+let eatenCount = 0;
+let bhRadius = 24;
+let targetBhRadius = 24;
+let bhPulse = 0;
+let shake = 0;
+let supernovaFlash = 0;
+let devouredAll = false;
+let lastEatSoundT = -1;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+function spawnSparks(x, y, col, n, S, speedScale) {
+  const spMul = speedScale || 1;
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const spd = (80 + rand() * 320) * S * spMul;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd,
+      life: 0.4 + rand() * 0.45,
+      maxLife: 0.85,
+      size: (2.0 + rand() * 3.8) * S,
+      col
+    });
+  }
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'CAN THE BLACK HOLE EAT THEM ALL?';
+  cv.width = W;
+  cv.height = H;
+
+  rng = ((cfg.seed || 1) * 1664525 + 987654321) >>> 0;
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.50;
+  const containR = 304 * S;
+
+  simTime = 0;
+  climaxTime = DUR * 0.88;
+  eatenCount = 0;
+  bhRadius = 25 * S;
+  targetBhRadius = 25 * S;
+  bhPulse = 0;
+  shake = 0;
+  supernovaFlash = 0;
+  devouredAll = false;
+  lastEatSoundT = -1;
+
+  sparks = [];
+  waves = [];
+  events = [];
+
+  // Deterministic twinkling starfield
+  stars = [];
+  for (let i = 0; i < 140; i++) {
+    stars.push({
+      x: rand() * W,
+      y: rand() * H,
+      r: (0.7 + rand() * 1.8) * S,
+      phase: rand() * Math.PI * 2,
+      speed: 1.2 + rand() * 3.0,
+      hue: rand() > 0.7 ? 45 : 205
+    });
+  }
+
+  // 120 glowing colorful orbiting orbs & mini-rings
+  orbs = [];
+  const palette = [188, 205, 228, 265, 295, 330, 38, 155, 18];
+  for (let i = 0; i < TOTAL_ORBS; i++) {
+    // Distribute radially from inner-mid to outer containment boundary
+    const u = i / TOTAL_ORBS;
+    const r = (92 + Math.pow(u, 0.78) * 196 + (rand() - 0.5) * 14) * S;
+    const clampedR = Math.max(82 * S, Math.min(containR - 18 * S, r));
+    const ang = rand() * Math.PI * 2;
+    const x = cx + Math.cos(ang) * clampedR;
+    const y = cy + Math.sin(ang) * clampedR;
+
+    // Circular orbital velocity around center (counter-clockwise)
+    const vOrb = Math.sqrt((460000 * S * S * S) / Math.max(60 * S, clampedR));
+    const tx = -Math.sin(ang);
+    const ty = Math.cos(ang);
+    const speedJitter = 0.88 + rand() * 0.24;
+
+    orbs.push({
+      x, y,
+      vx: tx * vOrb * speedJitter,
+      vy: ty * vOrb * speedJitter,
+      r: (5.2 + rand() * 4.4) * S,
+      hue: palette[i % palette.length] + (rand() - 0.5) * 14,
+      isRing: (i % 5 === 0),
+      ringTilt: rand() * Math.PI,
+      eaten: false,
+      trail: [],
+      // Staggered deadline guarantees continuous hypnotic devouring finishing right at climaxTime (~88% DUR)
+      deadline: (0.04 + Math.pow(u, 0.92) * 0.99) * climaxTime + 1.05
+    });
+  }
+};
+
+function eatOrb(orb, cx, cy, S) {
+  orb.eaten = true;
+  eatenCount++;
+  bhPulse = 1.0;
+
+  // Grow black hole event horizon radius smoothly from 25*S up to 158*S
+  const frac = eatenCount / TOTAL_ORBS;
+  targetBhRadius = (25 + Math.pow(frac, 0.82) * 134) * S;
+
+  // Spawn glowing accretion sparks at the impact point on the photon sphere
+  const ang = Math.atan2(orb.y - cy, orb.x - cx);
+  const px = cx + Math.cos(ang) * bhRadius;
+  const py = cy + Math.sin(ang) * bhRadius;
+  const col = `hsl(${orb.hue}, 96%, 64%)`;
+  spawnSparks(px, py, col, 6, S, 0.9);
+
+  // Harmonic bounce ping (throttled cleanly to avoid audio clipping)
+  if (simTime - lastEatSoundT >= 0.055) {
+    lastEatSoundT = simTime;
+    const isMilestone = (eatenCount % 20 === 0);
+    events.push({
+      t: simTime,
+      type: isMilestone ? 'break' : 'bounce',
+      pitchIndex: Math.floor((eatenCount / TOTAL_ORBS) * 16),
+      intensity: isMilestone ? 0.92 : (0.38 + frac * 0.42)
+    });
+    if (isMilestone) {
+      shake = Math.max(shake, 8 * S);
+      waves.push({ r: bhRadius, maxR: 320 * S, alpha: 0.75, col: '#38bdf8' });
+    }
+  }
+}
+
+function triggerSupernova(cx, cy, containR, S) {
+  devouredAll = true;
+  supernovaFlash = 1.0;
+  shake = 24 * S;
+
+  // Burst containment ring into golden supernova sparks
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * Math.PI * 2;
+    const rx = cx + Math.cos(a) * containR;
+    const ry = cy + Math.sin(a) * containR;
+    spawnSparks(rx, ry, i % 2 === 0 ? '#facc15' : '#38bdf8', 3, S, 1.55);
+  }
+  spawnSparks(cx, cy, '#fef08a', 60, S, 1.8);
+  waves.push({ r: bhRadius, maxR: 560 * S, alpha: 1.0, col: '#facc15' });
+  waves.push({ r: bhRadius * 0.7, maxR: 440 * S, alpha: 0.9, col: '#38bdf8' });
+
+  events.push({ t: simTime, type: 'win', pitchIndex: 14, intensity: 1.0 });
+}
+
+function stepPhysics(dt) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.50;
+  const containR = 304 * S;
+
+  const subSteps = 3;
+  const sdt = dt / subSteps;
+
+  for (let s = 0; s < subSteps; s++) {
+    simTime += sdt;
+    const p = Math.max(0, Math.min(1, simTime / climaxTime));
+
+    // Smooth black hole growth
+    bhRadius += (targetBhRadius - bhRadius) * Math.min(1, sdt * 8);
+
+    // Base gravitational constant matched to initial circular orbital speeds
+    const baseGM = 460000 * S * S * S;
+
+    for (let i = 0; i < orbs.length; i++) {
+      const o = orbs[i];
+      if (o.eaten) continue;
+
+      const dx = cx - o.x;
+      const dy = cy - o.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist <= bhRadius + o.r * 0.35) {
+        eatOrb(o, cx, cy, S);
+        continue;
+      }
+
+      const nx = dx / Math.max(1e-4, dist);
+      const ny = dy / Math.max(1e-4, dist);
+
+      // Pure inverse-square orbital gravity keeps non-inspiraling orbs in crisp Keplerian orbits
+      const soft = 26 * S;
+      const timeToDeadline = o.deadline - simTime;
+      const inspiralWindow = 2.6;
+      const inspiral = timeToDeadline < inspiralWindow
+        ? Math.max(0, Math.min(1, (inspiralWindow - timeToDeadline) / inspiralWindow))
+        : 0;
+
+      const acc = (baseGM * (1 + inspiral * 2.2)) / (dist * dist + soft * soft);
+      o.vx += nx * acc * sdt;
+      o.vy += ny * acc * sdt;
+
+      if (inspiral > 0) {
+        // Gentle orbital drag + inward pull during the orb's inspiral window creates hypnotic spiral trails into the event horizon
+        const drag = 1 - (0.0025 + inspiral * inspiral * 0.022);
+        o.vx *= drag;
+        o.vy *= drag;
+        o.vx += nx * (260 + inspiral * inspiral * 1650) * S * sdt;
+        o.vy += ny * (260 + inspiral * inspiral * 1650) * S * sdt;
+      } else {
+        // Gently keep pre-inspiral orbs outside the growing event horizon while orbiting smoothly
+        const safeR = Math.max(bhRadius + 38 * S, 90 * S);
+        if (dist < safeR) {
+          o.vx -= nx * 240 * S * sdt;
+          o.vy -= ny * 240 * S * sdt;
+        }
+        // Subtle tangential stabilization so orbits stay crisp and circular until their turn
+        const tx = -ny, ty = nx;
+        const vCirc = Math.sqrt(baseGM / Math.max(50 * S, dist));
+        const vt = o.vx * tx + o.vy * ty;
+        const vr = o.vx * nx + o.vy * ny;
+        o.vx += (tx * (vCirc - vt) * 1.4 - nx * vr * 1.2) * sdt;
+        o.vy += (ty * (vCirc - vt) * 1.4 - ny * vr * 1.2) * sdt;
+      }
+
+      // Cap extreme speeds
+      const spd = Math.hypot(o.vx, o.vy);
+      const maxSpd = 1180 * S;
+      if (spd > maxSpd) {
+        o.vx = (o.vx / spd) * maxSpd;
+        o.vy = (o.vy / spd) * maxSpd;
+      }
+
+      o.x += o.vx * sdt;
+      o.y += o.vy * sdt;
+
+      // Soft bounce inside outer containment ring
+      const odx = o.x - cx;
+      const ody = o.y - cy;
+      const odist = Math.hypot(odx, ody);
+      const maxR = containR - o.r - 4 * S;
+      if (odist > maxR && odist > 1e-4) {
+        const rnx = odx / odist;
+        const rny = ody / odist;
+        o.x = cx + rnx * maxR;
+        o.y = cy + rny * maxR;
+        const vn = o.vx * rnx + o.vy * rny;
+        if (vn > 0) {
+          o.vx -= 1.6 * vn * rnx;
+          o.vy -= 1.6 * vn * rny;
+        }
+      }
+    }
+
+    // Ensure final devour & supernova right at climaxTime (~88% DUR)
+    if (!devouredAll && (eatenCount >= TOTAL_ORBS || simTime >= climaxTime)) {
+      for (let i = 0; i < orbs.length; i++) {
+        if (!orbs[i].eaten) eatOrb(orbs[i], cx, cy, S);
+      }
+      triggerSupernova(cx, cy, containR, S);
+    }
+  }
+
+  // Record smooth trails once per frame
+  for (let i = 0; i < orbs.length; i++) {
+    const o = orbs[i];
+    if (o.eaten) continue;
+    o.trail.push({ x: o.x, y: o.y });
+    if (o.trail.length > 9) o.trail.shift();
+  }
+
+  // Visual FX decay
+  bhPulse = Math.max(0, bhPulse - dt * 4.5);
+  shake *= Math.pow(0.05, dt);
+  supernovaFlash = Math.max(0, supernovaFlash - dt * 1.6);
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    if (!devouredAll) {
+      // Accretion swirl inward
+      const dx = cx - sp.x, dy = cy - sp.y;
+      const d = Math.max(20 * S, Math.hypot(dx, dy));
+      sp.vx += (dx / d) * 340 * S * dt;
+      sp.vy += (dy / d) * 340 * S * dt;
+    }
+    sp.x += sp.vx * dt;
+    sp.y += sp.vy * dt;
+    sp.life -= dt * 1.35;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+
+  for (let i = waves.length - 1; i >= 0; i--) {
+    const w = waves[i];
+    w.r += (w.maxR - w.r) * Math.min(1, dt * 6.5);
+    w.alpha -= dt * 1.45;
+    if (w.alpha <= 0) waves.splice(i, 1);
+  }
+}
+
+function drawHook(text, S) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const maxW = W * 0.82;
+  let fontSize = Math.round(38 * S);
+  ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  while (ctx.measureText(text).width > maxW && fontSize > Math.round(22 * S)) {
+    fontSize -= 2;
+    ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  }
+  ctx.shadowColor = 'rgba(56,189,248,0.6)';
+  ctx.shadowBlur = 18 * S;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, W * 0.5, H * 0.105, maxW);
+  ctx.restore();
+}
+
+function drawFrame() {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.50;
+  const containR = 304 * S;
+  const p = Math.max(0, Math.min(1, simTime / climaxTime));
+
+  // Deep space background
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle cosmic nebula glow
+  const neb = ctx.createRadialGradient(cx, cy, bhRadius * 0.5, cx, cy, 460 * S);
+  neb.addColorStop(0, devouredAll ? 'rgba(250,204,21,0.22)' : 'rgba(56,189,248,0.14)');
+  neb.addColorStop(0.55, 'rgba(67,56,202,0.08)');
+  neb.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = neb;
+  ctx.fillRect(0, 0, W, H);
+
+  // Twinkling background starfield
+  for (let i = 0; i < stars.length; i++) {
+    const st = stars[i];
+    const alpha = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(simTime * st.speed + st.phase));
+    ctx.fillStyle = `hsla(${st.hue}, 80%, 88%, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.save();
+  if (shake > 0.2) {
+    ctx.translate((rand() - 0.5) * 2 * shake, (rand() - 0.5) * 2 * shake);
+  }
+
+  // Gravitational lensing concentric distortion rings
+  ctx.save();
+  for (let k = 1; k <= 3; k++) {
+    const lr = bhRadius * (1.32 + k * 0.36) + Math.sin(simTime * 3.5 + k) * 3 * S;
+    ctx.strokeStyle = k === 1
+      ? `rgba(250,204,21,${0.26 + bhPulse * 0.2})`
+      : `rgba(56,189,248,${0.14 / k})`;
+    ctx.lineWidth = (2.6 - k * 0.5) * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy, lr, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Outer Glowing Containment Ring (collapses at supernova!)
+  if (!devouredAll) {
+    const stress = Math.pow(p, 2.2);
+    const ringR = containR - stress * 10 * S + Math.sin(simTime * 28) * stress * 2.5 * S;
+    ctx.save();
+    ctx.strokeStyle = stress > 0.72 ? '#facc15' : '#38bdf8';
+    ctx.lineWidth = (5 + stress * 3) * S;
+    ctx.shadowColor = stress > 0.72 ? '#facc15' : '#22d3ee';
+    ctx.shadowBlur = (20 + stress * 16) * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Subtle energy ticks around containment ring
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 2 * S;
+    const ticks = 36;
+    for (let i = 0; i < ticks; i++) {
+      const a = (i / ticks) * Math.PI * 2 + simTime * 0.25;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * (ringR - 6 * S), cy + Math.sin(a) * (ringR - 6 * S));
+      ctx.lineTo(cx + Math.cos(a) * (ringR + 6 * S), cy + Math.sin(a) * (ringR + 6 * S));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Shockwaves
+  for (const w of waves) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, w.alpha);
+    ctx.strokeStyle = w.col;
+    ctx.lineWidth = 4.5 * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy, w.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Orbiting Orbs & Mini-Rings with glowing comet trails
+  for (let i = 0; i < orbs.length; i++) {
+    const o = orbs[i];
+    if (o.eaten) continue;
+
+    // Trail
+    if (o.trail.length > 1) {
+      ctx.beginPath();
+      for (let t = 0; t < o.trail.length; t++) {
+        const pt = o.trail[t];
+        if (t === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      }
+      ctx.strokeStyle = `hsla(${o.hue}, 96%, 62%, 0.36)`;
+      ctx.lineWidth = o.r * 0.72;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+
+    // Soft halo
+    ctx.fillStyle = `hsla(${o.hue}, 96%, 62%, 0.24)`;
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, o.r * 1.7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mini Saturn-like ring for ringed orbs
+    if (o.isRing) {
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      ctx.rotate(o.ringTilt + simTime * 1.8);
+      ctx.strokeStyle = `hsla(${(o.hue + 40) % 360}, 98%, 74%, 0.85)`;
+      ctx.lineWidth = 2.0 * S;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, o.r * 2.05, o.r * 0.65, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Core orb
+    ctx.fillStyle = `hsl(${o.hue}, 96%, 62%)`;
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.beginPath();
+    ctx.arc(o.x - o.r * 0.28, o.y - o.r * 0.28, o.r * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Accretion Halo & Swirling Plasma Disk around Black Hole
+  const visualR = bhRadius * (1 + bhPulse * 0.05);
+  const haloGrad = ctx.createRadialGradient(cx, cy, visualR * 0.85, cx, cy, visualR * 2.25);
+  haloGrad.addColorStop(0, 'rgba(254,240,138,0.95)');
+  haloGrad.addColorStop(0.18, 'rgba(250,204,21,0.68)');
+  haloGrad.addColorStop(0.45, 'rgba(56,189,248,0.34)');
+  haloGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = haloGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, visualR * 2.25, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rotating plasma accretion arcs
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let k = 0; k < 6; k++) {
+    const aStart = simTime * (2.6 + (k % 3) * 0.9) + k * (Math.PI / 3);
+    const arcR = visualR * (1.12 + (k % 3) * 0.16);
+    ctx.strokeStyle = k % 2 === 0 ? 'rgba(250,204,21,0.72)' : 'rgba(56,189,248,0.72)';
+    ctx.lineWidth = (3.4 - (k % 3) * 0.7) * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(0, 0, arcR, aStart, aStart + 1.15);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Pure Pitch-Black Event Horizon Core + Razor Photon Sphere
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(cx, cy, visualR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = devouredAll ? '#fef08a' : '#7dd3fc';
+  ctx.lineWidth = (3.2 + bhPulse * 2.2) * S;
+  ctx.shadowColor = devouredAll ? '#facc15' : '#38bdf8';
+  ctx.shadowBlur = (18 + bhPulse * 14) * S;
+  ctx.beginPath();
+  ctx.arc(cx, cy, visualR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // Sparks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
+    ctx.fillStyle = sp.col;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Golden Supernova Flash overlay
+  if (supernovaFlash > 0.01) {
+    const fl = ctx.createRadialGradient(cx, cy, 10 * S, cx, cy, W * 0.85);
+    fl.addColorStop(0, `rgba(254,249,195,${supernovaFlash * 0.82})`);
+    fl.addColorStop(0.45, `rgba(250,204,21,${supernovaFlash * 0.42})`);
+    fl.addColorStop(1, 'rgba(5,7,18,0)');
+    ctx.fillStyle = fl;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.restore(); // end shake
+
+  // Top HOOK text
+  drawHook(HOOK, S);
+
+  // Live HUD Stats (EATEN & MASS)
+  const massVal = (1 + (eatenCount / TOTAL_ORBS) * 119).toFixed(1);
+  const hudY = H * 0.815;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(44 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.shadowColor = devouredAll ? '#facc15' : '#38bdf8';
+  ctx.shadowBlur = 18 * S;
+  ctx.fillStyle = devouredAll ? '#fde047' : '#ffffff';
+  ctx.fillText(`EATEN: ${eatenCount} / ${TOTAL_ORBS}`, cx, hudY, W * 0.84);
+
+  ctx.shadowBlur = 0;
+  ctx.font = `800 ${Math.round(28 * S)}px monospace`;
+  ctx.fillStyle = '#facc15';
+  ctx.fillText(`MASS: ${massVal}x`, cx, hudY + 46 * S);
+
+  // Progress bar
+  const barW = W * 0.64;
+  const barH = 14 * S;
+  const barX = cx - barW * 0.5;
+  const barY = hudY + 72 * S;
+  ctx.fillStyle = 'rgba(30,41,59,0.85)';
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, barH, 7 * S);
+  ctx.fill();
+
+  const fillW = barW * (eatenCount / TOTAL_ORBS);
+  if (fillW > 1) {
+    const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    grad.addColorStop(0, '#38bdf8');
+    grad.addColorStop(0.6, '#c084fc');
+    grad.addColorStop(1, '#facc15');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, fillW, barH, 7 * S);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Climax Banner at ~88% of DUR
+  if (devouredAll) {
+    const finAge = Math.min(1, (simTime - climaxTime) / 0.35);
+    const scale = 0.86 + 0.14 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(cx, H * 0.50);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.90)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.42, -68 * S, W * 0.84, 136 * S, 26 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 26 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('ALL DEVOURED! 🕳️', 0, 4 * S, W * 0.78);
+    ctx.font = `800 ${Math.round(22 * S)}px monospace`;
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillText('120 / 120 ORBS  •  MASS 120.0x', 0, 44 * S, W * 0.78);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    stepPhysics(1 / FPS);
+    drawFrame();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

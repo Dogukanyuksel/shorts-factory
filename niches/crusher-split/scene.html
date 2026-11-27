@@ -1,0 +1,904 @@
+<!doctype html>
+<!-- Crusher Split: Industrial pendulum crusher wedge where every crushed ball splits in two until the bottom wall shatters -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'WILL IT BURST? EVERY CRUSH SPLITS!';
+let rng = 1;
+let simTime = 0;
+let balls = [];
+let sparks = [];
+let shards = [];
+let waves = [];
+let events = [];
+
+let totalBalls = 1;
+let slams = 0;
+let shake = 0;
+let counterPop = 0;
+let leftFlash = 0, rightFlash = 0;
+let armAngle = 0, prevArmAngle = 0, armOmega = 0, armPhase = 0;
+let lastSlamSide = 0;
+let shattered = false;
+let shatterTime = 21.12;
+let lastSplitSoundT = -1;
+let lastBounceSoundT = -1;
+
+const MAX_RENDER_BALLS = 360;
+const HALF_ANGLE = 0.575; // ~33 deg half-wedge
+const WALL_SEGS = 14;
+
+const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
+
+function ballHueForCount(n) {
+  // Shifts from electric cyan -> sky -> violet -> magenta -> gold as ball count climbs
+  if (n <= 4) return 190;
+  if (n <= 16) return 195 + (rand() - 0.5) * 20;
+  if (n <= 64) return 210 + rand() * 55;
+  if (n <= 256) return 185 + rand() * 145;
+  return (180 + rand() * 220) % 360;
+}
+
+function makeBall(x, y, vx, vy, S, hue) {
+  return {
+    x, y, vx, vy,
+    r: 13.5 * S,
+    hue: hue !== undefined ? hue : 190,
+    pop: 1.0,
+    glow: 1.0
+  };
+}
+
+function spawnSparks(x, y, col, n, S, speedScale) {
+  const spMul = speedScale || 1;
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const spd = (110 + rand() * 360) * S * spMul;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd - 60 * S,
+      life: 0.45 + rand() * 0.45,
+      maxLife: 0.9,
+      size: (2.4 + rand() * 4.2) * S,
+      col
+    });
+  }
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 24;
+  HOOK = cfg.hook || 'WILL IT BURST? EVERY CRUSH SPLITS!';
+  cv.width = W;
+  cv.height = H;
+
+  rng = ((cfg.seed || 1) * 2654435761 + 1013904223) >>> 0;
+  const S = W / 720;
+  const cx = W * 0.5;
+  const pivotY = H * 0.235;
+  const arenaR = 455 * S;
+
+  simTime = 0;
+  shatterTime = DUR * 0.88;
+  shattered = false;
+  totalBalls = 1;
+  slams = 0;
+  shake = 0;
+  counterPop = 0;
+  leftFlash = 0;
+  rightFlash = 0;
+  armPhase = 0;
+  armAngle = 0;
+  prevArmAngle = 0;
+  armOmega = 0;
+  lastSlamSide = 0;
+  lastSplitSoundT = -1;
+  lastBounceSoundT = -1;
+
+  balls = [
+    makeBall(cx + 55 * S, pivotY + arenaR * 0.68, 120 * S, -40 * S, S, 190)
+  ];
+  sparks = [];
+  shards = [];
+  waves = [];
+  events = [];
+};
+
+function triggerSlam(side, cx, pivotY, arenaR, S) {
+  slams++;
+  shake = Math.min(22 * S, (7 + Math.min(slams, 14) * 0.85) * S);
+  counterPop = 1.0;
+  if (side < 0) leftFlash = 1.0;
+  else rightFlash = 1.0;
+
+  // Exponential growth: clean doubling early (1->2->4->8->16->32->64->128->256->512...), then rapid surge
+  const prevTotal = totalBalls;
+  if (totalBalls < 512) {
+    totalBalls = totalBalls * 2;
+  } else {
+    totalBalls = Math.round(totalBalls * 1.42) + 48;
+  }
+  const addedLogical = totalBalls - prevTotal;
+
+  // Determine how many new rendered balls to spawn (capped at MAX_RENDER_BALLS)
+  const room = Math.max(0, MAX_RENDER_BALLS - balls.length);
+  const toSpawn = Math.min(room, Math.max(1, Math.min(addedLogical, 48)));
+
+  // Pick crush zone along the impacted wall
+  const wallAng = side * HALF_ANGLE;
+  const wxDir = Math.sin(wallAng);
+  const wyDir = Math.cos(wallAng);
+  const nx = -side * Math.cos(HALF_ANGLE);
+  const ny = -Math.sin(HALF_ANGLE);
+
+  // Spark burst along the hazard wall
+  for (let k = 0; k < 3; k++) {
+    const dist = arenaR * (0.58 + k * 0.14);
+    const sx = cx + wxDir * dist;
+    const sy = pivotY + wyDir * dist;
+    spawnSparks(sx, sy, side < 0 ? '#38bdf8' : '#facc15', 8, S, 1.05);
+  }
+  waves.push({
+    x: cx + wxDir * arenaR * 0.78,
+    y: pivotY + wyDir * arenaR * 0.78,
+    r: 12 * S,
+    maxR: 165 * S,
+    alpha: 0.85,
+    col: side < 0 ? '#22d3ee' : '#facc15'
+  });
+
+  // Spawn split balls near existing balls or along the crushed wall
+  for (let i = 0; i < toSpawn; i++) {
+    const parent = balls[Math.floor(rand() * balls.length)];
+    const jitter = (rand() - 0.5) * 18 * S;
+    const bx = parent ? parent.x + nx * 12 * S + jitter : cx + wxDir * arenaR * 0.72 + nx * 24 * S;
+    const by = parent ? parent.y + ny * 12 * S - rand() * 14 * S : pivotY + wyDir * arenaR * 0.72;
+    const kick = (160 + rand() * 240) * S;
+    const hue = ballHueForCount(totalBalls);
+    balls.push(makeBall(
+      bx,
+      by,
+      nx * kick + (rand() - 0.5) * 120 * S,
+      -Math.abs(rand() * 180 * S) - 40 * S,
+      S,
+      hue
+    ));
+    if (parent) parent.glow = 1.0;
+  }
+
+  // Dynamically shrink ball radius slightly as crowd grows so 360 balls fit cleanly inside the wedge
+  const targetR = Math.max(7.2 * S, (14.2 - Math.sqrt(balls.length) * 0.37) * S);
+  for (let i = 0; i < balls.length; i++) {
+    balls[i].r = balls[i].r * 0.85 + targetR * 0.15;
+  }
+
+  // Sound event
+  const isMajor = (totalBalls >= 8 && (totalBalls & (totalBalls - 1)) === 0) || slams % 4 === 0;
+  if (simTime - lastSplitSoundT > 0.08) {
+    lastSplitSoundT = simTime;
+    events.push({
+      t: simTime,
+      type: isMajor ? 'break' : 'bounce',
+      pitchIndex: Math.min(18, slams),
+      intensity: Math.min(1.0, 0.58 + slams * 0.03)
+    });
+  }
+}
+
+function triggerShatter(cx, pivotY, arenaR, S) {
+  shattered = true;
+  shake = 26 * S;
+  counterPop = 1.2;
+
+  // Detach all 14 bottom arc segments into flying glowing debris
+  const segSpan = (HALF_ANGLE * 2) / WALL_SEGS;
+  for (let i = 0; i < WALL_SEGS; i++) {
+    const a0 = -HALF_ANGLE + i * segSpan;
+    const a1 = a0 + segSpan;
+    const am = (a0 + a1) * 0.5;
+    const sx = cx + Math.sin(am) * arenaR;
+    const sy = pivotY + Math.cos(am) * arenaR;
+    shards.push({
+      x: sx,
+      y: sy,
+      vx: Math.sin(am) * (240 + rand() * 340) * S + (rand() - 0.5) * 120 * S,
+      vy: Math.cos(am) * (160 + rand() * 280) * S + 80 * S,
+      angle: am,
+      vAngle: (rand() - 0.5) * 10,
+      len: arenaR * segSpan * 0.96,
+      life: 1.0
+    });
+    spawnSparks(sx, sy, i % 2 === 0 ? '#facc15' : '#ef4444', 10, S, 1.5);
+  }
+
+  waves.push({ x: cx, y: pivotY + arenaR, r: 24 * S, maxR: 520 * S, alpha: 1.0, col: '#facc15' });
+  waves.push({ x: cx, y: pivotY + arenaR, r: 10 * S, maxR: 380 * S, alpha: 0.9, col: '#ef4444' });
+
+  // Give all balls an explosive downward/outward burst
+  for (let i = 0; i < balls.length; i++) {
+    const b = balls[i];
+    b.vy += (180 + rand() * 260) * S;
+    b.vx += (rand() - 0.5) * 280 * S;
+    b.glow = 1.0;
+  }
+
+  events.push({ t: simTime, type: 'win', pitchIndex: 14, intensity: 1.0 });
+}
+
+function stepPhysics(dt) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const pivotY = H * 0.235;
+  const arenaR = 455 * S;
+  const armLen = arenaR - 14 * S;
+  const armHalfW = 14 * S;
+
+  const subSteps = 3;
+  const sdt = dt / subSteps;
+
+  for (let s = 0; s < subSteps; s++) {
+    simTime += sdt;
+    const p = Math.max(0, Math.min(1, simTime / shatterTime));
+
+    if (!shattered && simTime >= shatterTime) {
+      triggerShatter(cx, pivotY, arenaR, S);
+    }
+
+    // Accelerating pendulum crusher sweep
+    const freq = 0.56 + 0.72 * Math.pow(p, 1.35);
+    armPhase += Math.PI * 2 * freq * sdt;
+    prevArmAngle = armAngle;
+    const maxSweep = HALF_ANGLE - 0.085;
+    armAngle = Math.sin(armPhase) * maxSweep;
+    armOmega = (armAngle - prevArmAngle) / sdt;
+
+    // Detect left/right wall slam at peak sweep
+    if (!shattered) {
+      if (armAngle > maxSweep * 0.94 && lastSlamSide !== 1) {
+        lastSlamSide = 1;
+        triggerSlam(1, cx, pivotY, arenaR, S);
+      } else if (armAngle < -maxSweep * 0.94 && lastSlamSide !== -1) {
+        lastSlamSide = -1;
+        triggerSlam(-1, cx, pivotY, arenaR, S);
+      }
+    }
+
+    const armTipX = cx + Math.sin(armAngle) * armLen;
+    const armTipY = pivotY + Math.cos(armAngle) * armLen;
+    const armDx = armTipX - cx;
+    const armDy = armTipY - pivotY;
+    const armLenSq = armDx * armDx + armDy * armDy;
+
+    const g = 980 * S;
+
+    // Integrate balls & collide with arena + crusher arm
+    for (let i = 0; i < balls.length; i++) {
+      const b = balls[i];
+      b.vy += g * sdt;
+      b.x += b.vx * sdt;
+      b.y += b.vy * sdt;
+      b.vx *= 0.9992;
+      b.vy *= 0.9992;
+      if (b.pop > 0) b.pop = Math.max(0, b.pop - sdt * 4.5);
+      if (b.glow > 0) b.glow = Math.max(0, b.glow - sdt * 2.5);
+
+      // Keep below pivot cap
+      const relX = b.x - cx;
+      const relY = b.y - pivotY;
+      const distPivot = Math.hypot(relX, relY);
+
+      if (!shattered) {
+        // Left wall: angle = -HALF_ANGLE from +Y -> inward normal (+cos, -sin)
+        const nLx = Math.cos(HALF_ANGLE);
+        const nLy = -Math.sin(HALF_ANGLE);
+        const dL = relX * nLx + relY * nLy;
+        if (dL < b.r) {
+          b.x += nLx * (b.r - dL);
+          b.y += nLy * (b.r - dL);
+          const vn = b.vx * nLx + b.vy * nLy;
+          if (vn < 0) {
+            b.vx -= 1.68 * vn * nLx;
+            b.vy -= 1.68 * vn * nLy;
+          }
+        }
+
+        // Right wall: angle = +HALF_ANGLE from +Y -> inward normal (-cos, -sin)
+        const nRx = -Math.cos(HALF_ANGLE);
+        const nRy = -Math.sin(HALF_ANGLE);
+        const dR = relX * nRx + relY * nRy;
+        if (dR < b.r) {
+          b.x += nRx * (b.r - dR);
+          b.y += nRy * (b.r - dR);
+          const vn = b.vx * nRx + b.vy * nRy;
+          if (vn < 0) {
+            b.vx -= 1.68 * vn * nRx;
+            b.vy -= 1.68 * vn * nRy;
+          }
+        }
+
+        // Curved bottom wall
+        const dx2 = b.x - cx;
+        const dy2 = b.y - pivotY;
+        const dist2 = Math.hypot(dx2, dy2);
+        const maxR = arenaR - b.r - 4 * S;
+        if (dist2 > maxR && dist2 > 1e-4) {
+          const nx = dx2 / dist2;
+          const ny = dy2 / dist2;
+          b.x = cx + nx * maxR;
+          b.y = pivotY + ny * maxR;
+          const vn = b.vx * nx + b.vy * ny;
+          if (vn > 0) {
+            b.vx -= 1.62 * vn * nx;
+            b.vy -= 1.62 * vn * ny;
+          }
+        }
+
+        // Top pivot hub exclusion
+        const minR = 46 * S + b.r;
+        if (distPivot < minR && distPivot > 1e-4) {
+          const nx = relX / distPivot;
+          const ny = relY / distPivot;
+          b.x = cx + nx * minR;
+          b.y = pivotY + ny * minR;
+          const vn = b.vx * nx + b.vy * ny;
+          if (vn < 0) {
+            b.vx -= 1.5 * vn * nx;
+            b.vy -= 1.5 * vn * ny;
+          }
+        }
+      }
+
+      // Collision with sweeping metallic crusher arm
+      const tProj = Math.max(0.08, Math.min(1, ((b.x - cx) * armDx + (b.y - pivotY) * armDy) / Math.max(1e-4, armLenSq)));
+      const closestX = cx + armDx * tProj;
+      const closestY = pivotY + armDy * tProj;
+      const cdx = b.x - closestX;
+      const cdy = b.y - closestY;
+      const cdist = Math.hypot(cdx, cdy);
+      const minDist = armHalfW + b.r;
+      if (cdist < minDist) {
+        let nx, ny;
+        if (cdist > 1e-4) {
+          nx = cdx / cdist;
+          ny = cdy / cdist;
+        } else {
+          nx = Math.cos(armAngle) * (armOmega >= 0 ? 1 : -1);
+          ny = -Math.sin(armAngle) * (armOmega >= 0 ? 1 : -1);
+        }
+        b.x = closestX + nx * minDist;
+        b.y = closestY + ny * minDist;
+
+        // Arm surface velocity at contact point
+        const rContact = tProj * armLen;
+        const armVx = Math.cos(armAngle) * armOmega * rContact;
+        const armVy = -Math.sin(armAngle) * armOmega * rContact;
+
+        const rvx = b.vx - armVx;
+        const rvy = b.vy - armVy;
+        const vn = rvx * nx + rvy * ny;
+        if (vn < 0) {
+          b.vx -= 1.72 * vn * nx;
+          b.vy -= 1.72 * vn * ny;
+          b.glow = 0.85;
+          if (!shattered && Math.abs(vn) > 220 * S && simTime - lastBounceSoundT > 0.14 && balls.length <= 16) {
+            lastBounceSoundT = simTime;
+            events.push({ t: simTime, type: 'bounce', pitchIndex: (slams + i) % 12, intensity: 0.35 });
+          }
+        }
+      }
+
+      // Clamp extreme velocities for stability
+      const spd = Math.hypot(b.vx, b.vy);
+      const maxSpd = 1280 * S;
+      if (spd > maxSpd) {
+        b.vx = (b.vx / spd) * maxSpd;
+        b.vy = (b.vy / spd) * maxSpd;
+      }
+    }
+
+    // Fast spatial-grid ball-to-ball collision so crowds pack & push realistically
+    const nB = balls.length;
+    if (nB > 1) {
+      const cellSize = 28 * S;
+      const grid = new Map();
+      for (let i = 0; i < nB; i++) {
+        const b = balls[i];
+        const gx = Math.floor(b.x / cellSize);
+        const gy = Math.floor(b.y / cellSize);
+        const key = (gx + 512) * 2048 + (gy + 512);
+        let bucket = grid.get(key);
+        if (!bucket) { bucket = []; grid.set(key, bucket); }
+        bucket.push(i);
+      }
+      for (let i = 0; i < nB; i++) {
+        const a = balls[i];
+        const gx = Math.floor(a.x / cellSize);
+        const gy = Math.floor(a.y / cellSize);
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const bucket = grid.get((gx + ox + 512) * 2048 + (gy + oy + 512));
+            if (!bucket) continue;
+            for (let k = 0; k < bucket.length; k++) {
+              const j = bucket[k];
+              if (j <= i) continue;
+              const b = balls[j];
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              const minD = a.r + b.r;
+              const d2 = dx * dx + dy * dy;
+              if (d2 < minD * minD && d2 > 1e-6) {
+                const d = Math.sqrt(d2);
+                const nx = dx / d;
+                const ny = dy / d;
+                const overlap = (minD - d) * 0.5;
+                a.x -= nx * overlap;
+                a.y -= ny * overlap;
+                b.x += nx * overlap;
+                b.y += ny * overlap;
+                const rvx = b.vx - a.vx;
+                const rvy = b.vy - a.vy;
+                const vn = rvx * nx + rvy * ny;
+                if (vn < 0) {
+                  const imp = -0.82 * vn;
+                  a.vx -= imp * nx;
+                  a.vy -= imp * ny;
+                  b.vx += imp * nx;
+                  b.vy += imp * ny;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Update visual FX
+  shake *= Math.pow(0.06, dt);
+  counterPop = Math.max(0, counterPop - dt * 3.8);
+  leftFlash = Math.max(0, leftFlash - dt * 4.5);
+  rightFlash = Math.max(0, rightFlash - dt * 4.5);
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    sp.vy += 580 * S * dt;
+    sp.x += sp.vx * dt;
+    sp.y += sp.vy * dt;
+    sp.life -= dt * 1.45;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const sh = shards[i];
+    sh.vy += 880 * S * dt;
+    sh.x += sh.vx * dt;
+    sh.y += sh.vy * dt;
+    sh.angle += sh.vAngle * dt;
+    sh.life -= dt * 0.42;
+    if (sh.life <= 0) shards.splice(i, 1);
+  }
+  for (let i = waves.length - 1; i >= 0; i--) {
+    const w = waves[i];
+    w.r += (w.maxR - w.r) * Math.min(1, dt * 8.5);
+    w.alpha -= dt * 2.1;
+    if (w.alpha <= 0) waves.splice(i, 1);
+  }
+}
+
+function drawHazardWall(x1, y1, x2, y2, thickness, flash, S) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  const ang = Math.atan2(dy, dx);
+
+  ctx.save();
+  ctx.translate(x1, y1);
+  ctx.rotate(ang);
+
+  // Outer glow on slam
+  if (flash > 0.01) {
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 24 * S * flash;
+  }
+
+  // Clip rectangle for diagonal hazard stripes
+  ctx.beginPath();
+  ctx.roundRect(0, -thickness * 0.5, len, thickness, 6 * S);
+  ctx.fillStyle = '#111827';
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+
+  ctx.fillStyle = flash > 0.2 ? '#fef08a' : '#facc15';
+  const stripeW = 22 * S;
+  for (let x = -thickness; x < len + thickness * 2; x += stripeW * 2) {
+    ctx.beginPath();
+    ctx.moveTo(x, -thickness * 0.6);
+    ctx.lineTo(x + stripeW, -thickness * 0.6);
+    ctx.lineTo(x + stripeW - thickness * 0.85, thickness * 0.6);
+    ctx.lineTo(x - thickness * 0.85, thickness * 0.6);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Metallic industrial border
+  ctx.strokeStyle = flash > 0.15 ? '#ffffff' : '#fde047';
+  ctx.lineWidth = 2.6 * S;
+  ctx.beginPath();
+  ctx.roundRect(0, -thickness * 0.5, len, thickness, 6 * S);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawHook(text, S) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const maxW = W * 0.82;
+  let fontSize = Math.round(38 * S);
+  ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  while (ctx.measureText(text).width > maxW && fontSize > Math.round(22 * S)) {
+    fontSize -= 2;
+    ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  }
+  ctx.shadowColor = 'rgba(34,211,238,0.55)';
+  ctx.shadowBlur = 16 * S;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, W * 0.5, H * 0.11, maxW);
+  ctx.restore();
+}
+
+function drawFrame() {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const pivotY = H * 0.235;
+  const arenaR = 455 * S;
+  const armLen = arenaR - 14 * S;
+  const pressure = Math.max(0, Math.min(1, simTime / shatterTime));
+
+  // Background
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle industrial radial ambiance
+  const bgGrad = ctx.createRadialGradient(cx, pivotY + arenaR * 0.55, 20 * S, cx, pivotY + arenaR * 0.55, 560 * S);
+  bgGrad.addColorStop(0, shattered ? 'rgba(239,68,68,0.16)' : `rgba(34,211,238,${0.06 + pressure * 0.06})`);
+  bgGrad.addColorStop(0.6, 'rgba(15,23,42,0.18)');
+  bgGrad.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle blueprint grid
+  ctx.save();
+  ctx.strokeStyle = 'rgba(148,163,184,0.045)';
+  ctx.lineWidth = 1 * S;
+  const step = 48 * S;
+  for (let x = 0; x <= W; x += step) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y <= H; y += step) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Camera shake
+  ctx.save();
+  if (shake > 0.2) {
+    const sx = (rand() - 0.5) * 2 * shake;
+    const sy = (rand() - 0.5) * 2 * shake;
+    ctx.translate(sx, sy);
+  }
+
+  // Interior wedge subtle fill
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx, pivotY);
+  ctx.arc(cx, pivotY, arenaR, Math.PI * 0.5 - HALF_ANGLE, Math.PI * 0.5 + HALF_ANGLE);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(12,18,36,0.72)';
+  ctx.fill();
+  ctx.restore();
+
+  // Shockwaves
+  for (const w of waves) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, w.alpha);
+    ctx.strokeStyle = w.col;
+    ctx.lineWidth = 4 * S;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Curved Segmented Bottom Wall (cracks & glows red as pressure builds, shatters at ~88% DUR)
+  if (!shattered) {
+    const segSpan = (HALF_ANGLE * 2) / WALL_SEGS;
+    const vib = pressure > 0.45 ? (pressure - 0.45) * 6.5 * S : 0;
+    for (let i = 0; i < WALL_SEGS; i++) {
+      const a0 = Math.PI * 0.5 - HALF_ANGLE + i * segSpan + 0.008;
+      const a1 = a0 + segSpan - 0.016;
+      const jx = vib > 0 ? Math.sin(simTime * 55 + i * 2.1) * vib * 0.4 : 0;
+      const jy = vib > 0 ? Math.cos(simTime * 62 + i * 1.7) * vib * 0.5 : 0;
+
+      const rCol = Math.round(70 + pressure * 185);
+      const gCol = Math.round(180 * (1 - pressure * 0.85) + 40 * pressure);
+      const bCol = Math.round(210 * (1 - pressure * 0.92));
+      const segColor = `rgb(${rCol},${gCol},${bCol})`;
+
+      ctx.save();
+      ctx.translate(jx, jy);
+      ctx.strokeStyle = segColor;
+      ctx.lineWidth = 18 * S;
+      ctx.lineCap = 'butt';
+      if (pressure > 0.35) {
+        ctx.shadowColor = pressure > 0.7 ? '#ef4444' : '#f97316';
+        ctx.shadowBlur = (10 + pressure * 24) * S;
+      }
+      ctx.beginPath();
+      ctx.arc(cx, pivotY, arenaR, a0, a1);
+      ctx.stroke();
+
+      // Inner dark armor bevel
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(5,7,18,0.55)';
+      ctx.lineWidth = 4 * S;
+      ctx.beginPath();
+      ctx.arc(cx, pivotY, arenaR, a0 + 0.01, a1 - 0.01);
+      ctx.stroke();
+
+      // Glowing cracks appearing as pressure builds
+      if (pressure > 0.25) {
+        const crackAlpha = Math.min(1, (pressure - 0.25) / 0.65);
+        const am = (a0 + a1) * 0.5;
+        const px = cx + Math.cos(am) * arenaR;
+        const py = pivotY + Math.sin(am) * arenaR;
+        ctx.strokeStyle = `rgba(255, ${Math.round(220 * (1 - pressure * 0.7))}, 80, ${crackAlpha})`;
+        ctx.lineWidth = (1.8 + pressure * 2.2) * S;
+        ctx.beginPath();
+        ctx.moveTo(px - Math.cos(am) * 11 * S, py - Math.sin(am) * 11 * S);
+        ctx.lineTo(px + Math.sin(am) * 5 * S, py - Math.cos(am) * 5 * S);
+        ctx.lineTo(px + Math.cos(am) * 11 * S, py + Math.sin(am) * 11 * S);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  } else {
+    // Flying shattered bottom wall shards
+    for (const sh of shards) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, sh.life);
+      ctx.translate(sh.x, sh.y);
+      ctx.rotate(sh.angle);
+      ctx.fillStyle = '#ef4444';
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 2.5 * S;
+      ctx.beginPath();
+      ctx.roundRect(-sh.len * 0.5, -9 * S, sh.len, 18 * S, 3 * S);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Left & right industrial hazard striped side walls
+  const lx2 = cx - Math.sin(HALF_ANGLE) * (arenaR + 10 * S);
+  const ly2 = pivotY + Math.cos(HALF_ANGLE) * (arenaR + 10 * S);
+  const rx2 = cx + Math.sin(HALF_ANGLE) * (arenaR + 10 * S);
+  const ry2 = pivotY + Math.cos(HALF_ANGLE) * (arenaR + 10 * S);
+  drawHazardWall(cx, pivotY, lx2, ly2, 22 * S, leftFlash, S);
+  drawHazardWall(cx, pivotY, rx2, ry2, 22 * S, rightFlash, S);
+
+  // Glowing Balls
+  for (let i = 0; i < balls.length; i++) {
+    const b = balls[i];
+    const scale = 1 + b.pop * 0.35;
+    const r = b.r * scale;
+    const col = `hsl(${b.hue}, 96%, 60%)`;
+
+    // Soft outer halo (fast additive-like radial feel without expensive shadowBlur per ball)
+    ctx.fillStyle = `hsla(${b.hue}, 96%, 60%, ${0.22 + b.glow * 0.25})`;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, r * 1.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Main sphere
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Specular highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(b.x - r * 0.3, b.y - r * 0.3, r * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Heavy Metallic Industrial Pendulum Crusher Arm
+  ctx.save();
+  ctx.translate(cx, pivotY);
+  ctx.rotate(-armAngle); // armAngle > 0 tilts right (+X, +Y), canvas rotate(-armAngle) maps (0, +L) to (+L*sin, +L*cos)
+
+  // Arm metallic gradient body
+  const armGrad = ctx.createLinearGradient(-15 * S, 0, 15 * S, 0);
+  armGrad.addColorStop(0, '#334155');
+  armGrad.addColorStop(0.28, '#cbd5e1');
+  armGrad.addColorStop(0.5, '#f8fafc');
+  armGrad.addColorStop(0.75, '#64748b');
+  armGrad.addColorStop(1, '#1e293b');
+
+  ctx.fillStyle = armGrad;
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.roundRect(-14 * S, 0, 28 * S, armLen, 10 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  // Glowing hydraulic core strip along crusher arm
+  const stripCol = shattered ? '#ef4444' : (pressure > 0.65 ? '#f97316' : '#22d3ee');
+  ctx.fillStyle = stripCol;
+  ctx.shadowColor = stripCol;
+  ctx.shadowBlur = 14 * S;
+  ctx.beginPath();
+  ctx.roundRect(-4 * S, 54 * S, 8 * S, armLen - 84 * S, 4 * S);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Heavy flanged crusher head at tip
+  ctx.fillStyle = '#facc15';
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.roundRect(-20 * S, armLen - 26 * S, 40 * S, 28 * S, 7 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  // Rivets along arm
+  ctx.fillStyle = '#0f172a';
+  for (let ry = 76 * S; ry < armLen - 40 * S; ry += 56 * S) {
+    ctx.beginPath();
+    ctx.arc(-8.5 * S, ry, 2.2 * S, 0, Math.PI * 2);
+    ctx.arc(8.5 * S, ry, 2.2 * S, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Pivot Industrial Gear Hub
+  ctx.save();
+  ctx.translate(cx, pivotY);
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#facc15';
+  ctx.lineWidth = 4 * S;
+  ctx.shadowColor = 'rgba(250,204,21,0.45)';
+  ctx.shadowBlur = 16 * S;
+  ctx.beginPath();
+  ctx.arc(0, 0, 34 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.beginPath();
+  ctx.arc(0, 0, 14 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.arc(0, 0, 6 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Sparks
+  for (const sp of sparks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
+    ctx.fillStyle = sp.col;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore(); // end camera shake
+
+  // Top HOOK text
+  drawHook(HOOK, S);
+
+  // Huge Neon Counter Below Wedge
+  const hudY = H * 0.785;
+  ctx.save();
+  ctx.translate(cx, hudY);
+  const popScale = 1 + counterPop * 0.16;
+  ctx.scale(popScale, popScale);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const ballLabel = totalBalls === 1 ? '1 BALL' : `${totalBalls.toLocaleString()} BALLS`;
+  ctx.font = `900 ${Math.round(64 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.shadowColor = shattered ? '#ef4444' : '#22d3ee';
+  ctx.shadowBlur = 24 * S;
+  ctx.fillStyle = shattered ? '#fde047' : '#ffffff';
+  ctx.fillText(ballLabel, 0, 0, W * 0.86);
+  ctx.restore();
+
+  // SLAMS counter + Wall Integrity bar
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(26 * S)}px monospace`;
+  ctx.fillStyle = '#facc15';
+  ctx.fillText(`SLAMS: ${slams}`, cx, hudY + 56 * S);
+
+  const barW = W * 0.62;
+  const barH = 14 * S;
+  const barX = cx - barW * 0.5;
+  const barY = hudY + 84 * S;
+  const integrity = shattered ? 0 : Math.max(0, 1 - pressure);
+
+  ctx.fillStyle = 'rgba(30,41,59,0.85)';
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, barH, 7 * S);
+  ctx.fill();
+
+  if (integrity > 0.01) {
+    const barGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    barGrad.addColorStop(0, '#ef4444');
+    barGrad.addColorStop(0.5, '#facc15');
+    barGrad.addColorStop(1, '#22d3ee');
+    ctx.fillStyle = barGrad;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW * integrity, barH, 7 * S);
+    ctx.fill();
+  }
+  ctx.font = `700 ${Math.round(18 * S)}px monospace`;
+  ctx.fillStyle = shattered ? '#f87171' : '#94a3b8';
+  ctx.fillText(`WALL INTEGRITY: ${Math.round(integrity * 100)}%`, cx, barY + 34 * S);
+  ctx.restore();
+
+  // Climax Banner at ~88% of DUR
+  if (shattered) {
+    const finAge = Math.min(1, (simTime - shatterTime) / 0.32);
+    const scale = 0.86 + 0.14 * Math.sin(finAge * Math.PI * 0.5);
+    ctx.save();
+    ctx.translate(cx, H * 0.49);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(2,6,18,0.92)';
+    ctx.beginPath();
+    ctx.roundRect(-W * 0.43, -68 * S, W * 0.86, 136 * S, 26 * S);
+    ctx.fill();
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 5 * S;
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = 26 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('WALL SHATTERED! 💥', 0, 4 * S, W * 0.8);
+    ctx.font = `800 ${Math.round(22 * S)}px monospace`;
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText(`${totalBalls.toLocaleString()} BALLS  •  ${slams} SLAMS`, 0, 44 * S, W * 0.8);
+    ctx.restore();
+  }
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    stepPhysics(1 / FPS);
+    drawFrame();
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

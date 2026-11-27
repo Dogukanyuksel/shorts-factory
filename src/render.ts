@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import { applyIntroSubBass, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
+import { applyIntroSubBass, synthesizeBackgroundMusicPcm, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
 import { synthesizeVoice } from "./voice.js";
 
 const require = createRequire(import.meta.url);
@@ -183,9 +183,15 @@ async function main() {
     const events: SoundEvent[] = await page.evaluate(
       () => (globalThis as unknown as { getEvents: () => SoundEvent[] }).getEvents(),
     );
-    console.log(`[shorts-factory] ${events.length} ses olayı sentezleniyor...`);
+    console.log(`[shorts-factory] ${events.length} ses olayı + telifsiz synth müzik sentezleniyor...`);
     const SAMPLE_RATE = 48000;
     const pcm = synthesizeEventsPcm(events, seconds, SAMPLE_RATE);
+    const bgm = synthesizeBackgroundMusicPcm(seconds, seed, SAMPLE_RATE);
+    for (let i = 0; i < pcm.length && i < bgm.length; i++) {
+      const s = pcm[i] / 32768;
+      const m = bgm[i] / 32768;
+      pcm[i] = Math.round(Math.tanh(s * 0.88 + m * 0.36) * 32000);
+    }
     applyIntroSubBass(pcm, SAMPLE_RATE, 0.34);
 
     if (narration) {
