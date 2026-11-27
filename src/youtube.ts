@@ -23,13 +23,63 @@ export type YouTubeUploadResult = {
   url: string;
 };
 
+// Harfle başlamalı: "Deep Dive #2" / "Tournament #3" gibi bölüm numaraları hashtag sayılmaz
+const HASHTAG_RE = /(^|[\s(])#(\p{L}[\p{L}\p{N}_]*)/gu;
+/** YouTube etiket alanı toplam sınırı 500 karakter (ayraçlar dahil); güvenli pay bırakılır. */
+const TAG_CHAR_BUDGET = 480;
+
+/**
+ * Hashtag sadeleştirme:
+ * - Başlık ve açıklamada YALNIZ #shorts kalır (short ise); diğer tüm hashtag'ler silinir.
+ * - Silinen hashtag'ler YouTube'un etiket (keywords) alanına taşınır; mevcut etiketlerle birleşir,
+ *   tekrarlar atılır, 500 karakter sınırına kadar doldurulur.
+ * - Uzun videolarda hiç hashtag kalmaz.
+ */
+export function cleanYouTubeMetadata(meta: { title: string; description: string; tags: string[] }) {
+  const isShort = /#shorts\b/i.test(meta.title) || /#shorts\b/i.test(meta.description);
+  const extracted: string[] = [];
+  const strip = (text: string) =>
+    text.replace(HASHTAG_RE, (_m, pre: string, word: string) => {
+      if (word.toLowerCase() !== "shorts") extracted.push(word);
+      return pre;
+    });
+
+  const title = strip(meta.title).replace(/\s{2,}/g, " ").trim();
+  let description = strip(meta.description)
+    .split("\n")
+    .map((l) => l.replace(/[ \t]{2,}/g, " ").trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (isShort) description = `${description}\n\n#shorts`.trim();
+
+  // Etiketler: önce mevcutlar, sonra hashtag'lerden gelenler (camelCase/bitişik kelimeler okunur hale)
+  const humanize = (w: string) => w.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim();
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  let used = 0;
+  for (const raw of [...meta.tags, ...extracted.map(humanize), ...(isShort ? ["shorts"] : [])]) {
+    const t = raw.replace(/[<>,#"]/g, "").trim();
+    const key = t.toLowerCase().replace(/[\s_-]+/g, ""); // "exponential growth" = "exponentialgrowth"
+    if (!t || seen.has(key)) continue;
+    const cost = t.length + (t.includes(" ") ? 2 : 0) + (tags.length ? 1 : 0);
+    if (used + cost > TAG_CHAR_BUDGET) continue;
+    seen.add(key);
+    tags.push(t);
+    used += cost;
+  }
+
+  return { title: isShort && !/#shorts\b/i.test(title) ? `${title} #shorts` : title, description, tags, isShort };
+}
+
 export function buildYouTubeVideoPayload(meta: YouTubeUploadMetadata) {
-  const safeTitle = meta.title.trim().slice(0, 100);
+  const clean = cleanYouTubeMetadata(meta);
+  const safeTitle = clean.title.trim().slice(0, 100);
   return {
     snippet: {
       title: safeTitle,
-      description: meta.description.trim().slice(0, 5000),
-      tags: meta.tags.slice(0, 15),
+      description: clean.description.slice(0, 5000),
+      tags: clean.tags,
       categoryId: meta.categoryId,
       defaultLanguage: "en",
       defaultAudioLanguage: "en",
