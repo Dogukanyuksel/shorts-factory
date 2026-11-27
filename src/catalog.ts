@@ -29,7 +29,8 @@ export type PhysicsNiche =
   | "pendulum-chaos-100"
   | "chladni-sand"
   | "gear-gauntlet-1000"
-  | "gyroscope-3d";
+  | "gyroscope-3d"
+  | "galileo-vacuum-drop";
 
 export type PhysicsJob = {
   id: string;
@@ -65,6 +66,7 @@ export type PublishJob = PhysicsJob | ExplainerJob;
 export const PHYSICS_ROTATION: PhysicsNiche[] = [
   "physics-ring",
   "duel-balls",
+  "galileo-vacuum-drop",
   "gyroscope-3d",
   "pendulum-chaos-100",
   "chladni-sand",
@@ -143,6 +145,21 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Real-time 3D PBR physics simulation of gyroscopic precession: watch angular momentum convert downward gravitational torque into smooth horizontal orbit.\n\n#shorts #gyroscope #3dphysics #science",
     tags: ["gyroscope", "angular momentum", "3d physics", "precession", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "galileo-vacuum-drop-seed126",
+    channel: "physics",
+    niche: "galileo-vacuum-drop",
+    seed: 126,
+    seconds: 30,
+    hook: "7 KG BALL VS FEATHER IN VACUUM",
+    narration:
+      "Drop a bowling ball and a feather together and your brain expects the ball to win. In air, drag slows the feather. Pump out the air to zero atmospheres and both hit at the exact same millisecond — gravity pulls harder on heavier mass, but heavier mass resists moving just as much.",
+    title: "Why a 7kg Bowling Ball Doesn't Fall Faster Than a Feather #shorts",
+    description:
+      "Split-screen 60fps physics simulation of Galileo's Law: Air (1.00 atm) vs Vacuum (0.00 atm). Watch both objects hit the bottom sensor on the exact same millisecond at 9.81 m/s².\n\n#shorts #physics #galileo #vacuum #science",
+    tags: ["galileo law", "bowling ball feather vacuum", "gravity physics", "simulation", "shorts"],
     categoryId: "28",
   },
   {
@@ -645,6 +662,16 @@ export const EXPLAINER_JOBS: ExplainerJob[] = [
     description:
       "Four completely different ways to turn energy into motion, side by side in real time: 2-Stroke, 4-Stroke, Wankel Rotary, and Brushless Electric. Which engineering design wins?\n\n#shorts #engines #ev #engineering",
     tags: ["engine comparison", "wankel rotary", "electric motor", "4 stroke", "shorts"],
+    categoryId: "27",
+  },
+  {
+    id: "explainer-car-differential-3d",
+    channel: "explainer",
+    episode: "car-differential-3d",
+    title: "How a Car Differential Lets Wheels Spin at Different Speeds (3D) #shorts",
+    description:
+      "When a car turns, the outside wheel travels farther — so why doesn't the axle snap? Step inside a 3D X-Ray rear axle to watch spider gears split 50/50 power into 30 RPM inner and 70 RPM outer wheel speeds.\n\n#shorts #differential #3dengineering #mechanics",
+    tags: ["car differential", "spider gears", "how cars work", "3d engineering", "shorts"],
     categoryId: "27",
   },
   {
@@ -1295,6 +1322,15 @@ const INFINITE_ANGLES: Record<
     titlePrefix: "3D Gyroscope Defying Gravity",
     topic: "gyroscopic precession and conservation of angular momentum",
   },
+  "galileo-vacuum-drop": {
+    hooks: ["7 KG BALL VS FEATHER (VACUUM)", "AIR VS 0.00 ATM VACUUM", "GALILEO'S LAW IN 60FPS"],
+    narrations: [
+      "Drop a bowling ball and a feather together in air and drag slows the feather. Pump out the air to zero atmospheres and both hit on the exact same millisecond at nine point eight one meters per second squared.",
+      "Gravity pulls harder on heavier mass, but heavier mass resists accelerating just as much — watch both land at 0.000 ms gap.",
+    ],
+    titlePrefix: "Bowling Ball vs Feather in Vacuum",
+    topic: "Galileo's law of free fall and equivalence of inertial and gravitational mass",
+  },
 };
 
 /**
@@ -1381,6 +1417,7 @@ export const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "chladni-sand": "Chladni Sound Sand",
   "gear-gauntlet-1000": "1,000 Balls vs Gears",
   "gyroscope-3d": "3D Gyroscope Precession",
+  "galileo-vacuum-drop": "Galileo Vacuum Drop",
 };
 
 const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
@@ -1413,6 +1450,7 @@ const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
   "chladni-sand": "WAIT FOR 4,096 HZ GEOMETRY",
   "gear-gauntlet-1000": "GUESS HOW MANY REACH THE VAULT",
   "gyroscope-3d": "WATCH GRAVITY BEND 90 DEGREES",
+  "galileo-vacuum-drop": "WATCH 0.00 ATM VACUUM IMPACT",
 };
 
 function formatEpisodeLabel(slug: string): string {

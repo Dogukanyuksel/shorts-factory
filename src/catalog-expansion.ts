@@ -216,6 +216,16 @@ export const EXPANSION_JOBS: ExpansionJob[] = [
     tags: ["gut brain axis", "vagus nerve", "serotonin", "second brain", "shorts"],
     categoryId: "28",
   },
+  {
+    id: "bio-sitting-psoas-back",
+    channel: "bio",
+    episode: "bio-sitting-psoas-back",
+    title: "Why Sitting All Day Destroys Your Lower Back (The Psoas Pull) #shorts",
+    description:
+      "Locked at 90 degrees all day, your Psoas Major hip flexor shortens by 25% — then yanks your lumbar spine forward the moment you stand, spiking L4–L5 disc pressure from 100 kg to 185 kg.\n\n#shorts #posture #backpain #biomechanics",
+    tags: ["psoas muscle", "lower back pain", "sitting posture", "biomechanics", "shorts"],
+    categoryId: "28",
+  },
 ];
 
 export function pickNextExpansionJob(

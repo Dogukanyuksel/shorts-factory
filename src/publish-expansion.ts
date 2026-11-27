@@ -24,6 +24,7 @@ import {
 import { runVideoQc } from "./qc.js";
 import { synthesizeVoice } from "./voice.js";
 import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
+import { buildWordCaptionCanvasSnippet } from "./word-captions.js";
 import {
   addVideoToPlaylist,
   ensureYouTubePlaylist,
@@ -125,6 +126,8 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
 
     const epBadge = `EP. ${String(epNumber).padStart(2, "0")}`;
     const hookBanner = buildScrollStopHook(job.title);
+    const wordCapAccent = job.channel === "wealth" ? "#FFD60A" : "#34C759";
+    const wordCapSnippet = buildWordCaptionCanvasSnippet(timed, wordCapAccent);
     await page.addScriptTag({
       content: `(() => {
         const fpsVal = ${JSON.stringify(fps)};
@@ -133,6 +136,7 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
         const hookText = ${JSON.stringify(hookBanner)};
         const handleText = ${JSON.stringify(`🔔 ${meta.brandName.toUpperCase()} • FOLLOW FOR DAILY 60FPS`)};
         const accent = ${JSON.stringify(meta.accentHex)};
+        ${wordCapSnippet}
         let frameIdx = 0;
         const orig = HTMLCanvasElement.prototype.toDataURL;
         function fitText(ctx, text, maxW, maxPx, minPx, S, weight) {
@@ -182,11 +186,14 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
                 ctx.restore();
               }
 
+              // 2-3 Kelimelik Aktif Vurgulu Yaylı Dinamik Altyazı (60fps Word-Pop)
+              drawWordPopCaption(ctx, tSec, W, H, S);
+
               // Kesintisiz Loop Dostu Yüzer Rozet (son 2.4 sn — animasyonu kesmeden hafif cam pill)
               if (tSec >= durVal - 2.4) {
                 const alpha = Math.min(1, (tSec - (durVal - 2.4)) / 0.28);
                 ctx.globalAlpha = Math.max(0, alpha * 0.92);
-                const cw = W * 0.78, ch = 44 * S, cx = (W - cw) * 0.5, cy = H * 0.725;
+                const cw = W * 0.78, ch = 44 * S, cx = (W - cw) * 0.5, cy = H * 0.715;
                 ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
                 ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 22 * S); ctx.fill();
                 ctx.strokeStyle = accent; ctx.lineWidth = 2.2 * S; ctx.stroke();

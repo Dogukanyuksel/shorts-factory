@@ -1,0 +1,1237 @@
+<!doctype html>
+<!-- Galileo's Law in Vacuum: Split-screen Air (1.00 ATM) vs Vacuum (0.00 ATM) bowling ball & feather drop -->
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #0B0F19; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+// Configuration
+let W = 720, H = 1280, FPS = 60, DUR = 30;
+let HOOK = 'BOWLING BALL VS FEATHER IN VACUUM';
+let SEED = 1;
+
+// Brand palette
+const COL_BG = '#0B0F19';
+const COL_CYAN = '#00F0FF';
+const COL_RED = '#FF3B30';
+const COL_AMBER = '#FACC15';
+const COL_PANEL = 'rgba(13, 20, 36, 0.88)';
+const COL_TEXT = '#E2E8F0';
+const COL_MUTED = '#94A3B8';
+
+// Physics constants (23.74m NASA-style vacuum chamber -> exact 2.200s free-fall)
+const G = 9.81;
+const DROP_M = 23.7402; // 0.5 * 9.81 * 2.2^2 = 23.7402 m
+const T_VAC_FALL = 2.200; // exact seconds
+const T_AIR_BALL = 2.240; // tiny air drag on 7kg bowling ball
+const T_AIR_FEATHER = 7.200; // heavy drag + flutter on 0.002kg feather
+
+// Deterministic state generated in init()
+let rng = 1;
+let leftMolecules = [];
+let rightMolecules = [];
+let bgDust = [];
+let cachedEvents = [];
+
+function rand() {
+  rng = (rng * 1664525 + 1013904223) >>> 0;
+  return rng / 4294967296;
+}
+
+function clamp(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function smoothstep(t) {
+  const c = clamp(t, 0, 1);
+  return c * c * (3 - 2 * c);
+}
+
+function smootherstep(t) {
+  const c = clamp(t, 0, 1);
+  return c * c * c * (c * (c * 6 - 15) + 10);
+}
+
+// Compute analytical drop kinematics for Air Ball (slight quadratic drag)
+function airBallKinematics(dt) {
+  if (dt <= 0) return { yNorm: 0, v: 0, landed: false, tLand: T_AIR_BALL };
+  if (dt >= T_AIR_BALL) return { yNorm: 1, v: 0, landed: true, tLand: T_AIR_BALL };
+  // Slight drag correction so it lands cleanly at T_AIR_BALL
+  const u = dt / T_AIR_BALL;
+  const k = 0.036;
+  const yNorm = clamp((u * u * (1 - k * u)) / (1 - k), 0, 1);
+  const v = G * dt * (1 - 0.045 * u);
+  return { yNorm, v, landed: false, tLand: T_AIR_BALL };
+}
+
+// Compute analytical drop kinematics for Air Feather (rapid terminal velocity + harmonic flutter)
+function airFeatherKinematics(dt) {
+  if (dt <= 0) return { yNorm: 0, v: 0, sway: 0, tilt: 0, dragRatio: 0, landed: false, tLand: T_AIR_FEATHER };
+  if (dt >= T_AIR_FEATHER) {
+    return { yNorm: 1, v: 0, sway: 0, tilt: 0.04, dragRatio: 0, landed: true, tLand: T_AIR_FEATHER };
+  }
+  // Exact integral of v(t) = vTerm * (1 - exp(-t / tau)) scaled to hit DROP_M at T_AIR_FEATHER
+  const tau = 0.36;
+  const raw = (t) => t - tau * (1 - Math.exp(-t / tau));
+  const denom = raw(T_AIR_FEATHER);
+  const yNorm = clamp(raw(dt) / denom, 0, 1);
+  const vTerm = DROP_M / denom; // ~3.47 m/s
+  const v = vTerm * (1 - Math.exp(-dt / tau));
+  const dragRatio = clamp(1 - Math.exp(-dt / tau), 0, 1);
+
+  // Smooth flutter envelope (zero at release and zero at touchdown)
+  const envStart = smoothstep(dt / 0.55);
+  const envEnd = smoothstep((T_AIR_FEATHER - dt) / 0.55);
+  const env = envStart * envEnd;
+  const phase = dt * 2.85;
+  const sway = Math.sin(phase) * env;
+  const tilt = Math.cos(phase) * 0.42 * env;
+
+  return { yNorm, v, sway, tilt, dragRatio, landed: false, tLand: T_AIR_FEATHER };
+}
+
+// Compute exact free-fall kinematics in Vacuum (identical for ball and feather)
+function vacuumKinematics(dt) {
+  if (dt <= 0) return { yNorm: 0, v: 0, landed: false, tLand: T_VAC_FALL };
+  if (dt >= T_VAC_FALL) return { yNorm: 1, v: 0, landed: true, tLand: T_VAC_FALL };
+  const yM = 0.5 * G * dt * dt;
+  const yNorm = clamp(yM / DROP_M, 0, 1);
+  const v = G * dt;
+  return { yNorm, v, landed: false, tLand: T_VAC_FALL };
+}
+
+function buildSoundEvents(dur) {
+  const scale = dur / 30;
+  const ev = [];
+  // Hook tension pulses
+  ev.push({ t: 0.40 * scale, type: 'bounce', pitchIndex: 0, intensity: 0.35 });
+  ev.push({ t: 1.70 * scale, type: 'bounce', pitchIndex: 2, intensity: 0.42 });
+  // Left chamber release
+  ev.push({ t: 3.00 * scale, type: 'bounce', pitchIndex: 4, intensity: 0.72 });
+  // Left ball impact (3.0 + 2.24 = 5.24s)
+  ev.push({ t: 5.24 * scale, type: 'break', pitchIndex: 3, intensity: 0.85 });
+  // Feather drag flutter ticks
+  ev.push({ t: 6.40 * scale, type: 'bounce', pitchIndex: 7, intensity: 0.32 });
+  ev.push({ t: 7.80 * scale, type: 'bounce', pitchIndex: 8, intensity: 0.32 });
+  ev.push({ t: 9.10 * scale, type: 'bounce', pitchIndex: 9, intensity: 0.32 });
+  // Left feather touchdown (3.0 + 7.20 = 10.20s)
+  ev.push({ t: 10.20 * scale, type: 'bounce', pitchIndex: 6, intensity: 0.52 });
+  // Vacuum pump evacuation ticks (12.0 -> 16.2s)
+  for (let i = 0; i < 6; i++) {
+    ev.push({ t: (12.2 + i * 0.72) * scale, type: 'bounce', pitchIndex: 4 + i, intensity: 0.42 + i * 0.05 });
+  }
+  // Vacuum lock chime
+  ev.push({ t: 16.50 * scale, type: 'bounce', pitchIndex: 12, intensity: 0.75 });
+  // Vacuum release
+  ev.push({ t: 17.50 * scale, type: 'bounce', pitchIndex: 10, intensity: 0.80 });
+  // Simultaneous impact climax (17.5 + 2.20 = 19.70s)
+  ev.push({ t: 19.70 * scale, type: 'break', pitchIndex: 14, intensity: 1.0 });
+  ev.push({ t: 19.76 * scale, type: 'win', pitchIndex: 14, intensity: 1.0 });
+  // Equation reveal chime
+  ev.push({ t: 23.20 * scale, type: 'bounce', pitchIndex: 12, intensity: 0.60 });
+  // Magnetic lift hum
+  ev.push({ t: 26.40 * scale, type: 'bounce', pitchIndex: 5, intensity: 0.45 });
+  ev.push({ t: 28.00 * scale, type: 'bounce', pitchIndex: 8, intensity: 0.40 });
+  return ev;
+}
+
+window.init = (cfg) => {
+  const c = cfg || {};
+  W = c.width || 720;
+  H = c.height || 1280;
+  FPS = c.fps || 60;
+  DUR = c.seconds || 30;
+  HOOK = c.hook || 'BOWLING BALL VS FEATHER IN VACUUM';
+  SEED = c.seed || 1;
+  cv.width = W;
+  cv.height = H;
+
+  rng = ((SEED * 2654435761) + 1013904223) >>> 0;
+
+  // Deterministic periodic air molecules (exact integer cycles over DUR -> 100% seamless loop)
+  leftMolecules = [];
+  rightMolecules = [];
+  for (let i = 0; i < 42; i++) {
+    leftMolecules.push({
+      nx: 0.08 + rand() * 0.84,
+      ny: 0.08 + rand() * 0.84,
+      ampX: 0.025 + rand() * 0.045,
+      ampY: 0.015 + rand() * 0.032,
+      cycX: 1 + Math.floor(rand() * 3),
+      cycY: 1 + Math.floor(rand() * 3),
+      phX: rand() * Math.PI * 2,
+      phY: rand() * Math.PI * 2,
+      r: 1.8 + rand() * 2.1,
+      alpha: 0.35 + rand() * 0.45
+    });
+    rightMolecules.push({
+      nx: 0.08 + rand() * 0.84,
+      ny: 0.08 + rand() * 0.84,
+      ampX: 0.025 + rand() * 0.045,
+      ampY: 0.015 + rand() * 0.032,
+      cycX: 1 + Math.floor(rand() * 3),
+      cycY: 1 + Math.floor(rand() * 3),
+      phX: rand() * Math.PI * 2,
+      phY: rand() * Math.PI * 2,
+      r: 1.8 + rand() * 2.1,
+      alpha: 0.35 + rand() * 0.45,
+      evacDelay: rand() * 0.42
+    });
+  }
+
+  // Ambient subtle lab dust outside/behind chambers
+  bgDust = [];
+  for (let i = 0; i < 48; i++) {
+    bgDust.push({
+      x: rand() * W,
+      y: rand() * H,
+      r: 0.8 + rand() * 1.6,
+      cyc: 1 + Math.floor(rand() * 2),
+      ph: rand() * Math.PI * 2
+    });
+  }
+
+  cachedEvents = buildSoundEvents(DUR);
+};
+
+// Drawing helpers
+function drawRoundedRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+}
+
+function drawBackground(S, tNorm, wLoop) {
+  // Deep lab obsidian gradient
+  const bg = ctx.createRadialGradient(W * 0.45, H * 0.42, 40 * S, W * 0.45, H * 0.46, H * 0.72);
+  bg.addColorStop(0, '#121B30');
+  bg.addColorStop(0.55, '#0B0F19');
+  bg.addColorStop(1, '#06080F');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle sci-fi coordinate grid
+  const gridStep = 36 * S;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.045)';
+  ctx.lineWidth = 1 * S;
+  ctx.beginPath();
+  for (let x = gridStep; x < W; x += gridStep) {
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+  }
+  for (let y = gridStep; y < H; y += gridStep) {
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+  }
+  ctx.stroke();
+
+  // Major grid crosshairs every 4 cells
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.11)';
+  ctx.lineWidth = 1.2 * S;
+  const crossR = 4 * S;
+  ctx.beginPath();
+  for (let x = gridStep * 2; x < W; x += gridStep * 4) {
+    for (let y = gridStep * 2; y < H; y += gridStep * 4) {
+      ctx.moveTo(x - crossR, y);
+      ctx.lineTo(x + crossR, y);
+      ctx.moveTo(x, y - crossR);
+      ctx.lineTo(x, y + crossR);
+    }
+  }
+  ctx.stroke();
+
+  // Subtle ambient dust motes
+  for (let i = 0; i < bgDust.length; i++) {
+    const d = bgDust[i];
+    const pulse = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(d.cyc * wLoop + d.ph));
+    ctx.fillStyle = `rgba(0, 240, 255, ${pulse * 0.32})`;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.r * S, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawClamp(cx, y, S, isOpen, pulseGlow, tractorAlpha) {
+  ctx.save();
+  // Top mounting housing
+  const mountW = 34 * S;
+  const mountH = 12 * S;
+  ctx.fillStyle = '#1E293B';
+  ctx.strokeStyle = isOpen ? 'rgba(148, 163, 184, 0.5)' : COL_CYAN;
+  ctx.lineWidth = 1.6 * S;
+  drawRoundedRect(cx - mountW * 0.5, y - mountH, mountW, mountH, 4 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  // Pincer jaws
+  const spread = isOpen ? 10 * S : 3 * S;
+  ctx.strokeStyle = isOpen ? '#64748B' : '#38BDF8';
+  ctx.lineWidth = 2.6 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - 8 * S, y);
+  ctx.lineTo(cx - 8 * S - spread, y + 10 * S);
+  ctx.moveTo(cx + 8 * S, y);
+  ctx.lineTo(cx + 8 * S + spread, y + 10 * S);
+  ctx.stroke();
+
+  // Tension glow when locked
+  if (!isOpen && pulseGlow > 0.01) {
+    const g = ctx.createRadialGradient(cx, y + 8 * S, 2 * S, cx, y + 8 * S, 26 * S);
+    g.addColorStop(0, `rgba(0, 240, 255, ${0.42 * pulseGlow})`);
+    g.addColorStop(1, 'rgba(0, 240, 255, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, y + 8 * S, 26 * S, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Magnetic lift tractor cone
+  if (tractorAlpha > 0.01) {
+    const beamH = 420 * S;
+    const grad = ctx.createLinearGradient(cx, y, cx, y + beamH);
+    grad.addColorStop(0, `rgba(0, 240, 255, ${0.28 * tractorAlpha})`);
+    grad.addColorStop(0.6, `rgba(0, 240, 255, ${0.09 * tractorAlpha})`);
+    grad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(cx - 8 * S, y + 4 * S);
+    ctx.lineTo(cx + 8 * S, y + 4 * S);
+    ctx.lineTo(cx + 34 * S, y + beamH);
+    ctx.lineTo(cx - 34 * S, y + beamH);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBowlingBall(x, y, r, S, glowIntensity, rotAngle) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Outer tension / motion aura
+  if (glowIntensity > 0.02) {
+    const aura = ctx.createRadialGradient(0, 0, r * 0.7, 0, 0, r * 1.9);
+    aura.addColorStop(0, `rgba(0, 240, 255, ${0.38 * glowIntensity})`);
+    aura.addColorStop(1, 'rgba(0, 240, 255, 0)');
+    ctx.fillStyle = aura;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Main 3D sphere shading
+  const grad = ctx.createRadialGradient(-r * 0.34, -r * 0.36, r * 0.12, 0, 0, r);
+  grad.addColorStop(0, '#64748B');
+  grad.addColorStop(0.28, '#1E293B');
+  grad.addColorStop(0.75, '#0F172A');
+  grad.addColorStop(1, '#020617');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Electric cyan rim highlight
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.55)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.arc(0, 0, r - 0.8 * S, -Math.PI * 0.85, -Math.PI * 0.12);
+  ctx.stroke();
+
+  // Specular highlight dot
+  ctx.fillStyle = 'rgba(224, 242, 254, 0.55)';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.36, -r * 0.38, r * 0.22, r * 0.13, -0.65, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Classic 3 recessed finger holes
+  ctx.rotate(rotAngle || 0);
+  const holes = [
+    { x: -r * 0.14, y: -r * 0.18, hr: r * 0.125 },
+    { x: r * 0.16, y: -r * 0.16, hr: r * 0.125 },
+    { x: r * 0.02, y: r * 0.15, hr: r * 0.145 }
+  ];
+  for (let i = 0; i < holes.length; i++) {
+    const h = holes[i];
+    ctx.fillStyle = '#020617';
+    ctx.beginPath();
+    ctx.arc(h.x, h.y, h.hr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.lineWidth = 1 * S;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawFeather(x, y, S, tiltAngle, glowIntensity, isDragActive) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(tiltAngle || 0);
+
+  const fLen = 40 * S;
+  const halfLen = fLen * 0.5;
+
+  // Soft bioluminescent aura
+  const auraCol = isDragActive ? '255, 110, 96' : '0, 240, 255';
+  const aura = ctx.createRadialGradient(0, 0, 3 * S, 0, 0, 30 * S);
+  aura.addColorStop(0, `rgba(${auraCol}, ${0.32 + 0.25 * glowIntensity})`);
+  aura.addColorStop(1, `rgba(${auraCol}, 0)`);
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 28 * S, 16 * S, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Delicate feather vane silhouette
+  ctx.beginPath();
+  ctx.moveTo(-halfLen, 1 * S);
+  ctx.bezierCurveTo(-halfLen * 0.45, -13 * S, halfLen * 0.45, -12 * S, halfLen, -1 * S);
+  ctx.bezierCurveTo(halfLen * 0.45, 11 * S, -halfLen * 0.45, 12 * S, -halfLen, 1 * S);
+  const vaneGrad = ctx.createLinearGradient(-halfLen, 0, halfLen, 0);
+  vaneGrad.addColorStop(0, 'rgba(224, 242, 254, 0.95)');
+  vaneGrad.addColorStop(0.55, 'rgba(125, 249, 255, 0.85)');
+  vaneGrad.addColorStop(1, 'rgba(0, 240, 255, 0.95)');
+  ctx.fillStyle = vaneGrad;
+  ctx.fill();
+
+  // Individual barbs
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.lineWidth = 1.0 * S;
+  ctx.beginPath();
+  for (let i = -7; i <= 7; i++) {
+    const bx = (i / 8) * halfLen * 0.88;
+    const widthAt = Math.cos((i / 8.5) * Math.PI * 0.5) * 9.5 * S;
+    ctx.moveTo(bx, 0);
+    ctx.lineTo(bx + 3.2 * S, -widthAt);
+    ctx.moveTo(bx, 0);
+    ctx.lineTo(bx + 3.2 * S, widthAt);
+  }
+  ctx.stroke();
+
+  // Central glowing rachis (shaft)
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 2.0 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-halfLen - 5 * S, 2 * S);
+  ctx.quadraticCurveTo(0, -1.5 * S, halfLen, -1 * S);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawForceArrow(x, y, len, dirY, color, label, S, alpha) {
+  if (alpha <= 0.02 || len < 6 * S) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+  const y2 = y + dirY * len;
+
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 3.2 * S;
+  ctx.lineCap = 'round';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10 * S;
+
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y2);
+  ctx.stroke();
+
+  // Arrowhead
+  const head = 8.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(x, y2 + dirY * 3 * S);
+  ctx.lineTo(x - head * 0.65, y2 - dirY * head);
+  ctx.lineTo(x + head * 0.65, y2 - dirY * head);
+  ctx.closePath();
+  ctx.fill();
+
+  // Crisp pill label
+  if (label) {
+    ctx.shadowBlur = 0;
+    ctx.font = `800 ${Math.round(12.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+    const tw = ctx.measureText(label).width;
+    const pw = tw + 12 * S;
+    const ph = 18 * S;
+    const ly = dirY > 0 ? y2 + 14 * S : y2 - 14 * S;
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.90)';
+    drawRoundedRect(x - pw * 0.5, ly - ph * 0.5, pw, ph, 5 * S);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, ly + 0.5 * S);
+  }
+  ctx.restore();
+}
+
+function drawMassTag(x, y, text, S, alpha) {
+  if (alpha <= 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+  ctx.font = `700 ${Math.round(11.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  const tw = ctx.measureText(text).width;
+  const pw = tw + 10 * S;
+  const ph = 17 * S;
+  ctx.fillStyle = 'rgba(11, 15, 25, 0.85)';
+  drawRoundedRect(x - pw * 0.5, y - ph * 0.5, pw, ph, 4 * S);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.lineWidth = 1 * S;
+  ctx.stroke();
+  ctx.fillStyle = '#CBD5E1';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y + 0.5 * S);
+  ctx.restore();
+}
+
+function drawChamberFrame(box, title, atmVal, accentCol, S, sensorFlash, isVacuumMode, pumpActive, evacProgress) {
+  ctx.save();
+  // Chamber glass interior
+  const bgGrad = ctx.createLinearGradient(box.x, box.y, box.x, box.y + box.h);
+  bgGrad.addColorStop(0, isVacuumMode ? 'rgba(6, 20, 38, 0.72)' : 'rgba(15, 23, 42, 0.74)');
+  bgGrad.addColorStop(1, 'rgba(8, 13, 25, 0.88)');
+  ctx.fillStyle = bgGrad;
+  drawRoundedRect(box.x, box.y, box.w, box.h, 14 * S);
+  ctx.fill();
+
+  // Outer metallic/neon frame
+  ctx.strokeStyle = isVacuumMode ? 'rgba(0, 240, 255, 0.65)' : 'rgba(148, 163, 184, 0.38)';
+  ctx.lineWidth = (isVacuumMode ? 2.2 : 1.6) * S;
+  ctx.stroke();
+
+  // Chamber header bar
+  const hdrH = 52 * S;
+  ctx.fillStyle = 'rgba(11, 15, 25, 0.92)';
+  ctx.beginPath();
+  ctx.roundRect(box.x + 1 * S, box.y + 1 * S, box.w - 2 * S, hdrH, [13 * S, 13 * S, 0, 0]);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+  ctx.lineWidth = 1 * S;
+  ctx.beginPath();
+  ctx.moveTo(box.x, box.y + hdrH);
+  ctx.lineTo(box.x + box.w, box.y + hdrH);
+  ctx.stroke();
+
+  // Title + ATM readout
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.round(14 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.fillStyle = accentCol;
+  ctx.fillText(title, box.x + 12 * S, box.y + 18 * S);
+
+  ctx.textAlign = 'right';
+  ctx.font = `800 ${Math.round(13.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = atmVal < 0.05 ? COL_CYAN : '#F8FAFC';
+  ctx.fillText(`${atmVal.toFixed(2)} ATM`, box.x + box.w - 12 * S, box.y + 18 * S);
+
+  // Pressure / Vacuum gauge bar
+  const gX = box.x + 12 * S;
+  const gY = box.y + 34 * S;
+  const gW = box.w - 24 * S;
+  const gH = 7 * S;
+  ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+  drawRoundedRect(gX, gY, gW, gH, 3.5 * S);
+  ctx.fill();
+
+  const fillW = Math.max(0, gW * clamp(atmVal, 0, 1));
+  if (fillW > 1) {
+    ctx.fillStyle = pumpActive ? COL_AMBER : (atmVal > 0.5 ? COL_RED : COL_CYAN);
+    drawRoundedRect(gX, gY, fillW, gH, 3.5 * S);
+    ctx.fill();
+  }
+  // Vacuum sealed cyan underline when evacuated
+  if (atmVal < 0.02) {
+    ctx.fillStyle = COL_CYAN;
+    ctx.shadowColor = COL_CYAN;
+    ctx.shadowBlur = 8 * S;
+    drawRoundedRect(gX, gY, gW, gH, 3.5 * S);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Graduated height ruler ticks along left inner wall
+  const shaftTop = box.y + hdrH + 30 * S;
+  const shaftBot = box.y + box.h - 46 * S;
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
+  ctx.font = `600 ${Math.round(9.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.textAlign = 'left';
+  const marks = 4;
+  for (let i = 0; i <= marks; i++) {
+    const u = i / marks;
+    const ty = lerp(shaftTop, shaftBot, u);
+    ctx.beginPath();
+    ctx.moveTo(box.x + 2 * S, ty);
+    ctx.lineTo(box.x + 9 * S, ty);
+    ctx.stroke();
+    const meters = Math.round(u * 24);
+    ctx.fillText(`${meters}m`, box.x + 12 * S, ty);
+  }
+
+  // Vacuum exhaust port indicator on Right Chamber
+  if (isVacuumMode) {
+    const portY = box.y + box.h - 72 * S;
+    const portX = box.x + box.w - 10 * S;
+    ctx.fillStyle = pumpActive ? COL_CYAN : '#334155';
+    drawRoundedRect(portX, portY - 16 * S, 10 * S, 32 * S, 3 * S);
+    ctx.fill();
+    if (pumpActive) {
+      ctx.font = `800 ${Math.round(10 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+      ctx.fillStyle = COL_CYAN;
+      ctx.textAlign = 'right';
+      ctx.fillText('PUMP ON', box.x + box.w - 14 * S, portY - 22 * S);
+    }
+  }
+
+  // Bottom optical sensor plate
+  const plateY = box.y + box.h - 38 * S;
+  const plateH = 30 * S;
+  ctx.fillStyle = sensorFlash > 0.05
+    ? `rgba(0, 240, 255, ${0.18 + 0.45 * sensorFlash})`
+    : 'rgba(15, 23, 42, 0.95)';
+  drawRoundedRect(box.x + 8 * S, plateY, box.w - 16 * S, plateH, 7 * S);
+  ctx.fill();
+  ctx.strokeStyle = sensorFlash > 0.05 ? COL_CYAN : 'rgba(0, 240, 255, 0.35)';
+  ctx.lineWidth = (1.5 + sensorFlash * 1.8) * S;
+  ctx.stroke();
+
+  // Laser tripwire line right above sensor plate
+  ctx.strokeStyle = sensorFlash > 0.05 ? '#FFFFFF' : 'rgba(0, 240, 255, 0.48)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.setLineDash([5 * S, 4 * S]);
+  ctx.beginPath();
+  ctx.moveTo(box.x + 10 * S, plateY - 2 * S);
+  ctx.lineTo(box.x + box.w - 10 * S, plateY - 2 * S);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.restore();
+}
+
+function drawAirMolecules(molecules, box, S, t, wLoop, evacProgress, featherPos, featherMoving) {
+  const hdrH = 52 * S;
+  const innerX = box.x + 12 * S;
+  const innerY = box.y + hdrH + 14 * S;
+  const innerW = box.w - 24 * S;
+  const innerH = box.h - hdrH - 64 * S;
+  const portX = box.x + box.w - 6 * S;
+  const portY = box.y + box.h - 72 * S;
+
+  ctx.save();
+  for (let i = 0; i < molecules.length; i++) {
+    const m = molecules[i];
+    // Periodic harmonic drift -> exact match at t = 0 and t = DUR
+    const bx = innerX + (m.nx + Math.sin(m.cycX * wLoop + m.phX) * m.ampX) * innerW;
+    const by = innerY + (m.ny + Math.cos(m.cycY * wLoop + m.phY) * m.ampY) * innerH;
+
+    let mx = bx;
+    let my = by;
+    let alpha = m.alpha;
+
+    // Suction into vacuum exhaust port during evacuation
+    if (evacProgress > 0.001) {
+      const localEvac = clamp((evacProgress - (m.evacDelay || 0) * 0.55) / 0.55, 0, 1);
+      const e = smootherstep(localEvac);
+      mx = lerp(bx, portX, e);
+      my = lerp(by, portY, e);
+      alpha = m.alpha * (1 - e);
+      if (alpha <= 0.015) continue;
+
+      // Suction streak line
+      if (e > 0.04 && e < 0.96) {
+        ctx.strokeStyle = `rgba(0, 240, 255, ${alpha * 0.55})`;
+        ctx.lineWidth = 1.2 * S;
+        ctx.beginPath();
+        ctx.moveTo(mx, my);
+        ctx.lineTo(lerp(mx, bx, 0.25), lerp(my, by, 0.25));
+        ctx.stroke();
+      }
+    }
+
+    // Check collision proximity with falling feather in Air
+    let hit = 0;
+    if (featherMoving && featherPos) {
+      const dx = mx - featherPos.x;
+      const dy = my - featherPos.y;
+      const dist = Math.hypot(dx, dy);
+      const hitR = 40 * S;
+      if (dist < hitR) {
+        hit = 1 - dist / hitR;
+        const push = hit * 14 * S;
+        const inv = 1 / Math.max(1, dist);
+        mx += dx * inv * push;
+        my += dy * inv * push;
+      }
+    }
+
+    if (hit > 0.12) {
+      // Crimson drag collision spark
+      ctx.fillStyle = `rgba(255, 59, 48, ${0.45 + 0.55 * hit})`;
+      ctx.beginPath();
+      ctx.arc(mx, my, (m.r + 1.8 * hit) * S, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(255, 59, 48, ${0.65 * hit})`;
+      ctx.lineWidth = 1.2 * S;
+      ctx.beginPath();
+      ctx.arc(mx, my, (m.r + 6 * hit) * S, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = `rgba(147, 197, 253, ${alpha * 0.72})`;
+      ctx.beginPath();
+      ctx.arc(mx, my, m.r * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawTopHUD(safe, S, phaseLabel, phaseCol, stopwatchSec, vBall, vFeather, activeMode) {
+  const x = safe.l + 4 * S;
+  const y = safe.t + 4 * S;
+  const w = safe.w - 8 * S;
+  const h = 112 * S;
+
+  ctx.save();
+  // Glass HUD container
+  ctx.fillStyle = COL_PANEL;
+  drawRoundedRect(x, y, w, h, 14 * S);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.42)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.stroke();
+
+  // Top row: Phase badge (left) + 9.81 m/s² badge (right)
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.round(13.5 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.fillStyle = COL_MUTED;
+  ctx.fillText('KINETIC LAB', x + 14 * S, y + 20 * S);
+
+  // Phase status pill
+  const pillX = x + 114 * S;
+  const pillW = 248 * S;
+  const pillH = 22 * S;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+  drawRoundedRect(pillX, y + 9 * S, pillW, pillH, 11 * S);
+  ctx.fill();
+  ctx.strokeStyle = phaseCol;
+  ctx.lineWidth = 1.3 * S;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.round(11.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = phaseCol;
+  ctx.fillText(phaseLabel, pillX + pillW * 0.5, y + 20.5 * S);
+
+  // 9.81 m/s² badge
+  const gBadgeW = 132 * S;
+  const gBadgeH = 26 * S;
+  const gBadgeX = x + w - gBadgeW - 12 * S;
+  const gBadgeY = y + 7 * S;
+  ctx.fillStyle = 'rgba(0, 240, 255, 0.14)';
+  drawRoundedRect(gBadgeX, gBadgeY, gBadgeW, gBadgeH, 8 * S);
+  ctx.fill();
+  ctx.strokeStyle = COL_CYAN;
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${Math.round(13 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = COL_CYAN;
+  ctx.fillText('g = 9.81 m/s²', gBadgeX + gBadgeW * 0.5, gBadgeY + gBadgeH * 0.5 + 0.5 * S);
+
+  // Divider
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+  ctx.lineWidth = 1 * S;
+  ctx.beginPath();
+  ctx.moveTo(x + 12 * S, y + 42 * S);
+  ctx.lineTo(x + w - 12 * S, y + 42 * S);
+  ctx.stroke();
+
+  // Second row: 3 crisp telemetry cells (STOPWATCH ms | BALL VELOCITY | FEATHER VELOCITY)
+  const cellY = y + 50 * S;
+  const cellH = 52 * S;
+  const colW = (w - 24 * S) / 3;
+
+  // Cell 1: Digital Stopwatch (ms)
+  const msTotal = Math.round(stopwatchSec * 1000);
+  const secStr = stopwatchSec.toFixed(3) + ' s';
+  const msStr = `${msTotal} ms`;
+  ctx.textAlign = 'left';
+  ctx.font = `700 ${Math.round(10.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = COL_MUTED;
+  ctx.fillText('STOPWATCH', x + 14 * S, cellY + 11 * S);
+  ctx.font = `900 ${Math.round(22 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(secStr, x + 14 * S, cellY + 33 * S);
+  ctx.font = `700 ${Math.round(10.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = COL_CYAN;
+  ctx.fillText(msStr, x + 14 * S, cellY + 48 * S);
+
+  // Cell 2: Ball Velocity
+  const c2X = x + 14 * S + colW;
+  ctx.fillStyle = COL_MUTED;
+  ctx.font = `700 ${Math.round(10.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillText('BALL (7.0 kg)', c2X, cellY + 11 * S);
+  ctx.font = `900 ${Math.round(21 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = COL_CYAN;
+  ctx.fillText(`${vBall.toFixed(2)} m/s`, c2X, cellY + 34 * S);
+
+  // Cell 3: Feather Velocity
+  const c3X = x + 14 * S + colW * 2;
+  const isDragSlow = activeMode === 'AIR' && vBall > vFeather + 1.0;
+  ctx.fillStyle = COL_MUTED;
+  ctx.font = `700 ${Math.round(10.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillText('FEATHER (2 g)', c3X, cellY + 11 * S);
+  ctx.font = `900 ${Math.round(21 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = isDragSlow ? COL_RED : COL_CYAN;
+  ctx.fillText(`${vFeather.toFixed(2)} m/s`, c3X, cellY + 34 * S);
+
+  ctx.restore();
+}
+
+function drawImpactShockwave(cx, cy, age, S) {
+  if (age < 0 || age > 1.35) return;
+  ctx.save();
+  const u = clamp(age / 0.85, 0, 1);
+  const r1 = (18 + u * 210) * S;
+  const a1 = (1 - u) * 0.9;
+  ctx.strokeStyle = `rgba(0, 240, 255, ${a1})`;
+  ctx.lineWidth = (4.5 * (1 - u) + 1) * S;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r1, 0, Math.PI * 2);
+  ctx.stroke();
+
+  if (age < 0.65) {
+    const u2 = age / 0.65;
+    const r2 = (10 + u2 * 130) * S;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${(1 - u2) * 0.85})`;
+    ctx.lineWidth = 2.5 * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawClimaxBadge(box, S, age) {
+  if (age < 0) return;
+  const pop = smoothstep(age / 0.24);
+  const scale = 0.86 + 0.14 * pop;
+  const cx = box.x + box.w * 0.5;
+  const cy = box.y + box.h * 0.48;
+  const bw = box.w - 18 * S;
+  const bh = 96 * S;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = pop;
+
+  ctx.fillStyle = 'rgba(7, 13, 28, 0.94)';
+  drawRoundedRect(-bw * 0.5, -bh * 0.5, bw, bh, 14 * S);
+  ctx.fill();
+  ctx.strokeStyle = COL_CYAN;
+  ctx.lineWidth = 2.4 * S;
+  ctx.shadowColor = COL_CYAN;
+  ctx.shadowBlur = 18 * S;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.round(23 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText('0.000 ms GAP', 0, -16 * S);
+
+  ctx.font = `800 ${Math.round(13.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = COL_CYAN;
+  ctx.fillText('9.81 m/s² LOCKSTEP', 0, 11 * S);
+
+  ctx.font = `700 ${Math.round(11 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.fillStyle = COL_MUTED;
+  ctx.fillText('EXACT SIMULTANEOUS HIT', 0, 31 * S);
+  ctx.restore();
+}
+
+function drawEqualityOverlay(safe, S, alpha) {
+  if (alpha <= 0.01) return;
+  const cx = safe.cx;
+  const cy = safe.t + safe.h * 0.54;
+  const bw = safe.w - 36 * S;
+  const bh = 166 * S;
+
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+  ctx.fillStyle = 'rgba(8, 13, 26, 0.94)';
+  drawRoundedRect(cx - bw * 0.5, cy - bh * 0.5, bw, bh, 18 * S);
+  ctx.fill();
+  ctx.strokeStyle = COL_CYAN;
+  ctx.lineWidth = 2.2 * S;
+  ctx.shadowColor = 'rgba(0, 240, 255, 0.45)';
+  ctx.shadowBlur = 20 * S;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.font = `800 ${Math.round(12.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = COL_CYAN;
+  ctx.fillText('GALILEO\'S EQUIVALENCE PRINCIPLE', cx, cy - 56 * S);
+
+  ctx.font = `900 ${Math.round(30 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText('a = F / m = g = 9.81 m/s²', cx, cy - 16 * S);
+
+  ctx.font = `700 ${Math.round(13.5 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.fillStyle = '#CBD5E1';
+  ctx.fillText('MASS CANCELS OUT WITHOUT AIR DRAG', cx, cy + 20 * S);
+
+  // Mini side-by-side verdict pills
+  const pillW = (bw - 44 * S) * 0.5;
+  const pillH = 28 * S;
+  const py = cy + 54 * S;
+
+  // Air verdict
+  ctx.fillStyle = 'rgba(255, 59, 48, 0.16)';
+  drawRoundedRect(cx - pillW - 6 * S, py - pillH * 0.5, pillW, pillH, 8 * S);
+  ctx.fill();
+  ctx.strokeStyle = COL_RED;
+  ctx.lineWidth = 1.4 * S;
+  ctx.stroke();
+  ctx.font = `800 ${Math.round(12 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+  ctx.fillStyle = COL_RED;
+  ctx.fillText('AIR: +4.960 s GAP', cx - pillW * 0.5 - 6 * S, py + 0.5 * S);
+
+  // Vacuum verdict
+  ctx.fillStyle = 'rgba(0, 240, 255, 0.16)';
+  drawRoundedRect(cx + 6 * S, py - pillH * 0.5, pillW, pillH, 8 * S);
+  ctx.fill();
+  ctx.strokeStyle = COL_CYAN;
+  ctx.lineWidth = 1.4 * S;
+  ctx.stroke();
+  ctx.fillStyle = COL_CYAN;
+  ctx.fillText('VACUUM: 0.000 ms GAP', cx + pillW * 0.5 + 6 * S, py + 0.5 * S);
+
+  ctx.restore();
+}
+
+// Pure deterministic frame renderer at time t (seconds)
+window.renderFrame = (tRaw) => {
+  const S = W / 720;
+  // Normalize time cleanly into [0, DUR) so t = 0 and t = DUR are 100% identical
+  const t = ((tRaw % DUR) + DUR) % DUR;
+  const tau = t * (30 / DUR); // Normalized timeline in [0, 30)
+  const wLoop = (2 * Math.PI * t) / DUR;
+
+  // Strict Safe-Zone bounds: x ∈ [6%W, 84%W], y ∈ [14%H, 74%H]
+  const safe = {
+    l: W * 0.06,
+    r: W * 0.84,
+    t: H * 0.14,
+    b: H * 0.74
+  };
+  safe.w = safe.r - safe.l;
+  safe.h = safe.b - safe.t;
+  safe.cx = (safe.l + safe.r) * 0.5;
+
+  // Chamber layout strictly inside Safe-Zone
+  const gap = 12 * S;
+  const chTop = safe.t + 124 * S;
+  const chBot = safe.b - 6 * S;
+  const chH = chBot - chTop;
+  const chW = (safe.w - 8 * S - gap) * 0.5;
+
+  const leftBox = { x: safe.l + 4 * S, y: chTop, w: chW, h: chH };
+  const rightBox = { x: leftBox.x + chW + gap, y: chTop, w: chW, h: chH };
+
+  // Drop shaft vertical coordinates
+  const releaseY = chTop + 92 * S;
+  const sensorTopY = chBot - 40 * S;
+  const ballR = 21 * S;
+  const ballBotY = sensorTopY - ballR;
+  const featherBotY = sensorTopY - 12 * S;
+
+  // Subtle camera micro-shake on impacts (deterministic)
+  let shakeX = 0, shakeY = 0;
+  const airBallHitAge = tau - (3.0 + T_AIR_BALL);
+  const vacHitAge = tau - (17.5 + T_VAC_FALL);
+  if (airBallHitAge >= 0 && airBallHitAge < 0.35) {
+    const mag = (1 - airBallHitAge / 0.35) * 4.5 * S;
+    shakeX += Math.sin(airBallHitAge * 90) * mag;
+    shakeY += Math.cos(airBallHitAge * 115) * mag;
+  }
+  if (vacHitAge >= 0 && vacHitAge < 0.55) {
+    const mag = (1 - vacHitAge / 0.55) * 7.0 * S;
+    shakeX += Math.sin(vacHitAge * 110) * mag;
+    shakeY += Math.cos(vacHitAge * 130) * mag;
+  }
+
+  // --- Timeline state evaluation ---
+  // Magnetic lift factor: 0 during [0, 26.2], smoothly 0 -> 1 during [26.2, 29.3], 1 during [29.3, 30]
+  const liftU = tau >= 26.2 ? smootherstep((tau - 26.2) / 3.1) : 0;
+  const tractorAlpha = tau >= 25.8 && tau < 29.6
+    ? Math.sin(clamp((tau - 25.8) / 3.8, 0, 1) * Math.PI)
+    : 0;
+
+  // Right chamber vacuum evacuation: 1.00 -> 0.00 ATM over [12.0, 16.2], re-pressurizes [26.8, 29.6]
+  let evacProgress = 0;
+  if (tau >= 12.0 && tau < 16.2) {
+    evacProgress = smootherstep((tau - 12.0) / 4.2);
+  } else if (tau >= 16.2 && tau < 26.8) {
+    evacProgress = 1;
+  } else if (tau >= 26.8 && tau < 29.6) {
+    evacProgress = 1 - smootherstep((tau - 26.8) / 2.8);
+  }
+  const rightAtm = clamp(1 - evacProgress, 0, 1);
+  const pumpActive = tau >= 12.0 && tau < 16.25;
+
+  // Left chamber objects (release at tau = 3.0s)
+  const leftDt = tau >= 3.0 ? tau - 3.0 : 0;
+  const lBallK = airBallKinematics(leftDt);
+  const lFeathK = airFeatherKinematics(leftDt);
+
+  let lBallY = lerp(releaseY, ballBotY, lBallK.yNorm);
+  let lFeathY = lerp(releaseY, featherBotY, lFeathK.yNorm);
+  let lFeathXOff = lFeathK.sway * 22 * S;
+  let lFeathTilt = lFeathK.tilt;
+
+  // Apply seamless magnetic lift back to exact releaseY
+  if (liftU > 0) {
+    lBallY = lerp(lBallY, releaseY, liftU);
+    lFeathY = lerp(lFeathY, releaseY, liftU);
+    lFeathXOff *= (1 - liftU);
+    lFeathTilt *= (1 - liftU);
+  }
+
+  // Right chamber objects (release at tau = 17.5s)
+  const rightDt = tau >= 17.5 ? tau - 17.5 : 0;
+  const rVacK = vacuumKinematics(rightDt);
+
+  let rBallY = lerp(releaseY, ballBotY, rVacK.yNorm);
+  let rFeathY = lerp(releaseY, featherBotY, rVacK.yNorm);
+  if (liftU > 0) {
+    rBallY = lerp(rBallY, releaseY, liftU);
+    rFeathY = lerp(rFeathY, releaseY, liftU);
+  }
+
+  // HUD telemetry selection
+  let phaseLabel = 'SUSPENDED · READY';
+  let phaseCol = COL_CYAN;
+  let stopwatchSec = 0;
+  let hudVBall = 0;
+  let hudVFeather = 0;
+  let activeMode = 'IDLE';
+
+  if (tau < 3.0) {
+    phaseLabel = 'HOOK · EQUAL RELEASE';
+    phaseCol = COL_CYAN;
+  } else if (tau < 12.0) {
+    activeMode = 'AIR';
+    phaseLabel = 'AIR RESISTANCE · 1.00 ATM';
+    phaseCol = COL_RED;
+    stopwatchSec = clamp(leftDt, 0, T_AIR_FEATHER);
+    hudVBall = lBallK.v;
+    hudVFeather = lFeathK.v;
+  } else if (tau < 17.5) {
+    activeMode = 'PUMP';
+    phaseLabel = tau < 16.2 ? 'EVACUATING CHAMBER...' : 'VACUUM LOCKED · 0.00 ATM';
+    phaseCol = tau < 16.2 ? COL_AMBER : COL_CYAN;
+    stopwatchSec = 0;
+  } else if (tau < 23.0) {
+    activeMode = 'VACUUM';
+    phaseLabel = rVacK.landed ? '0.000 ms SIMULTANEOUS HIT' : 'VACUUM FREE FALL · 9.81';
+    phaseCol = COL_CYAN;
+    stopwatchSec = clamp(rightDt, 0, T_VAC_FALL);
+    hudVBall = rVacK.v;
+    hudVFeather = rVacK.v;
+  } else if (tau < 26.2) {
+    activeMode = 'EQ';
+    phaseLabel = 'EQUALITY · F / m = g';
+    phaseCol = COL_CYAN;
+    stopwatchSec = T_VAC_FALL;
+  } else {
+    activeMode = 'LIFT';
+    phaseLabel = 'MAGNETIC RESET · LOOP';
+    phaseCol = COL_CYAN;
+    stopwatchSec = T_VAC_FALL * (1 - liftU);
+  }
+
+  // Render scene
+  ctx.save();
+  drawBackground(S, t / DUR, wLoop);
+  ctx.translate(shakeX, shakeY);
+
+  // Top HUD
+  drawTopHUD(safe, S, phaseLabel, phaseCol, stopwatchSec, hudVBall, hudVFeather, activeMode);
+
+  // Sensor flashes
+  const leftSensorFlash = (airBallHitAge >= 0 && airBallHitAge < 0.7) ? (1 - airBallHitAge / 0.7) : 0;
+  const rightSensorFlash = (vacHitAge >= 0 && vacHitAge < 1.8) ? Math.max(0.25, 1 - vacHitAge / 1.8) : 0;
+
+  // Draw Chamber Frames
+  drawChamberFrame(leftBox, 'AIR', 1.00, COL_RED, S, leftSensorFlash, false, false, 0);
+  drawChamberFrame(rightBox, 'VACUUM', rightAtm, COL_CYAN, S, rightSensorFlash, true, pumpActive, evacProgress);
+
+  // Object X lanes inside each chamber
+  const lBallX = leftBox.x + leftBox.w * 0.31;
+  const lFeathX = leftBox.x + leftBox.w * 0.70 + lFeathXOff;
+  const rBallX = rightBox.x + rightBox.w * 0.31;
+  const rFeathX = rightBox.x + rightBox.w * 0.70;
+
+  // Air molecules in Left & Right Chambers
+  const lFeathFalling = tau >= 3.0 && !lFeathK.landed;
+  drawAirMolecules(leftMolecules, leftBox, S, t, wLoop, 0, { x: lFeathX, y: lFeathY }, lFeathFalling);
+  drawAirMolecules(rightMolecules, rightBox, S, t, wLoop, evacProgress, null, false);
+
+  // Tension glow pulse (periodic over DUR -> seamless)
+  const hookPulse = 0.55 + 0.45 * Math.sin(8 * wLoop);
+  const clampY = chTop + 62 * S;
+  const leftOpen = tau >= 3.0 && tau < 29.3;
+  const rightOpen = tau >= 17.5 && tau < 29.3;
+
+  // Clamps & Magnetic tractor beams
+  drawClamp(lBallX, clampY, S, leftOpen, leftOpen ? 0 : hookPulse, tractorAlpha);
+  drawClamp(leftBox.x + leftBox.w * 0.70, clampY, S, leftOpen, leftOpen ? 0 : hookPulse, tractorAlpha);
+  drawClamp(rBallX, clampY, S, rightOpen, rightOpen ? 0 : hookPulse, tractorAlpha);
+  drawClamp(rFeathX, clampY, S, rightOpen, rightOpen ? 0 : hookPulse, tractorAlpha);
+
+  // Vacuum horizontal lockstep alignment laser (shows exact Δy = 0.00 m during fall)
+  if (tau >= 17.5 && !rVacK.landed) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.75)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.setLineDash([4 * S, 4 * S]);
+    ctx.beginPath();
+    ctx.moveTo(rBallX + ballR + 4 * S, rBallY);
+    ctx.lineTo(rFeathX - 22 * S, rBallY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // --- Force Vectors ---
+  // Left Ball gravity vector
+  if (tau >= 3.0 && !lBallK.landed) {
+    const gLen = (24 + (lBallK.v / 22) * 44) * S;
+    drawForceArrow(lBallX, lBallY + ballR + 4 * S, gLen, 1, COL_CYAN, 'Fg', S, 0.95);
+  }
+  // Left Feather crimson upward DRAG vector + small gravity vector
+  if (tau >= 3.0 && !lFeathK.landed) {
+    const dragLen = (26 + lFeathK.dragRatio * 46) * S;
+    drawForceArrow(lFeathX, lFeathY - 14 * S, dragLen, -1, COL_RED, 'DRAG', S, 0.98);
+    drawForceArrow(lFeathX, lFeathY + 14 * S, 20 * S, 1, COL_CYAN, '', S, 0.65);
+  }
+  // Right Chamber identical gravity vectors (ZERO drag!)
+  if (tau >= 17.5 && !rVacK.landed) {
+    const gLen = (24 + (rVacK.v / 22) * 46) * S;
+    drawForceArrow(rBallX, rBallY + ballR + 4 * S, gLen, 1, COL_CYAN, '9.81', S, 0.96);
+    drawForceArrow(rFeathX, rFeathY + 14 * S, gLen, 1, COL_CYAN, '9.81', S, 0.96);
+  }
+
+  // --- Draw Bowling Balls & Feathers ---
+  const suspGlow = (tau < 3.0 || tau > 29.2) ? hookPulse : 0.25;
+  drawBowlingBall(lBallX, lBallY, ballR, S, leftOpen ? 0.35 : suspGlow, 0);
+  drawFeather(lFeathX, lFeathY, S, lFeathTilt, lFeathFalling ? 0.9 : suspGlow, lFeathFalling);
+
+  drawBowlingBall(rBallX, rBallY, ballR, S, rightOpen ? 0.65 : suspGlow, 0);
+  drawFeather(rFeathX, rFeathY, S, 0, rightOpen ? 0.95 : suspGlow, false);
+
+  // Mass labels during hook & pause
+  const tagAlpha = tau < 2.8 ? 1 : (tau < 3.3 ? 1 - (tau - 2.8) / 0.5 : (tau > 29.2 ? (tau - 29.2) / 0.8 : 0));
+  drawMassTag(lBallX, lBallY + ballR + 18 * S, '7.0 kg', S, tagAlpha);
+  drawMassTag(lFeathX, lFeathY + 24 * S, '0.002 kg', S, tagAlpha);
+  drawMassTag(rBallX, rBallY + ballR + 18 * S, '7.0 kg', S, tagAlpha);
+  drawMassTag(rFeathX, rFeathY + 24 * S, '0.002 kg', S, tagAlpha);
+
+  // --- Bottom Sensor Plate Text Readouts ---
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${Math.round(11.5 * S)}px "SF Mono", Menlo, Consolas, monospace`;
+
+  const lPlateMidY = leftBox.y + leftBox.h - 23 * S;
+  if (tau < 3.0 || liftU > 0.3) {
+    ctx.fillStyle = COL_MUTED;
+    ctx.fillText('OPTICAL SENSOR READY', leftBox.x + leftBox.w * 0.5, lPlateMidY);
+  } else if (!lBallK.landed) {
+    ctx.fillStyle = COL_CYAN;
+    ctx.fillText('TRACKING DROP...', leftBox.x + leftBox.w * 0.5, lPlateMidY);
+  } else if (!lFeathK.landed) {
+    ctx.fillStyle = COL_RED;
+    ctx.fillText(`BALL 2.24s · FEATHER +${(leftDt - T_AIR_BALL).toFixed(2)}s`, leftBox.x + leftBox.w * 0.5, lPlateMidY);
+  } else {
+    ctx.fillStyle = COL_RED;
+    ctx.fillText('GAP: +4.960 s (AIR DRAG)', leftBox.x + leftBox.w * 0.5, lPlateMidY);
+  }
+
+  const rPlateMidY = rightBox.y + rightBox.h - 23 * S;
+  if (tau < 12.0 || liftU > 0.3) {
+    ctx.fillStyle = COL_MUTED;
+    ctx.fillText('OPTICAL SENSOR READY', rightBox.x + rightBox.w * 0.5, rPlateMidY);
+  } else if (tau < 16.2) {
+    ctx.fillStyle = COL_AMBER;
+    ctx.fillText(`EVACUATING ${Math.round(evacProgress * 100)}%`, rightBox.x + rightBox.w * 0.5, rPlateMidY);
+  } else if (tau < 17.5) {
+    ctx.fillStyle = COL_CYAN;
+    ctx.fillText('0.00 ATM · RELEASE READY', rightBox.x + rightBox.w * 0.5, rPlateMidY);
+  } else if (!rVacK.landed) {
+    ctx.fillStyle = COL_CYAN;
+    ctx.fillText('Δy = 0.00 m · LOCKSTEP', rightBox.x + rightBox.w * 0.5, rPlateMidY);
+  } else {
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('0.000 ms GAP · 2.200 s', rightBox.x + rightBox.w * 0.5, rPlateMidY);
+  }
+  ctx.restore();
+
+  // --- Climax Shockwave & Badge (Right Chamber Impact at tau = 19.70s) ---
+  if (vacHitAge >= 0 && tau < 26.2) {
+    drawImpactShockwave(rightBox.x + rightBox.w * 0.5, sensorTopY, vacHitAge, S);
+  }
+  if (vacHitAge >= 0.05 && tau < 23.1) {
+    const fadeOut = tau > 22.6 ? 1 - (tau - 22.6) / 0.5 : 1;
+    ctx.save();
+    ctx.globalAlpha = clamp(fadeOut, 0, 1);
+    drawClimaxBadge(rightBox, S, vacHitAge - 0.05);
+    ctx.restore();
+  }
+
+  // --- Slow-Mo Equality Comparison Card (tau = 23.0s -> 26.5s) ---
+  if (tau >= 23.0 && tau < 26.5) {
+    const fadeIn = smoothstep((tau - 23.0) / 0.45);
+    const fadeOut = tau > 25.8 ? 1 - smoothstep((tau - 25.8) / 0.7) : 1;
+    drawEqualityOverlay(safe, S, fadeIn * fadeOut);
+  }
+
+  ctx.restore();
+};
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const t = (startFrame + i) / FPS;
+    window.renderFrame(t);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+
+window.getEvents = () => cachedEvents;
+window.ready = true;
+</script>

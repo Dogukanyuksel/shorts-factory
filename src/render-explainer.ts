@@ -8,6 +8,7 @@ import { chromium } from "playwright-core";
 import { applyIntroSubBass, synthesizeBackgroundMusicPcm, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
 import { synthesizeVoice } from "./voice.js";
 import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
+import { buildWordCaptionCanvasSnippet } from "./word-captions.js";
 
 const require = createRequire(import.meta.url);
 const ffmpegPath: string = require("ffmpeg-static");
@@ -106,13 +107,15 @@ async function main() {
       { width, height, fps, duration: totalSec, lines: timed },
     );
 
-    if (epBadge || pollLine) {
+    const wordCapSnippet = buildWordCaptionCanvasSnippet(timed, "#FF9500");
+    if (epBadge || pollLine || timed.length > 0) {
       await page.addScriptTag({
         content: `(() => {
           const fpsVal = ${JSON.stringify(fps)};
           const durVal = ${JSON.stringify(totalSec)};
           const badgeText = ${JSON.stringify(epBadge)};
           const pollText = ${JSON.stringify(pollLine)};
+          ${wordCapSnippet}
           let frameIdx = 0;
           const orig = HTMLCanvasElement.prototype.toDataURL;
           function fitText(ctx, text, maxW, maxPx, minPx, S, weight) {
@@ -182,11 +185,13 @@ async function main() {
                   ctx.fillText("HOW IT ACTUALLY WORKS 👀", 0, 7 * S);
                   ctx.restore();
                 }
+                // 2-3 Kelimelik Aktif Vurgulu Yaylı Dinamik Altyazı (Clear Mechanics #FF9500 Turuncu)
+                drawWordPopCaption(ctx, tSec, W, H, S);
                 // Kesintisiz Loop Dostu Yüzer Cam Rozet (son 2.4 sn)
                 if (tSec >= durVal - 2.4) {
                   const alpha = Math.min(1, (tSec - (durVal - 2.4)) / 0.28);
                   ctx.globalAlpha = Math.max(0, alpha * 0.92);
-                  const boxW = W * 0.80, boxH = 44 * S, bx = (W - boxW) * 0.5, by = H * 0.725;
+                  const boxW = W * 0.80, boxH = 44 * S, bx = (W - boxW) * 0.5, by = H * 0.715;
                   ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
                   ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 22 * S); ctx.fill();
                   ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.2 * S; ctx.stroke();

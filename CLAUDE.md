@@ -1,32 +1,28 @@
-# Shorts Factory — Modular Project Rules (`Kinetic Lab` & `Clear Mechanics`)
+# Shorts Factory — 4-Channel Autonomous Production Spec
 
-> **Single Source of Truth:** Static architectural rules, channel contracts, and prompt templates live in Git (`brain` / this file). Daily publish logs, analytics snapshots, and queues stay strictly in `state/` (never bloat `brain` with daily logs). No Obsidian or external PKM tools.
+> **Single Source of Truth:** Static architectural rules, channel brand kits, and production contracts live in Git (`CLAUDE.md`). Daily publish logs, analytics snapshots, and queues stay strictly in `state/`.
 
-## 1. Strategic Focus (Pre–Feb 1, 2027 YPP Window)
-- **Active Channels Only (English / US-targeted):**
-  - `physics` → **Kinetic Lab** (`@kineticlabshorts`)
-  - `explainer` → **Clear Mechanics** (`@clearmechanicsshorts`)
-- **Primary Monetization Goal:** Reach **1,000 subscribers + 4,000 public watch hours** (or 10M Shorts views) as fast as possible.
-- **No-Expansion Rule:** Do NOT add new news sites, new social channels, or external tools until both English YouTube channels pass YPP and generate steady revenue.
+## 1. Active 4-Channel Network (English / US Prime Time — Pre–Feb 1, 2027 YPP Goal)
+- **`physics` → Kinetic Lab HQ:** YT `@kineticlabshorts` | IG `@kineticlab.motion`
+  - **Brand Kit:** BG `#0B0F19`, Primary `#00F0FF` (Electric Cyan), Accent `#FF3B30`. Style: 2D/3D physics simulations, vector arrows, velocity/acceleration counters, technical grid.
+- **`explainer` → Clear Mechanics:** YT `@clearmechanicsshorts` | IG `@clearmechanics.lab`
+  - **Brand Kit:** BG `#141414` (Anthracite), Primary `#FF9500` (Industrial Orange), Accent `#FFFFFF` + `#38bdf8`. Style: 3D Three.js WebGL PBR exploded views, X-ray translucent metal, part callouts.
+- **`wealth` → Wealth Mechanics ($12–$22 RPM):** YT `@wealthmechanicsshorts` | IG `@wealthmechanics.hq`
+  - **Brand Kit:** BG `#090D16` (Financial Night), Primary `#FFD60A` (Gold), Accent `#30D158` / `#10b981` (Growth Green). Style: Dynamic compound curves, odometer counters, clean financial typography.
+- **`bio` → Bio Mechanics ($8–$14 RPM):** YT `@biomechanicshq` | IG `@biomechanics.hq`
+  - **Brand Kit:** BG `#0D1117` (Dark Carbon), Primary `#34C759` (Bio Green), Accent `#FF2D55` (Tension Crimson). Style: Bioluminescent anatomical cutaways, force vectors, angle protractors, live telemetry.
 
-## 2. Content & Render Architecture ("Long-Form First → Derived Showcase Shorts")
-- **Long-Form (16:9 `1920×1080`, 4:00–4:45):**
-  - Never build long-form videos by concatenating unrelated Shorts when a 4-Act narrative episode is available.
-  - Every deep dive follows **1 single topic across 4 cohesive acts**:
-    1. *Act 1 (0:00–0:45):* Hook & Problem
-    2. *Act 2 (0:45–2:15):* Core Mechanism & Forces
-    3. *Act 3 (2:15–3:45):* Limit State / Failure Mode
-    4. *Act 4 (3:45–4:30):* Comparative Summary & Next-Episode Bridge
-  - Use explicit **Narrative Bridges** between acts and shift visual angles/layers every **20–30 seconds** (never freeze a static diagram).
-- **Derived Showcase Shorts (9:16 `1080×1920`, 30–42s):**
-  - Every published 4-Act long-form episode automatically enqueues **2–3 standalone Showcase Shorts** into `state/derived-shorts-queue.json` linked to `parentVideoId`.
-  - `src/auto-publish.ts` prioritizes the derived funnel queue, attaches the full-video link in the description + first comment, and sends a 1-tap Telegram YouTube Studio link so the native *Related Video* chip can be linked in 5 seconds.
-- **Retention & Sub Conversion:**
-  - Safe-Zone overlays only (`page.addScriptTag`, never nested functions inside `page.evaluate` due to `tsx` `__name` helper).
-  - Include series continuity (`PART 1 / 3`, `NEXT: ...`) + 1-second crisp Subscribe CTA.
-  - Normalize audio to `-14 LUFS`, H.264 `Main@4.1` closed-GOP for IG Reels compatibility, and run `src/qc.ts` before every upload.
+## 2. Strict Shorts/Reels Production Rules (1080×1920, 60fps, 28–42s)
+1. **0.0–2.0s Scroll-Stopper Hook:** Immediate visual break (collision, shocking stat, or 3D zoom) + 1-sentence curiosity hook + high-contrast top Safe-Zone silent hook pill (target `Viewed vs Swiped Away > 70%`).
+2. **Pattern Interrupt Every 3–4s:** Visual state must change every 3–4 seconds (camera angle, new data layer, vector highlight, phase transition). Static screens are forbidden.
+3. **Subtitles & Safe Zone:** 2–3 words max at once, active word highlighted in channel accent color. Keep all key UI within `x ∈ [6%W, 84%W]`, `y ∈ [14%H, 74%H]`. Never nest functions inside `page.evaluate` (`tsx` `__name` helper) — inject overlays via `page.addScriptTag`.
+4. **Seamless Loop:** Final spoken line bridges semantically back to the opening line, and final frame returns smoothly to frame 0 (no static full-screen blocker at the end; sleek floating glass pill only).
+5. **Multi-Platform Distribution (1 Render → 3 Platforms):** Every Short publishes to **YouTube Shorts + Instagram Reels + Facebook Reels** (`src/facebook.ts`). Never put `@` in front of YouTube channel names on Instagram; use `@` strictly for our 4 real sister Instagram handles (`src/network-links.ts`).
 
-## 3. Channel Guard & Brand Consistency
-- Canonical names: **`Kinetic Lab`** (`physics`) and **`Clear Mechanics`** (`explainer`).
-- `src/channel-guard.ts` verifies OAuth token ownership before rendering/uploading to prevent cross-channel uploads.
-- Always run `npm run typecheck && npm test` and `git pull --rebase origin main` before pushing.
+## 3. 4-Act 16:9 Long-Form Architecture (4,000 Watch-Hour YPP Engine)
+- Every flagship 16:9 video (`1920×1080`, 4:00–4:45) covers **1 single topic across 4 cohesive acts** (Hook → Core Mechanism → Failure/Limit State → Comparative Summary) with explicit Narrative Bridges and visual phase shifts every 20–30s.
+- Publishing a 4-Act video automatically enqueues 3 standalone Showcase Shorts into `state/derived-shorts-queue.json`.
+
+## 4. Safety & Verification
+- Always verify channel ownership via `src/channel-guard.ts` / `getMyChannel()`.
+- Normalize audio to `-14 LUFS`, H.264 `yuv420p`, run `src/qc.ts`, and verify `npm run typecheck && npm test` + `git pull --rebase origin main` before pushing.

@@ -1,0 +1,1027 @@
+<!doctype html>
+<!--
+  Clear Mechanics — How a Car Differential Works (Three.js 3D PBR + 2D HUD, 60fps, deterministic)
+  Offline Three.js WebGL PBR renderer (0.75x internal buffer) composited onto 2D HUD canvas (#c).
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#141414;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => {
+  const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1);
+  return x * x * (3 - 2 * x);
+};
+// Exact analytical integral of smooth(a, b, tau) from 0 to t
+function intSmooth(a, b, t) {
+  const L = Math.max(1e-5, b - a);
+  if (t <= a) return 0;
+  if (t >= b) return 0.5 * L + (t - b);
+  const x = (t - a) / L;
+  return L * (x * x * x - 0.5 * x * x * x * x);
+}
+
+const SCRIPT = [
+  {
+    id: 'hook',
+    text: "When a car turns, the outside wheel has to travel farther — so why doesn't the axle snap?",
+    caption: 'THE AXLE PROBLEM',
+  },
+  {
+    id: 'straight',
+    text: 'Inside the rear axle, engine power spins the giant ring gear, carrying spider gears straight ahead.',
+    caption: 'RING GEAR & CARRIER',
+  },
+  {
+    id: 'lock',
+    text: 'Driving straight, both wheels spin at fifty R P M, so the spider gears stay completely still on their own axis.',
+    caption: 'STRAIGHT: 50 | 50 RPM',
+  },
+  {
+    id: 'turn',
+    text: 'Now enter a sharp left turn. The inner left wheel slows to thirty R P M while the outer wheel needs seventy!',
+    caption: 'LEFT TURN: 30 | 70 RPM',
+  },
+  {
+    id: 'spider',
+    text: 'Instantly, the spider gears begin spinning on their own axis — routing every drop of extra speed straight to the outer wheel.',
+    caption: 'SPIDER GEARS SPIN!',
+  },
+  {
+    id: 'loop',
+    text: 'Pure mechanical math inside a metal cage — saving your tires every single time you...',
+    caption: 'PURE MECHANICAL MATH',
+  },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 33.5, LINES = [], EVENTS = [];
+let renderer, scene, camera, glCanvas;
+
+// 3D Scene Handles
+let diffRoot, chassisGroup, arcGroup;
+let housingMesh, housingFlange, leftTube, rightTube;
+let housingMat, chassisMat, chassisEdgeMat, innerArcMat, outerArcMat;
+let pinionGroup, carrierGroup, spiderTop, spiderBot, spiderMat;
+let leftAxleGroup, rightAxleGroup;
+let frontWheelL, frontWheelR;
+let spiderLight;
+let built = false;
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const weights = [0.16, 0.17, 0.17, 0.17, 0.19, 0.14];
+  let acc = 0;
+  for (let i = 0; i < fallbackIdx; i++) acc += weights[i] || (1 / SCRIPT.length);
+  const w = weights[fallbackIdx] || (1 / SCRIPT.length);
+  return {
+    id,
+    start: acc * DUR,
+    end: (acc + w) * DUR,
+    caption: SCRIPT[fallbackIdx].caption,
+  };
+}
+
+// Procedural 3D Bevel / Spur Gear Builder (fast, crisp metallic specular highlights)
+function makeGear({
+  radius = 0.6,
+  thickness = 0.22,
+  teeth = 16,
+  toothW = 0.09,
+  toothH = 0.11,
+  bevelAngle = 0,
+  mat,
+  hubMat,
+  stripeMat = null,
+  holeR = 0.16,
+}) {
+  const g = new THREE.Group();
+
+  // Main tapered disc
+  const topR = bevelAngle > 0 ? radius * (1 - Math.sin(bevelAngle) * 0.24) : radius;
+  const bodyGeo = new THREE.CylinderGeometry(topR, radius, thickness, Math.max(20, teeth * 2));
+  const body = new THREE.Mesh(bodyGeo, mat);
+  g.add(body);
+
+  // Center hub collar
+  const hubGeo = new THREE.CylinderGeometry(holeR * 1.45, holeR * 1.45, thickness * 1.35, 16);
+  const hub = new THREE.Mesh(hubGeo, hubMat || mat);
+  g.add(hub);
+
+  // Gear teeth around perimeter
+  const toothGeo = new THREE.BoxGeometry(toothW, thickness * 0.92, toothH);
+  const rMid = (topR + radius) * 0.5 + toothH * 0.34;
+  for (let i = 0; i < teeth; i++) {
+    const a = (i / teeth) * Math.PI * 2;
+    const tMesh = new THREE.Mesh(toothGeo, mat);
+    tMesh.position.set(Math.sin(a) * rMid, 0, Math.cos(a) * rMid);
+    tMesh.rotation.y = a;
+    if (bevelAngle !== 0) {
+      tMesh.rotation.x = -bevelAngle;
+    }
+    g.add(tMesh);
+  }
+
+  // High-contrast alignment index stripe so rotation speed is immediately readable
+  if (stripeMat) {
+    const stripeGeo = new THREE.BoxGeometry(toothW * 1.15, thickness * 1.08, radius * 0.78);
+    const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+    stripe.position.set(0, 0.01, radius * 0.38);
+    g.add(stripe);
+  }
+
+  return g;
+}
+
+// Procedural 3D Wheel & Tire Assembly with bold spoke markers
+function makeWheel(accentColor) {
+  const wg = new THREE.Group();
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x1c1e22, metalness: 0.15, roughness: 0.78 });
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xb8c4d0, metalness: 0.88, roughness: 0.22 });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: accentColor,
+    emissive: accentColor,
+    emissiveIntensity: 0.35,
+    metalness: 0.45,
+    roughness: 0.28,
+  });
+
+  // Tire tread (rotated so wheel axle is along X)
+  const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.96, 0.96, 0.56, 32), tireMat);
+  tire.rotation.z = Math.PI / 2;
+  wg.add(tire);
+
+  // Sidewall chamfer rings
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.60, 24), rimMat);
+  rim.rotation.z = Math.PI / 2;
+  wg.add(rim);
+
+  // 5 bold spokes + 1 bright accent indicator spoke for unmistakable RPM readability
+  for (let i = 0; i < 5; i++) {
+    const spoke = new THREE.Mesh(
+      new THREE.BoxGeometry(0.64, 0.10, 1.12),
+      i === 0 ? accentMat : rimMat,
+    );
+    spoke.rotation.x = (i * Math.PI) / 5;
+    wg.add(spoke);
+  }
+
+  // Outer glowing accent bead ring on tire face
+  const bead = new THREE.Mesh(new THREE.TorusGeometry(0.76, 0.032, 10, 36), accentMat);
+  bead.rotation.y = Math.PI / 2;
+  wg.add(bead);
+
+  return wg;
+}
+
+// Build a curved ribbon arc on the ground plane (y = -0.94)
+function makeRoadArc(centerX, centerZ, radius, startAng, endAng, width, mat) {
+  const segs = 40;
+  const positions = [];
+  const indices = [];
+  const rIn = radius - width * 0.5;
+  const rOut = radius + width * 0.5;
+  for (let i = 0; i <= segs; i++) {
+    const a = lerp(startAng, endAng, i / segs);
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    positions.push(centerX + ca * rIn, -0.92, centerZ + sa * rIn);
+    positions.push(centerX + ca * rOut, -0.92, centerZ + sa * rOut);
+    if (i < segs) {
+      const k = i * 2;
+      indices.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, mat);
+}
+
+function buildScene() {
+  glCanvas = document.createElement('canvas');
+  const glW = Math.round(W * 0.75);
+  const glH = Math.round(H * 0.75);
+  glCanvas.width = glW;
+  glCanvas.height = glH;
+
+  renderer = new THREE.WebGLRenderer({
+    canvas: glCanvas,
+    antialias: false,
+    powerPreference: 'high-performance',
+    preserveDrawingBuffer: true,
+  });
+  renderer.setSize(glW, glH, false);
+  renderer.setPixelRatio(1);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.28;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x141414);
+  scene.fog = new THREE.FogExp2(0x141414, 0.032);
+
+  camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 100);
+  camera.position.set(0.4, 7.6, 5.4);
+  camera.lookAt(0, -0.2, -1.0);
+
+  // Studio 3-point + industrial orange/cyan rim PBR lighting
+  const hemi = new THREE.HemisphereLight(0xe2e8f0, 0x1a1a1a, 1.05);
+  scene.add(hemi);
+
+  const keyLight = new THREE.DirectionalLight(0xffffff, 2.75);
+  keyLight.position.set(4.5, 8.5, 6.5);
+  scene.add(keyLight);
+
+  const fillLight = new THREE.DirectionalLight(0x94a3b8, 0.95);
+  fillLight.position.set(-6.0, 3.0, -4.0);
+  scene.add(fillLight);
+
+  const rimOrange = new THREE.PointLight(0xff9500, 14, 16);
+  rimOrange.position.set(3.8, 1.8, 3.2);
+  scene.add(rimOrange);
+
+  const rimCyan = new THREE.PointLight(0x38bdf8, 12, 16);
+  rimCyan.position.set(-4.2, 2.2, 2.4);
+  scene.add(rimCyan);
+
+  // Dynamic core light inside spider cage (illuminates when spiders spin)
+  spiderLight = new THREE.PointLight(0xff9500, 0, 5.5);
+  spiderLight.position.set(0, 0, 0);
+  scene.add(spiderLight);
+
+  // Subtle anthracite studio floor grid
+  const grid = new THREE.GridHelper(24, 32, 0x333333, 0x1f1f1f);
+  grid.position.y = -0.96;
+  scene.add(grid);
+
+  // Shared PBR Materials
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0xbec9d4, metalness: 0.88, roughness: 0.22 });
+  const darkSteelMat = new THREE.MeshStandardMaterial({ color: 0x5c6672, metalness: 0.90, roughness: 0.28 });
+  const ringGearMat = new THREE.MeshStandardMaterial({ color: 0x8a95a3, metalness: 0.90, roughness: 0.24 });
+  const cageMat = new THREE.MeshStandardMaterial({ color: 0x47515e, metalness: 0.85, roughness: 0.30 });
+  const whiteStripeMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.35,
+    metalness: 0.2,
+    roughness: 0.3,
+  });
+  const cyanStripeMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    emissive: 0x0ea5e9,
+    emissiveIntensity: 0.55,
+    metalness: 0.3,
+    roughness: 0.25,
+  });
+  const orangeStripeMat = new THREE.MeshStandardMaterial({
+    color: 0xff9500,
+    emissive: 0xff7b00,
+    emissiveIntensity: 0.55,
+    metalness: 0.3,
+    roughness: 0.25,
+  });
+
+  spiderMat = new THREE.MeshStandardMaterial({
+    color: 0xff9500,
+    emissive: 0xff6a00,
+    emissiveIntensity: 0.28,
+    metalness: 0.72,
+    roughness: 0.24,
+  });
+
+  housingMat = new THREE.MeshStandardMaterial({
+    color: 0x38424f,
+    metalness: 0.72,
+    roughness: 0.36,
+    transparent: true,
+    opacity: 0.92,
+    side: THREE.DoubleSide,
+  });
+
+  // === ROOT DIFFERENTIAL ASSEMBLY (centered at origin) ===
+  diffRoot = new THREE.Group();
+  scene.add(diffRoot);
+
+  // 1. PINION GEAR & DRIVESHAFT (entering from front / +Z)
+  pinionGroup = new THREE.Group();
+  // Driveshaft extends along -Z (toward front of car)
+  const driveShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 3.2, 20), steelMat);
+  driveShaft.rotation.x = Math.PI / 2;
+  driveShaft.position.set(-0.34, 0, -2.75);
+  pinionGroup.add(driveShaft);
+
+  // Driveshaft spiral/index stripe
+  const dsStripe = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.05, 2.4), orangeStripeMat);
+  dsStripe.position.set(-0.34, 0, -2.75);
+  pinionGroup.add(dsStripe);
+
+  // Pinion Bevel Gear meshing with Ring Gear at z = -1.16
+  const pinionGear = makeGear({
+    radius: 0.42,
+    thickness: 0.26,
+    teeth: 12,
+    toothW: 0.07,
+    toothH: 0.10,
+    bevelAngle: 0.35,
+    mat: darkSteelMat,
+    hubMat: steelMat,
+    stripeMat: whiteStripeMat,
+    holeR: 0.14,
+  });
+  pinionGear.rotation.x = Math.PI / 2;
+  pinionGear.position.set(-0.34, 0, -1.16);
+  pinionGroup.add(pinionGear);
+  // Shift pinion pivot to its axis (-0.34, 0, 0) so rotation.z spins it cleanly on its shaft!
+  pinionGroup.position.set(-0.34, 0, 0);
+  driveShaft.position.x = 0;
+  dsStripe.position.x = 0;
+  pinionGear.position.x = 0;
+  diffRoot.add(pinionGroup);
+
+  // 2. CARRIER CAGE + RING GEAR + SPIDER GEARS (rotates around X-axis)
+  carrierGroup = new THREE.Group();
+  diffRoot.add(carrierGroup);
+
+  // Giant Ring Gear (Crown Wheel) mounted on left side of carrier
+  const ringGear = makeGear({
+    radius: 1.18,
+    thickness: 0.24,
+    teeth: 26,
+    toothW: 0.09,
+    toothH: 0.13,
+    bevelAngle: 0.22,
+    mat: ringGearMat,
+    hubMat: darkSteelMat,
+    stripeMat: whiteStripeMat,
+    holeR: 0.45,
+  });
+  ringGear.rotation.z = -Math.PI / 2;
+  ringGear.position.set(-0.74, 0, 0);
+  carrierGroup.add(ringGear);
+
+  // Open-windowed Carrier Cage (2 side flanges + 2 slender bridges along +/-Z so spiders are fully visible)
+  const flangeGeo = new THREE.TorusGeometry(0.76, 0.065, 12, 32);
+  const leftFlange = new THREE.Mesh(flangeGeo, cageMat);
+  leftFlange.rotation.y = Math.PI / 2;
+  leftFlange.position.x = -0.58;
+  carrierGroup.add(leftFlange);
+
+  const rightFlange = new THREE.Mesh(flangeGeo, cageMat);
+  rightFlange.rotation.y = Math.PI / 2;
+  rightFlange.position.x = 0.58;
+  carrierGroup.add(rightFlange);
+
+  for (const s of [-1, 1]) {
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.14, 0.14), cageMat);
+    bridge.position.set(0, 0, s * 0.74);
+    carrierGroup.add(bridge);
+  }
+
+  // Hardened Spider Cross-Pin (along carrier local Y-axis)
+  const spiderPin = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 1.54, 16), steelMat);
+  carrierGroup.add(spiderPin);
+
+  // Top Spider Gear (spins around local Y-axis!)
+  spiderTop = makeGear({
+    radius: 0.38,
+    thickness: 0.20,
+    teeth: 12,
+    toothW: 0.075,
+    toothH: 0.10,
+    bevelAngle: 0.45,
+    mat: spiderMat,
+    hubMat: steelMat,
+    stripeMat: whiteStripeMat,
+    holeR: 0.10,
+  });
+  spiderTop.position.set(0, 0.49, 0);
+  spiderTop.rotation.z = Math.PI; // bevel faces inward toward center
+  carrierGroup.add(spiderTop);
+
+  // Bottom Spider Gear (spins opposite around local Y-axis!)
+  spiderBot = makeGear({
+    radius: 0.38,
+    thickness: 0.20,
+    teeth: 12,
+    toothW: 0.075,
+    toothH: 0.10,
+    bevelAngle: 0.45,
+    mat: spiderMat,
+    hubMat: steelMat,
+    stripeMat: whiteStripeMat,
+    holeR: 0.10,
+  });
+  spiderBot.position.set(0, -0.49, 0);
+  carrierGroup.add(spiderBot);
+
+  // 3. LEFT SIDE GEAR + LEFT AXLE SHAFT + LEFT WHEEL (Cyan Telemetry Accent)
+  leftAxleGroup = new THREE.Group();
+  diffRoot.add(leftAxleGroup);
+
+  const leftSideGear = makeGear({
+    radius: 0.44,
+    thickness: 0.22,
+    teeth: 14,
+    toothW: 0.075,
+    toothH: 0.10,
+    bevelAngle: 0.45,
+    mat: darkSteelMat,
+    hubMat: steelMat,
+    stripeMat: cyanStripeMat,
+    holeR: 0.13,
+  });
+  leftSideGear.rotation.z = -Math.PI / 2;
+  leftSideGear.position.set(-0.46, 0, 0);
+  leftAxleGroup.add(leftSideGear);
+
+  const leftShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 2.35, 20), steelMat);
+  leftShaft.rotation.z = Math.PI / 2;
+  leftShaft.position.set(-1.62, 0, 0);
+  leftAxleGroup.add(leftShaft);
+
+  // High-contrast cyan telemetry stripe on left axle shaft
+  const leftShaftStripe = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.27, 0.055), cyanStripeMat);
+  leftShaftStripe.position.set(-1.62, 0, 0);
+  leftAxleGroup.add(leftShaftStripe);
+
+  const rearWheelL = makeWheel(0x38bdf8);
+  rearWheelL.position.set(-2.78, 0, 0);
+  leftAxleGroup.add(rearWheelL);
+
+  // 4. RIGHT SIDE GEAR + RIGHT AXLE SHAFT + RIGHT WHEEL (Industrial Orange Accent)
+  rightAxleGroup = new THREE.Group();
+  diffRoot.add(rightAxleGroup);
+
+  const rightSideGear = makeGear({
+    radius: 0.44,
+    thickness: 0.22,
+    teeth: 14,
+    toothW: 0.075,
+    toothH: 0.10,
+    bevelAngle: 0.45,
+    mat: darkSteelMat,
+    hubMat: steelMat,
+    stripeMat: orangeStripeMat,
+    holeR: 0.13,
+  });
+  rightSideGear.rotation.z = Math.PI / 2;
+  rightSideGear.position.set(0.46, 0, 0);
+  rightAxleGroup.add(rightSideGear);
+
+  const rightShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 2.35, 20), steelMat);
+  rightShaft.rotation.z = Math.PI / 2;
+  rightShaft.position.set(1.62, 0, 0);
+  rightAxleGroup.add(rightShaft);
+
+  const rightShaftStripe = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.27, 0.055), orangeStripeMat);
+  rightShaftStripe.position.set(1.62, 0, 0);
+  rightAxleGroup.add(rightShaftStripe);
+
+  const rearWheelR = makeWheel(0xff9500);
+  rearWheelR.position.set(2.78, 0, 0);
+  rightAxleGroup.add(rearWheelR);
+
+  // 5. X-RAY DIFFERENTIAL HOUSING ("Pumpkin" Shell + Axle Tubes)
+  const housingGeo = new THREE.SphereGeometry(1.48, 28, 20);
+  housingMesh = new THREE.Mesh(housingGeo, housingMat);
+  housingMesh.scale.set(0.95, 1.0, 1.05);
+  housingMesh.position.set(-0.18, 0, 0);
+  diffRoot.add(housingMesh);
+
+  housingFlange = new THREE.Mesh(new THREE.TorusGeometry(1.42, 0.09, 10, 32), housingMat);
+  housingFlange.position.set(-0.18, 0, 0.25);
+  diffRoot.add(housingFlange);
+
+  leftTube = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.34, 1.35, 18, 1, true), housingMat);
+  leftTube.rotation.z = Math.PI / 2;
+  leftTube.position.set(-1.75, 0, 0);
+  diffRoot.add(leftTube);
+
+  rightTube = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.26, 1.35, 18, 1, true), housingMat);
+  rightTube.rotation.z = Math.PI / 2;
+  rightTube.position.set(1.55, 0, 0);
+  diffRoot.add(rightTube);
+
+  // 6. STYLIZED 3D CAR CHASSIS & FRONT STEERING WHEELS (Visible in Phase 1 Hook & Phase 4 Loop)
+  chassisGroup = new THREE.Group();
+  scene.add(chassisGroup);
+
+  chassisMat = new THREE.MeshStandardMaterial({
+    color: 0x3b4554,
+    metalness: 0.65,
+    roughness: 0.35,
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
+  });
+  chassisEdgeMat = new THREE.LineBasicMaterial({
+    color: 0xdbeafe,
+    transparent: true,
+    opacity: 0.80,
+  });
+
+  // Main chassis rails (left & right ladder frame)
+  for (const sx of [-1.45, 1.45]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.22, 6.2), chassisMat);
+    rail.position.set(sx, 0.35, -2.35);
+    chassisGroup.add(rail);
+  }
+  // Crossmembers
+  for (const sz of [-5.2, -2.5, 0.4]) {
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.18, 0.22), chassisMat);
+    cross.position.set(0, 0.35, sz);
+    chassisGroup.add(cross);
+  }
+  // Sleek translucent fastback silhouette shell above frame
+  const bodyGeo = new THREE.BoxGeometry(3.4, 0.68, 6.2);
+  const bodyMesh = new THREE.Mesh(bodyGeo, chassisMat);
+  bodyMesh.position.set(0, 0.85, -2.35);
+  chassisGroup.add(bodyMesh);
+  const bodyEdges = new THREE.LineSegments(new THREE.EdgesGeometry(bodyGeo), chassisEdgeMat);
+  bodyEdges.position.copy(bodyMesh.position);
+  chassisGroup.add(bodyEdges);
+
+  // Front axle beam & steerable front wheels
+  const frontBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 5.2, 14), steelMat);
+  frontBeam.rotation.z = Math.PI / 2;
+  frontBeam.position.set(0, 0, -4.85);
+  chassisGroup.add(frontBeam);
+
+  frontWheelL = makeWheel(0x38bdf8);
+  frontWheelL.position.set(-2.78, 0, -4.85);
+  frontWheelL.rotation.y = 0.34; // turned left!
+  chassisGroup.add(frontWheelL);
+
+  frontWheelR = makeWheel(0xff9500);
+  frontWheelR.position.set(2.78, 0, -4.85);
+  frontWheelR.rotation.y = 0.26; // Ackermann outer steering angle!
+  chassisGroup.add(frontWheelR);
+
+  // 7. GLOWING ROAD TURN ARCS (Short Inner Cyan Arc vs Long Outer Orange Arc)
+  arcGroup = new THREE.Group();
+  scene.add(arcGroup);
+
+  innerArcMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.92,
+    side: THREE.DoubleSide,
+  });
+  outerArcMat = new THREE.MeshBasicMaterial({
+    color: 0xff9500,
+    transparent: true,
+    opacity: 0.96,
+    side: THREE.DoubleSide,
+  });
+
+  // Turn center at (-6.8, -0.5) -> inner left wheel tracks short cyan arc, outer right wheel tracks long orange arc
+  const innerArc = makeRoadArc(-6.8, -0.5, 4.02, -0.95, 0.38, 0.48, innerArcMat);
+  const outerArc = makeRoadArc(-6.8, -0.5, 9.58, -0.95, 0.38, 0.56, outerArcMat);
+  arcGroup.add(innerArc);
+  arcGroup.add(outerArc);
+
+  built = true;
+}
+
+window.init = (cfg = {}) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || cfg.seconds || 33.5;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  if (!built) {
+    buildScene();
+  } else {
+    const glW = Math.round(W * 0.75);
+    const glH = Math.round(H * 0.75);
+    glCanvas.width = glW;
+    glCanvas.height = glH;
+    renderer.setSize(glW, glH, false);
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
+  }
+
+  const lHook = getLine('hook', 0);
+  const lStraight = getLine('straight', 1);
+  const lLock = getLine('lock', 2);
+  const lTurn = getLine('turn', 3);
+  const lSpider = getLine('spider', 4);
+  const lLoop = getLine('loop', 5);
+
+  EVENTS = [
+    { t: lHook.start + 0.15, type: 'bounce', pitchIndex: 2, intensity: 0.55 },
+    { t: lStraight.start + 0.12, type: 'bounce', pitchIndex: 4, intensity: 0.65 },
+    { t: lLock.start + 0.18, type: 'bounce', pitchIndex: 5, intensity: 0.60 },
+    { t: lTurn.start + 0.10, type: 'break', pitchIndex: 7, intensity: 0.90 },
+    { t: lSpider.start + 0.08, type: 'win', pitchIndex: 9, intensity: 1.0 },
+    { t: Math.min(DUR - 0.35, lLoop.start + 0.25), type: 'bounce', pitchIndex: 6, intensity: 0.65 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+// Project a 3D world point to 2D canvas coordinates
+function project3D(x, y, z) {
+  const v = new THREE.Vector3(x, y, z);
+  v.project(camera);
+  return {
+    x: (v.x * 0.5 + 0.5) * W,
+    y: (-v.y * 0.5 + 0.5) * H,
+    visible: v.z < 1,
+  };
+}
+
+function drawCallout(anchorX, anchorY, labelX, labelY, text, accentColor, alpha, S) {
+  if (alpha <= 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+
+  fitFont(text, 15 * S, 195 * S, '800');
+  const tw = ctx.measureText(text).width;
+  const pw = tw + 20 * S;
+  const ph = 28 * S;
+  const bx = clamp(labelX - pw * 0.5, W * 0.08, W * 0.86 - pw);
+  const by = clamp(labelY - ph * 0.5, H * 0.232, H * 0.562 - ph);
+  const cxPill = bx + pw * 0.5;
+  const cyPill = by + ph * 0.5;
+
+  // Leader line + dot
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 2.0 * S;
+  ctx.beginPath();
+  ctx.moveTo(anchorX, anchorY);
+  ctx.lineTo(cxPill, cyPill);
+  ctx.stroke();
+
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.arc(anchorX, anchorY, 4.5 * S, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Crisp pill badge
+  ctx.fillStyle = 'rgba(20, 20, 20, 0.90)';
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.roundRect(bx, by, pw, ph, 14 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, cxPill, cyPill + 0.5 * S);
+  ctx.restore();
+}
+
+function renderSceneAt(tSec) {
+  if (!built) window.init({});
+  const t = clamp(Number.isFinite(tSec) ? tSec : 0, 0, DUR);
+  const S = W / 720;
+
+  const lHook = getLine('hook', 0);
+  const lStraight = getLine('straight', 1);
+  const lLock = getLine('lock', 2);
+  const lTurn = getLine('turn', 3);
+  const lSpider = getLine('spider', 4);
+  const lLoop = getLine('loop', 5);
+
+  // === 1. PHASE BLENDS (100% deterministic, seamless loop t=0 <-> t=DUR) ===
+  const diveIn = smooth(lStraight.start - 0.15, lStraight.start + 1.35, t);
+  const macroIn = smooth(lTurn.start - 0.15, lTurn.start + 1.10, t);
+  const loopDur = Math.max(1.2, DUR - lLoop.start);
+  const pullBack = smooth(lLoop.start + loopDur * 0.22, DUR - 0.12, t);
+
+  // Active cutaway factor (0 in Hook & end of Loop, 1 in Straight/Lock/Turn/Spider)
+  const xrayFactor = clamp(diveIn * (1 - pullBack), 0, 1);
+
+  // Turn speed split pulse (0 = straight 50/50, 1 = sharp left turn 30/70)
+  const turnUp0 = lTurn.start + 0.05;
+  const turnUp1 = lTurn.start + 1.15;
+  const turnDn0 = lLoop.start + loopDur * 0.20;
+  const turnDn1 = DUR - 0.25;
+  const turnBlend = clamp(smooth(turnUp0, turnUp1, t) - smooth(turnDn0, turnDn1, t), 0, 1);
+  const intTurn = intSmooth(turnUp0, turnUp1, t) - intSmooth(turnDn0, turnDn1, t);
+
+  // === 2. EXACT DIFFERENTIAL KINEMATICS ===
+  // Visual scaling: 50 RPM -> 1.85 rad/s so gear teeth & spoke markers stay razor sharp at 60fps
+  const omegaPerRpm = 0.037;
+  const rpmCarrier = 50;
+  const rpmL = 50 - 20 * turnBlend; // 50 -> 30 RPM
+  const rpmR = 50 + 20 * turnBlend; // 50 -> 70 RPM
+  const rpmSpider = 20 * turnBlend; // 0 -> 20 RPM
+
+  const thetaCarrier = omegaPerRpm * rpmCarrier * t;
+  const thetaSpider = omegaPerRpm * 20 * intTurn;
+  const thetaL = thetaCarrier - thetaSpider;
+  const thetaR = thetaCarrier + thetaSpider;
+  const thetaPinion = -thetaCarrier * 2.5;
+
+  // Apply 3D rotations
+  carrierGroup.rotation.x = thetaCarrier;
+  spiderTop.rotation.y = thetaSpider;
+  spiderBot.rotation.y = -thetaSpider;
+  leftAxleGroup.rotation.x = thetaL;
+  rightAxleGroup.rotation.x = thetaR;
+  pinionGroup.rotation.z = thetaPinion;
+
+  // Front steering angle animates subtly in Phase 1 & Phase 4
+  const steerAngle = 0.34 * (1 - xrayFactor);
+  frontWheelL.rotation.y = steerAngle;
+  frontWheelR.rotation.y = steerAngle * 0.78;
+  frontWheelL.rotation.x = thetaL;
+  frontWheelR.rotation.x = thetaR;
+
+  // === 3. MATERIAL X-RAY & SPIDER GLOW ANIMATION ===
+  const housingOpacity = lerp(0.92, 0.13, xrayFactor);
+  housingMat.opacity = housingOpacity;
+  housingMat.depthWrite = housingOpacity > 0.55;
+
+  const chassisOpacity = 1 - xrayFactor;
+  chassisGroup.visible = chassisOpacity > 0.02;
+  arcGroup.visible = chassisOpacity > 0.02;
+  chassisMat.opacity = 0.30 * chassisOpacity;
+  chassisEdgeMat.opacity = 0.80 * chassisOpacity;
+  innerArcMat.opacity = 0.92 * chassisOpacity;
+  outerArcMat.opacity = 0.96 * chassisOpacity;
+
+  // Spider gears glow bright industrial orange when spinning on their own axis!
+  const spiderPulse = 0.25 + turnBlend * (1.25 + 0.28 * Math.sin(t * 10));
+  spiderMat.emissiveIntensity = spiderPulse;
+  spiderLight.intensity = turnBlend * 8.5;
+
+  // === 4. CINEMATIC STUDIO CAMERA CHOREOGRAPHY ===
+  // Pose A (Hook / Loop): Bird's-eye 3D chassis entering a left turn (all 4 wheels + both glowing arcs framed!)
+  const camAx = 0.25, camAy = 14.2, camAz = 8.4;
+  const lookAx = -0.25, lookAy = -0.35, lookAz = -2.25;
+
+  // Pose B (X-Ray Cutaway Straight & Lock): Rear axle 3/4 view showing pinion, ring, carrier, side gears
+  const orbitB = Math.sin((t - lStraight.start) * 0.42) * 0.35;
+  const camBx = 1.65 + orbitB, camBy = 2.45, camBz = 5.55;
+  const lookBx = -0.10, lookBy = -0.08, lookBz = 0.0;
+
+  // Pose C (Turn Split Macro): Tight framing on glowing spider gears + both axle shafts
+  const orbitC = Math.sin((t - lTurn.start) * 0.55) * 0.42;
+  const camCx = 0.65 + orbitC, camCy = 1.75, camCz = 4.55;
+  const lookCx = 0.0, lookCy = -0.05, lookCz = 0.0;
+
+  // Blend B -> C during cutaway, then A <-> cutaway
+  const cutCamX = lerp(camBx, camCx, macroIn);
+  const cutCamY = lerp(camBy, camCy, macroIn);
+  const cutCamZ = lerp(camBz, camCz, macroIn);
+  const cutLookX = lerp(lookBx, lookCx, macroIn);
+  const cutLookY = lerp(lookBy, lookCy, macroIn);
+  const cutLookZ = lerp(lookBz, lookCz, macroIn);
+
+  camera.position.set(
+    lerp(camAx, cutCamX, xrayFactor),
+    lerp(camAy, cutCamY, xrayFactor),
+    lerp(camAz, cutCamZ, xrayFactor),
+  );
+  camera.lookAt(
+    lerp(lookAx, cutLookX, xrayFactor),
+    lerp(lookAy, cutLookY, xrayFactor),
+    lerp(lookAz, cutLookZ, xrayFactor),
+  );
+  camera.updateMatrixWorld();
+
+  // Render 3D WebGL PBR frame
+  renderer.render(scene, camera);
+
+  // Composite WebGL 3D buffer onto 2D HUD canvas (#c)
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(glCanvas, 0, 0, W, H);
+
+  // Subtle top & bottom anthracite studio vignettes for HUD legibility
+  const topVig = ctx.createLinearGradient(0, 0, 0, H * 0.28);
+  topVig.addColorStop(0, 'rgba(20, 20, 20, 0.85)');
+  topVig.addColorStop(1, 'rgba(20, 20, 20, 0)');
+  ctx.fillStyle = topVig;
+  ctx.fillRect(0, 0, W, H * 0.28);
+
+  const botVig = ctx.createLinearGradient(0, H * 0.56, 0, H);
+  botVig.addColorStop(0, 'rgba(20, 20, 20, 0)');
+  botVig.addColorStop(0.45, 'rgba(20, 20, 20, 0.72)');
+  botVig.addColorStop(1, 'rgba(20, 20, 20, 0.94)');
+  ctx.fillStyle = botVig;
+  ctx.fillRect(0, H * 0.56, W, H * 0.44);
+
+  // === 5. 3D-PROJECTED ENGINEERING CALLOUT LABELS ===
+  // Phase 1 & 4: Short Inner Arc vs Long Outer Arc
+  if (chassisOpacity > 0.15) {
+    const pIn = project3D(-3.6, -0.9, -2.9);
+    const pOut = project3D(2.3, -0.9, -2.9);
+    if (pIn.visible) {
+      drawCallout(pIn.x, pIn.y, pIn.x + 10 * S, pIn.y - 64 * S, 'SHORT INNER ARC', '#38bdf8', chassisOpacity, S);
+    }
+    if (pOut.visible) {
+      drawCallout(pOut.x, pOut.y, pOut.x - 10 * S, pOut.y - 72 * S, 'LONG OUTER ARC', '#FF9500', chassisOpacity, S);
+    }
+  }
+
+  // Phase 2 & 3: Internal Differential Gears
+  if (xrayFactor > 0.25) {
+    const pRing = project3D(-0.74, 1.12, 0);
+    const pSpider = project3D(0, 0.52, 0.35);
+    const pPinion = project3D(-0.34, 0.15, -2.05);
+
+    const introAlpha = xrayFactor * (1 - macroIn);
+    if (pRing.visible && introAlpha > 0.08) {
+      drawCallout(pRing.x, pRing.y, pRing.x - 50 * S, pRing.y - 52 * S, 'RING GEAR', '#ffffff', introAlpha, S);
+    }
+    if (pPinion.visible && introAlpha > 0.08) {
+      drawCallout(pPinion.x, pPinion.y, pPinion.x + 70 * S, pPinion.y - 48 * S, 'PINION & SHAFT', '#38bdf8', introAlpha, S);
+    }
+    if (pSpider.visible) {
+      const spLabel = turnBlend > 0.25 ? 'SPIDER GEARS: SPINNING!' : 'SPIDER GEARS: LOCKED';
+      const spColor = turnBlend > 0.25 ? '#FF9500' : '#ffffff';
+      drawCallout(pSpider.x, pSpider.y, pSpider.x + 88 * S, pSpider.y - 76 * S, spLabel, spColor, xrayFactor, S);
+    }
+  }
+
+  // === 6. SAFE-ZONE 2D TELEMETRY HUD ===
+  // Centered inside [W*0.07, W*0.87] (cx = W*0.47) to avoid right-side Shorts buttons
+  const cx = W * 0.47;
+  const safeW = W * 0.76;
+
+  // Determine active headline per script line
+  let headline = 'HOW A DIFFERENTIAL WORKS';
+  let subTag = 'CLEAR MECHANICS • REAR AXLE';
+  if (t < lStraight.start) {
+    headline = 'WHY DOESN’T THE AXLE SNAP?';
+    subTag = 'PHASE 1 • OUTER WHEEL TRAVELS FARTHER';
+  } else if (t < lLock.start) {
+    headline = 'RING GEAR & CARRIER CAGE';
+    subTag = 'PHASE 2 • X-RAY CUTAWAY';
+  } else if (t < lTurn.start) {
+    headline = 'STRAIGHT: SPIDERS LOCKED';
+    subTag = 'BOTH WHEELS MATCH AT 50 RPM';
+  } else if (t < lSpider.start) {
+    headline = 'SHARP LEFT TURN SPLIT';
+    subTag = 'INNER SLOWS • OUTER ACCELERATES';
+  } else if (t < lLoop.start) {
+    headline = 'SPIDER GEARS ROUTE SPEED';
+    subTag = 'SPINNING ON PERPENDICULAR AXIS';
+  } else {
+    headline = 'PURE MECHANICAL MATH';
+    subTag = 'CLEAR MECHANICS • DIFFERENTIAL';
+  }
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Top sub-tag pill (y = H * 0.134 — safely below top Shorts badge at H*0.068..0.105)
+  fitFont(subTag, 15 * S, safeW - 28 * S, '800');
+  const tagW = Math.min(safeW, ctx.measureText(subTag).width + 32 * S);
+  const tagH = 30 * S;
+  const tagY = H * 0.136;
+  ctx.fillStyle = 'rgba(20, 20, 20, 0.85)';
+  ctx.strokeStyle = turnBlend > 0.35 ? '#FF9500' : 'rgba(255, 149, 0, 0.65)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.roundRect(cx - tagW * 0.5, tagY - tagH * 0.5, tagW, tagH, 15 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#FF9500';
+  ctx.fillText(subTag, cx, tagY + 1 * S);
+
+  // Main Headline (y = H * 0.184)
+  fitFont(headline, 34 * S, safeW, '900');
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+  ctx.shadowBlur = 14 * S;
+  ctx.fillText(headline, cx, H * 0.186);
+  ctx.shadowBlur = 0;
+
+  // === BOTTOM LIVE RPM TELEMETRY CARD (y = H*0.590 .. H*0.680, strictly above H*0.695 poll box) ===
+  const cardW = safeW;
+  const cardH = 116 * S;
+  const cardX = cx - cardW * 0.5;
+  const cardY = H * 0.590;
+
+  ctx.fillStyle = 'rgba(20, 20, 20, 0.88)';
+  ctx.strokeStyle = turnBlend > 0.25 ? '#FF9500' : 'rgba(148, 163, 184, 0.45)';
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  const leftColX = cardX + cardW * 0.20;
+  const midColX = cardX + cardW * 0.50;
+  const rightColX = cardX + cardW * 0.80;
+
+  // Column 1: LEFT WHEEL RPM (Cyan)
+  fitFont('LEFT WHEEL', 13 * S, cardW * 0.28, '800');
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText('LEFT WHEEL', leftColX, cardY + 22 * S);
+
+  const lRpmTxt = `${Math.round(rpmL)} RPM`;
+  fitFont(lRpmTxt, 28 * S, cardW * 0.30, '900');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(lRpmTxt, leftColX, cardY + 51 * S);
+
+  // Left speed bar
+  const barW = cardW * 0.24;
+  const barH = 8 * S;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.beginPath();
+  ctx.roundRect(leftColX - barW * 0.5, cardY + 73 * S, barW, barH, 4 * S);
+  ctx.fill();
+  ctx.fillStyle = '#38bdf8';
+  ctx.beginPath();
+  ctx.roundRect(leftColX - barW * 0.5, cardY + 73 * S, barW * clamp(rpmL / 80, 0.08, 1), barH, 4 * S);
+  ctx.fill();
+
+  // Column 2: SPIDER GEARS (Industrial Orange)
+  fitFont('SPIDER AXIS', 13 * S, cardW * 0.28, '800');
+  ctx.fillStyle = turnBlend > 0.25 ? '#FF9500' : '#94a3b8';
+  ctx.fillText('SPIDER AXIS', midColX, cardY + 22 * S);
+
+  const spTxt = rpmSpider < 1 ? '0 RPM' : `${Math.round(rpmSpider)} RPM`;
+  fitFont(spTxt, 25 * S, cardW * 0.26, '900');
+  ctx.fillStyle = turnBlend > 0.25 ? '#FF9500' : '#cbd5e1';
+  ctx.fillText(spTxt, midColX, cardY + 51 * S);
+
+  const spState = rpmSpider < 1 ? 'LOCKED' : 'SPLITTING';
+  fitFont(spState, 12 * S, cardW * 0.26, '800');
+  ctx.fillStyle = turnBlend > 0.25 ? '#ffb84d' : '#64748b';
+  ctx.fillText(spState, midColX, cardY + 77 * S);
+
+  // Column 3: RIGHT WHEEL RPM (Industrial Orange)
+  fitFont('RIGHT WHEEL', 13 * S, cardW * 0.28, '800');
+  ctx.fillStyle = '#FF9500';
+  ctx.fillText('RIGHT WHEEL', rightColX, cardY + 22 * S);
+
+  const rRpmTxt = `${Math.round(rpmR)} RPM`;
+  fitFont(rRpmTxt, 28 * S, cardW * 0.30, '900');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(rRpmTxt, rightColX, cardY + 51 * S);
+
+  // Right speed bar
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.beginPath();
+  ctx.roundRect(rightColX - barW * 0.5, cardY + 73 * S, barW, barH, 4 * S);
+  ctx.fill();
+  ctx.fillStyle = '#FF9500';
+  ctx.beginPath();
+  ctx.roundRect(rightColX - barW * 0.5, cardY + 73 * S, barW * clamp(rpmR / 80, 0.08, 1), barH, 4 * S);
+  ctx.fill();
+
+  // Subtle dividers
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1.2 * S;
+  for (const dx of [cardX + cardW * 0.35, cardX + cardW * 0.65]) {
+    ctx.beginPath();
+    ctx.moveTo(dx, cardY + 16 * S);
+    ctx.lineTo(dx, cardY + 86 * S);
+    ctx.stroke();
+  }
+
+  // Live equation strip at bottom of card
+  const eqTxt = `CARRIER = (${Math.round(rpmL)} + ${Math.round(rpmR)}) / 2 = 50 RPM`;
+  fitFont(eqTxt, 12.5 * S, cardW - 24 * S, '700');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText(eqTxt, cx, cardY + cardH - 14 * S);
+
+  ctx.restore();
+}
+
+window.renderFrame = (t) => {
+  renderSceneAt(t);
+  return cv.toDataURL('image/jpeg', 0.92).slice(23);
+};
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    renderSceneAt((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+
+window.ready = true;
+</script>
