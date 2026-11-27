@@ -332,6 +332,21 @@
       "videoId": "49ItsGVUoMc",
       "url": "https://www.youtube.com/watch?v=49ItsGVUoMc",
       "publishedAt": "2026-11-27T15:22:15.801Z"
+    },
+    {
+      "id": "chladni-sand-seed123",
+      "channel": "physics",
+      "title": "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts",
+      "videoId": "H69nPT99Jrk",
+      "url": "https://youtube.com/shorts/H69nPT99Jrk",
+      "poll": {
+        "optionAKey": "gear-gauntlet-1000",
+        "optionBKey": "black-hole-eat",
+        "optionA": "1,000 Balls vs Gears",
+        "optionB": "Growing Black Hole"
+      },
+      "publishedAt": "2026-11-27T17:09:43.279Z",
+      "instagramMediaId": "17997159609097365"
     }
   ],
   "removedVideoIds": [
