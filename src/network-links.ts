@@ -12,7 +12,7 @@ export const NETWORK_CHANNELS: Record<NetworkChannelId, NetworkChannelInfo> = {
     id: "physics",
     brandName: "Kinetic Lab HQ",
     ytUrl: "https://www.youtube.com/@kineticlabshorts",
-    igHandle: "kineticlab.montion",
+    igHandle: "kineticlab.motion",
   },
   explainer: {
     id: "explainer",
