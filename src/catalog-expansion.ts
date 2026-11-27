@@ -12,12 +12,13 @@ export interface ExpansionJob {
 
 export const EXPANSION_CHANNEL_META: Record<
   ExpansionChannelId,
-  { brandName: string; guardNeedle: string; ytHandle: string; playlistTitle: string; accentHex: string }
+  { brandName: string; guardNeedle: string; ytHandle: string; igHandle: string; playlistTitle: string; accentHex: string }
 > = {
   wealth: {
     brandName: "Wealth Mechanics",
     guardNeedle: "wealth mechanics",
     ytHandle: "@wealthmechanicsshorts",
+    igHandle: "welthmechanics.hq",
     playlistTitle: "Compound Math & Money Visualized | Wealth Mechanics",
     accentHex: "#10b981",
   },
@@ -25,6 +26,7 @@ export const EXPANSION_CHANNEL_META: Record<
     brandName: "Bio Mechanics",
     guardNeedle: "bio mechanics",
     ytHandle: "@biomechanicshq",
+    igHandle: "biomechanic.hq",
     playlistTitle: "Inside The Human Body | Bio Mechanics",
     accentHex: "#fb7185",
   },

@@ -300,9 +300,10 @@ async function main() {
     return;
   }
 
+  const ytDescription = `${job.description}\n\n📲 Daily 60fps Reels on Instagram: https://instagram.com/${meta.igHandle}`;
   const uploaded = await uploadVideoToYouTube(
     mp4Path,
-    { title: job.title, description: job.description, tags: job.tags, categoryId: job.categoryId, privacyStatus: privacy },
+    { title: job.title, description: ytDescription, tags: job.tags, categoryId: job.categoryId, privacyStatus: privacy },
     { clientId, clientSecret, refreshToken },
   );
   console.log(`✅ [expansion] ${meta.brandName} YAYINLANDI: ${uploaded.url}`);
