@@ -1,0 +1,27 @@
+{
+  "updatedAt": "2026-11-27T18:12:19.859Z",
+  "physics": {
+    "boostedNiches": [
+      "pendulum-chaos-100",
+      "chladni-sand",
+      "langtons-ant"
+    ],
+    "cooledNiches": [
+      "giant-vs-swarm",
+      "physics-ring"
+    ],
+    "topWinningTitles": [
+      "100 Double Pendulums Dropped 0.001° Apart: Pure Chaos #shorts",
+      "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts",
+      "This Ant Goes Crazy… Then Builds a Highway #shorts"
+    ]
+  },
+  "explainer": {
+    "topWinningTitles": [
+      "What If Earth Were Compressed to the Size of a Marble? #shorts",
+      "How Does 400 Tons of Metal Float in Thin Air? #shorts",
+      "Why Thieves Can't Just Record Your Car Key #shorts"
+    ],
+    "highSaveTopics": []
+  }
+}
