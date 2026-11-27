@@ -256,6 +256,21 @@
       },
       "publishedAt": "2026-11-27T06:47:08.494Z",
       "instagramMediaId": "18222206281348492"
+    },
+    {
+      "id": "explainer-key-fob-rolling-code",
+      "channel": "explainer",
+      "title": "Why Thieves Can't Just Record Your Car Key #shorts",
+      "videoId": "6UufvZUWh20",
+      "url": "https://youtube.com/shorts/6UufvZUWh20",
+      "poll": {
+        "optionAKey": "tuned-mass-damper",
+        "optionBKey": "pop-up-toaster",
+        "optionA": "Tuned Mass Damper",
+        "optionB": "Pop Up Toaster"
+      },
+      "publishedAt": "2026-11-27T06:49:25.843Z",
+      "instagramMediaId": "17939347245408466"
     }
   ]
 }
