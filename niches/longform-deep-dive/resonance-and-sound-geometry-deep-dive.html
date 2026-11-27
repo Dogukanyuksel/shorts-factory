@@ -1,0 +1,1425 @@
+<!doctype html>
+<!-- Kinetic Lab Deep Dive #2: Chladni Resonance & Sound Geometry (Dual-Aspect 16:9 & 9:16) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // ---------- Config & State ----------
+  let W = 1920, H = 1080, FPS = 60, DUR = 60;
+  let ASPECT = '16:9';
+  let TITLE = 'How Pure Sound Frequencies Sculpt Matter';
+  let BRAND = 'KINETIC LAB';
+  let ACCENT = '#f472b6';
+  let BEATS = [];
+  let SHORT_META = null;
+  let savedCfg = null;
+
+  let rng = 1;
+  let currentFrame = 0;
+  let simTime = 0;
+  let lastBeatIdx = -1;
+  let lastVisualPhase = '';
+  let phaseAge = 0;
+  let events = [];
+
+  // Chladni sand particle system (2,200 grains, flat typed arrays for fast zero-GC sim)
+  const SAND_COUNT = 2200;
+  let px, py, pvx, pvy, pSize, pTone, pSettled;
+
+  // Cross-section bouncing sand grains (110 grains on 1D standing wave)
+  const WAVE_GRAIN_COUNT = 110;
+  let wgx, wgy, wgvy, wgSettled;
+
+  // 4-way eigenmode gallery grains (4 plates x 380 grains)
+  const GALLERY_MODES = [
+    { m: 1, n: 2, hz: 432,  col: '#22d3ee' },
+    { m: 2, n: 3, hz: 864,  col: '#38bdf8' },
+    { m: 3, n: 5, hz: 1440, col: '#a855f7' },
+    { m: 5, n: 8, hz: 4096, col: '#fde047' }
+  ];
+  const GAL_COUNT = 380;
+  let galPlates = [];
+
+  // Resonance shatter state
+  let resAmp = 0.12;
+  let resShattered = false;
+  let resShatterTime = 0;
+  let shards = [];
+  let sparks = [];
+  let waves = [];
+
+  // Active mode telemetry
+  let activeM = 1, activeN = 2, activeHz = 432, displayHz = 432;
+  let activeModeCol = '#22d3ee';
+  let scatterEnergy = 1.0;
+  let nodalLockPct = 0;
+  let shake = 0;
+  let flashAlpha = 0;
+  let lockSoundFired = false;
+
+  // Deterministic LCG PRNG
+  function rand() {
+    rng = (rng * 1664525 + 1013904223) >>> 0;
+    return rng / 4294967296;
+  }
+
+  function clamp(v, lo, hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function easeOutCubic(t) {
+    const c = clamp(t, 0, 1);
+    return 1 - Math.pow(1 - c, 3);
+  }
+
+  function roundRectPath(c, x, y, w, h, r) {
+    const rr = Math.min(r, w * 0.5, h * 0.5);
+    c.beginPath();
+    c.moveTo(x + rr, y);
+    c.lineTo(x + w - rr, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + rr);
+    c.lineTo(x + w, y + h - rr);
+    c.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    c.lineTo(x + rr, y + h);
+    c.quadraticCurveTo(x, y + h, x, y + h - rr);
+    c.lineTo(x, y + rr);
+    c.quadraticCurveTo(x, y, x + rr, y);
+    c.closePath();
+  }
+
+  function hexToRgba(hex, a) {
+    const h = (hex || '#f472b6').replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map(ch => ch + ch).join('') : h, 16);
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function wrapLines(c, text, maxW, maxLines) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (let i = 0; i < words.length; i++) {
+      const test = cur ? cur + ' ' + words[i] : words[i];
+      if (c.measureText(test).width <= maxW || !cur) {
+        cur = test;
+      } else {
+        lines.push(cur);
+        cur = words[i];
+        if (maxLines && lines.length >= maxLines - 1) {
+          const rest = [cur].concat(words.slice(i + 1)).join(' ');
+          let trimmed = rest;
+          while (trimmed.length > 3 && c.measureText(trimmed + '…').width > maxW) {
+            trimmed = trimmed.slice(0, -1);
+          }
+          lines.push(trimmed === rest ? rest : trimmed + '…');
+          return lines;
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  function formatTime(sec) {
+    const s = Math.max(0, Math.floor(sec));
+    const mm = Math.floor(s / 60);
+    const ss = s % 60;
+    return `${mm}:${ss < 10 ? '0' : ''}${ss}`;
+  }
+
+  // ---------- Chladni Equation & Gradient ----------
+  // F(u, v) = cos(m*pi*u)*cos(n*pi*v) - cos(n*pi*u)*cos(m*pi*v) = 0
+  function chladniValueAndGrad(u, v, m, n) {
+    const PI = Math.PI;
+    const mpu = m * PI * u;
+    const npv = n * PI * v;
+    const npu = n * PI * u;
+    const mpv = m * PI * v;
+    const cmU = Math.cos(mpu), smU = Math.sin(mpu);
+    const cnV = Math.cos(npv), snV = Math.sin(npv);
+    const cnU = Math.cos(npu), snU = Math.sin(npu);
+    const cmV = Math.cos(mpv), smV = Math.sin(mpv);
+    const val = cmU * cnV - cnU * cmV;
+    const dFdu = -m * PI * smU * cnV + n * PI * snU * cmV;
+    const dFdv = -n * PI * cmU * snV + m * PI * cnU * smV;
+    return { val, dFdu, dFdv };
+  }
+
+  function modeForPhase(phase) {
+    if (phase === 'sand-scatter-432') return { m: 1, n: 2, hz: 432, col: '#22d3ee' };
+    if (phase === 'sand-lock-864') return { m: 2, n: 3, hz: 864, col: '#38bdf8' };
+    if (phase === 'sand-lock-1440') return { m: 3, n: 5, hz: 1440, col: '#a855f7' };
+    if (phase === 'chladni-equation') return { m: 3, n: 5, hz: 1440, col: '#f472b6' };
+    if (phase === 'wave-cross-section') return { m: 2, n: 3, hz: 864, col: '#38bdf8' };
+    if (phase === 'resonance-buildup') return { m: 4, n: 7, hz: 2592, col: '#f59e0b' };
+    if (phase === 'resonance-shatter') return { m: 4, n: 7, hz: 2592, col: '#ef4444' };
+    if (phase === 'mode-gallery-4way') return { m: 5, n: 8, hz: 4096, col: '#fde047' };
+    if (phase === 'series-outro') return { m: 5, n: 8, hz: 4096, col: '#fde047' };
+    return { m: 1, n: 2, hz: 432, col: '#22d3ee' };
+  }
+
+  function spawnAcousticSparks(nx, ny, col, n) {
+    for (let i = 0; i < n; i++) {
+      const a = rand() * Math.PI * 2;
+      const spd = 0.25 + rand() * 1.1;
+      sparks.push({
+        nx, ny,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd,
+        life: 0.4 + rand() * 0.55,
+        maxLife: 0.95,
+        size: 2.0 + rand() * 3.4,
+        col
+      });
+    }
+  }
+
+  function triggerShatter() {
+    if (resShattered) return;
+    resShattered = true;
+    resShatterTime = simTime;
+    shake = 1.0;
+    flashAlpha = 0.9;
+    shards = [];
+    for (let i = 0; i < 42; i++) {
+      const a = rand() * Math.PI * 2;
+      const r = rand() * 0.28;
+      const spd = 0.45 + rand() * 1.35;
+      shards.push({
+        nx: Math.cos(a) * r,
+        ny: Math.sin(a) * r * 0.85,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd - 0.35,
+        rot: rand() * Math.PI * 2,
+        vrot: (rand() - 0.5) * 14,
+        sz: 0.025 + rand() * 0.055,
+        sides: 3 + Math.floor(rand() * 3),
+        col: i % 3 === 0 ? '#fde047' : (i % 2 === 0 ? '#38bdf8' : '#f472b6')
+      });
+    }
+    waves.push({ nx: 0, ny: 0, r: 0.05, maxR: 1.8, alpha: 1.0, col: '#fde047' });
+    waves.push({ nx: 0, ny: 0, r: 0.02, maxR: 1.5, alpha: 0.9, col: '#f472b6' });
+    spawnAcousticSparks(0, 0, '#fde047', 48);
+    events.push({ t: clamp(simTime, 0, DUR), type: 'break', pitchIndex: 11, intensity: 1.0 });
+    events.push({ t: clamp(simTime + 0.08, 0, DUR), type: 'win', pitchIndex: 14, intensity: 0.92 });
+  }
+
+  function kickSand(strength) {
+    for (let i = 0; i < SAND_COUNT; i++) {
+      const a = rand() * Math.PI * 2;
+      const k = (0.12 + rand() * 0.28) * strength;
+      pvx[i] += Math.cos(a) * k;
+      pvy[i] += Math.sin(a) * k;
+    }
+  }
+
+  function stepSandArrays(ax, ay, avx, avy, aSettled, count, m, n, dt, scEnergy) {
+    let settledCount = 0;
+    for (let i = 0; i < count; i++) {
+      let u = ax[i], v = ay[i];
+      const { val, dFdu, dFdv } = chladniValueAndGrad(u, v, m, n);
+      const absVal = Math.abs(val);
+      const gradMag = Math.hypot(dFdu, dFdv) + 1e-4;
+
+      // Gradient descent toward nodal lines F(u,v) = 0
+      const pull = clamp(val * 2.9 / gradMag, -0.75, 0.75);
+      const jitter = (0.04 + scEnergy * 0.35) * (absVal + 0.04);
+      avx[i] += (-pull * (dFdu / gradMag) * 2.3 + (rand() - 0.5) * jitter) * dt * 8.5;
+      avy[i] += (-pull * (dFdv / gradMag) * 2.3 + (rand() - 0.5) * jitter) * dt * 8.5;
+
+      const damp = absVal < 0.08 ? 0.80 : 0.89;
+      avx[i] *= damp;
+      avy[i] *= damp;
+
+      u += avx[i] * dt;
+      v += avy[i] * dt;
+
+      if (u < 0.025) { u = 0.025; avx[i] = Math.abs(avx[i]) * 0.5; }
+      else if (u > 0.975) { u = 0.975; avx[i] = -Math.abs(avx[i]) * 0.5; }
+      if (v < 0.025) { v = 0.025; avy[i] = Math.abs(avy[i]) * 0.5; }
+      else if (v > 0.975) { v = 0.975; avy[i] = -Math.abs(avy[i]) * 0.5; }
+
+      ax[i] = u;
+      ay[i] = v;
+      const isSet = absVal < 0.14 ? 1 : 0;
+      if (aSettled) aSettled[i] = lerp(aSettled[i], isSet, 0.14);
+      if (isSet) settledCount++;
+    }
+    return settledCount / Math.max(1, count);
+  }
+
+  function getBeatAt(t) {
+    if (!BEATS.length) {
+      return {
+        idx: 0,
+        beat: {
+          id: 'default',
+          actIndex: 0,
+          actKind: 'hook',
+          actTitle: '1. Sound Made Visible',
+          visualPhase: 'sand-scatter-432',
+          caption: '2,600 GRAINS · 432 HZ',
+          text: 'Pure sound frequencies sculpt random sand grains into razor-sharp Chladni geometry.',
+          start: 0,
+          end: DUR,
+          isBridge: false
+        }
+      };
+    }
+    for (let i = 0; i < BEATS.length; i++) {
+      const b = BEATS[i];
+      if (t >= b.start && t < b.end) return { idx: i, beat: b };
+    }
+    if (t < BEATS[0].start) return { idx: 0, beat: BEATS[0] };
+    return { idx: BEATS.length - 1, beat: BEATS[BEATS.length - 1] };
+  }
+
+  // ---------- Initialization ----------
+  function resetSimulation(cfg) {
+    W = cfg.width || 1920;
+    H = cfg.height || 1080;
+    FPS = cfg.fps || 60;
+    DUR = cfg.duration || cfg.seconds || 60;
+    ASPECT = cfg.aspect || (W >= H ? '16:9' : '9:16');
+    TITLE = cfg.title || 'How Pure Sound Frequencies Sculpt Matter';
+    BRAND = cfg.brand || 'KINETIC LAB';
+    ACCENT = cfg.accent || '#f472b6';
+    BEATS = Array.isArray(cfg.beats) ? cfg.beats : [];
+    SHORT_META = cfg.shortMeta || null;
+
+    cv.width = W;
+    cv.height = H;
+
+    rng = (((cfg.seed || 7331) * 2654435761) + 1013904223) >>> 0;
+    currentFrame = 0;
+    simTime = 0;
+    lastBeatIdx = -1;
+    lastVisualPhase = '';
+    phaseAge = 0;
+    events = [];
+
+    const firstPhase = BEATS.length ? BEATS[0].visualPhase : 'sand-scatter-432';
+    const initMode = modeForPhase(firstPhase);
+    activeM = initMode.m;
+    activeN = initMode.n;
+    activeHz = initMode.hz;
+    displayHz = initMode.hz;
+    activeModeCol = initMode.col;
+    scatterEnergy = 1.0;
+    nodalLockPct = 0;
+    shake = 0;
+    flashAlpha = 0;
+    lockSoundFired = false;
+
+    resAmp = 0.14;
+    resShattered = false;
+    resShatterTime = 0;
+    shards = [];
+    sparks = [];
+    waves = [];
+
+    // Main 2,200 Chladni sand particles
+    px = new Float32Array(SAND_COUNT);
+    py = new Float32Array(SAND_COUNT);
+    pvx = new Float32Array(SAND_COUNT);
+    pvy = new Float32Array(SAND_COUNT);
+    pSize = new Float32Array(SAND_COUNT);
+    pTone = new Float32Array(SAND_COUNT);
+    pSettled = new Float32Array(SAND_COUNT);
+
+    for (let i = 0; i < SAND_COUNT; i++) {
+      px[i] = 0.04 + rand() * 0.92;
+      py[i] = 0.04 + rand() * 0.92;
+      pvx[i] = (rand() - 0.5) * 0.18;
+      pvy[i] = (rand() - 0.5) * 0.18;
+      pSize[i] = 1.5 + rand() * 1.8;
+      pTone[i] = rand();
+      pSettled[i] = 0;
+    }
+
+    // 1D standing-wave cross-section grains
+    wgx = new Float32Array(WAVE_GRAIN_COUNT);
+    wgy = new Float32Array(WAVE_GRAIN_COUNT);
+    wgvy = new Float32Array(WAVE_GRAIN_COUNT);
+    wgSettled = new Float32Array(WAVE_GRAIN_COUNT);
+    for (let i = 0; i < WAVE_GRAIN_COUNT; i++) {
+      wgx[i] = 0.04 + rand() * 0.92;
+      wgy[i] = 0;
+      wgvy[i] = 0;
+      wgSettled[i] = 0;
+    }
+
+    // 4-way eigenmode gallery pre-settled plates
+    galPlates = [];
+    for (let g = 0; g < GALLERY_MODES.length; g++) {
+      const gm = GALLERY_MODES[g];
+      const gx = new Float32Array(GAL_COUNT);
+      const gy = new Float32Array(GAL_COUNT);
+      const gvx = new Float32Array(GAL_COUNT);
+      const gvy = new Float32Array(GAL_COUNT);
+      for (let i = 0; i < GAL_COUNT; i++) {
+        gx[i] = 0.04 + rand() * 0.92;
+        gy[i] = 0.04 + rand() * 0.92;
+      }
+      // Pre-settle 90 steps so the 4-way gallery looks razor-sharp immediately
+      for (let k = 0; k < 90; k++) {
+        stepSandArrays(gx, gy, gvx, gvy, null, GAL_COUNT, gm.m, gm.n, 1 / 60, 0.15);
+      }
+      galPlates.push({ gx, gy, gvx, gvy, mode: gm });
+    }
+
+    // If starting directly on chladni-equation or series-outro, pre-settle main plate slightly
+    if (firstPhase === 'chladni-equation' || firstPhase === 'series-outro') {
+      for (let k = 0; k < 75; k++) {
+        stepSandArrays(px, py, pvx, pvy, pSettled, SAND_COUNT, activeM, activeN, 1 / 60, 0.2);
+      }
+      scatterEnergy = 0.1;
+    }
+  }
+
+  window.init = (cfg) => {
+    savedCfg = Object.assign({}, cfg);
+    resetSimulation(savedCfg);
+  };
+
+  // ---------- Physics Step ----------
+  function stepFrame(dt) {
+    simTime += dt;
+    phaseAge += dt;
+    const { idx: beatIdx, beat } = getBeatAt(simTime);
+    const phase = beat.visualPhase || 'sand-scatter-432';
+
+    // Handle beat / phase transitions
+    if (beatIdx !== lastBeatIdx) {
+      const prevPhase = lastVisualPhase;
+      lastBeatIdx = beatIdx;
+
+      if (phase !== prevPhase) {
+        lastVisualPhase = phase;
+        phaseAge = 0;
+        lockSoundFired = false;
+        const mInfo = modeForPhase(phase);
+        activeM = mInfo.m;
+        activeN = mInfo.n;
+        activeHz = mInfo.hz;
+        activeModeCol = mInfo.col;
+        scatterEnergy = 1.0;
+
+        if (phase === 'sand-lock-864' || phase === 'sand-lock-1440' || phase === 'chladni-equation' || phase === 'series-outro') {
+          kickSand(1.0);
+          waves.push({ nx: 0, ny: 0, r: 0.04, maxR: 1.45, alpha: 0.92, col: activeModeCol });
+          spawnAcousticSparks(0, 0, activeModeCol, 22);
+          events.push({
+            t: clamp(simTime, 0, DUR),
+            type: 'break',
+            pitchIndex: 2 + (beat.actIndex || 0) * 3 + (activeM % 4),
+            intensity: 0.72
+          });
+        } else if (phase === 'resonance-buildup') {
+          resAmp = 0.16;
+          resShattered = false;
+          shards = [];
+          events.push({ t: clamp(simTime, 0, DUR), type: 'bounce', pitchIndex: 6, intensity: 0.65 });
+        } else if (phase === 'resonance-shatter') {
+          resAmp = Math.max(resAmp, 0.72);
+          resShattered = false;
+          shards = [];
+        } else if (phase === 'wave-cross-section') {
+          for (let i = 0; i < WAVE_GRAIN_COUNT; i++) {
+            wgx[i] = 0.04 + rand() * 0.92;
+            wgy[i] = 0;
+            wgvy[i] = 0;
+            wgSettled[i] = 0;
+          }
+          events.push({ t: clamp(simTime, 0, DUR), type: 'win', pitchIndex: 5, intensity: 0.75 });
+        } else {
+          waves.push({ nx: 0, ny: 0, r: 0.05, maxR: 1.35, alpha: 0.85, col: activeModeCol });
+          events.push({
+            t: clamp(simTime, 0, DUR),
+            type: beat.isBridge ? 'win' : 'bounce',
+            pitchIndex: 2 + (beat.actIndex || 0) * 2,
+            intensity: beat.isBridge ? 0.78 : 0.58
+          });
+        }
+      } else {
+        // Same visualPhase, new beat
+        events.push({
+          t: clamp(simTime, 0, DUR),
+          type: 'bounce',
+          pitchIndex: 3 + (beatIdx % 6),
+          intensity: 0.5
+        });
+      }
+    }
+
+    displayHz = lerp(displayHz, activeHz, 0.12);
+    scatterEnergy = Math.max(0.03, scatterEnergy * 0.965);
+
+    // Step main Chladni plate when visible
+    if (
+      phase === 'sand-scatter-432' ||
+      phase === 'sand-lock-864' ||
+      phase === 'sand-lock-1440' ||
+      phase === 'chladni-equation' ||
+      phase === 'series-outro'
+    ) {
+      const lockFrac = stepSandArrays(px, py, pvx, pvy, pSettled, SAND_COUNT, activeM, activeN, dt, scatterEnergy);
+      nodalLockPct = clamp(lockFrac * 100, 0, 100);
+      if (!lockSoundFired && phaseAge > 1.35 && nodalLockPct > 55) {
+        lockSoundFired = true;
+        waves.push({ nx: 0, ny: 0, r: 0.08, maxR: 1.3, alpha: 0.72, col: '#fde047' });
+        events.push({
+          t: clamp(simTime, 0, DUR),
+          type: 'win',
+          pitchIndex: 4 + activeM * 2,
+          intensity: 0.74
+        });
+      }
+    }
+
+    // Step 1D standing wave cross-section grains
+    if (phase === 'wave-cross-section') {
+      const kWave = 4 * Math.PI; // 4 half-waves -> 5 clear nodes at 0, 0.25, 0.5, 0.75, 1.0
+      const omega = 11.5;
+      const phaseCos = Math.cos(simTime * omega);
+      let settled = 0;
+      for (let i = 0; i < WAVE_GRAIN_COUNT; i++) {
+        const u = wgx[i];
+        const env = Math.sin(kWave * u);
+        const plateY = env * phaseCos * 0.28;
+        const absEnv = Math.abs(env);
+        // Gravity pulls grains down onto vibrating plate
+        wgvy[i] += 2.2 * dt;
+        wgy[i] += wgvy[i] * dt;
+        if (wgy[i] > plateY) {
+          wgy[i] = plateY;
+          // Bounce upward proportional to local antinode amplitude
+          if (absEnv > 0.14) {
+            wgvy[i] = -absEnv * (0.45 + rand() * 0.55);
+            // Drift away from antinode toward nearest silent node
+            const grad = Math.cos(kWave * u) * Math.sign(env);
+            wgx[i] = clamp(u - grad * dt * 0.18 + (rand() - 0.5) * 0.008, 0.02, 0.98);
+          } else {
+            wgvy[i] *= -0.15;
+            settled++;
+          }
+        }
+        wgSettled[i] = absEnv < 0.18 ? 1 : 0;
+      }
+      nodalLockPct = clamp((settled / WAVE_GRAIN_COUNT) * 100, 0, 100);
+    }
+
+    // Step resonance buildup & shatter
+    if (phase === 'resonance-buildup') {
+      const bDur = Math.max(2.0, (beat.end || DUR) - (beat.start || 0));
+      const prog = clamp(phaseAge / bDur, 0, 1);
+      resAmp = clamp(0.15 + Math.pow(prog, 1.45) * 0.78, 0.15, 0.94);
+      nodalLockPct = clamp(resAmp * 100, 0, 100);
+      if (currentFrame % 42 === 0) {
+        waves.push({ nx: 0, ny: 0, r: 0.06, maxR: 1.25, alpha: 0.65, col: '#f59e0b' });
+        events.push({
+          t: clamp(simTime, 0, DUR),
+          type: 'bounce',
+          pitchIndex: 4 + Math.floor(resAmp * 8),
+          intensity: clamp(0.42 + resAmp * 0.45, 0.4, 0.9)
+        });
+      }
+    } else if (phase === 'resonance-shatter') {
+      if (!resShattered) {
+        resAmp = Math.min(1.06, resAmp + dt * 0.42);
+        nodalLockPct = clamp(resAmp * 100, 0, 100);
+        if (resAmp >= 1.0 || phaseAge > 1.15) {
+          triggerShatter();
+        }
+      } else {
+        nodalLockPct = 100;
+        for (let i = 0; i < shards.length; i++) {
+          const sh = shards[i];
+          sh.nx += sh.vx * dt;
+          sh.ny += sh.vy * dt;
+          sh.vy += 1.45 * dt;
+          sh.rot += sh.vrot * dt;
+        }
+      }
+    }
+
+    // Step 4-way eigenmode gallery subtly so sand shimmers alive
+    if (phase === 'mode-gallery-4way') {
+      for (let g = 0; g < galPlates.length; g++) {
+        const gp = galPlates[g];
+        stepSandArrays(gp.gx, gp.gy, gp.gvx, gp.gvy, null, GAL_COUNT, gp.mode.m, gp.mode.n, dt * 0.65, 0.06);
+      }
+      nodalLockPct = 94;
+    }
+
+    // Update sparks & waves
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const sp = sparks[i];
+      sp.nx += sp.vx * dt;
+      sp.ny += sp.vy * dt;
+      sp.vx *= 0.95;
+      sp.vy *= 0.95;
+      sp.life -= dt;
+      if (sp.life <= 0) sparks.splice(i, 1);
+    }
+    for (let i = waves.length - 1; i >= 0; i--) {
+      const wv = waves[i];
+      wv.r += dt * 1.4;
+      wv.alpha *= 0.92;
+      if (wv.r >= wv.maxR || wv.alpha < 0.02) waves.splice(i, 1);
+    }
+
+    shake *= 0.88;
+    flashAlpha *= 0.86;
+  }
+
+  // ---------- Viewport Visual Renderers ----------
+  function drawBackground(S) {
+    const bg = ctx.createRadialGradient(W * 0.42, H * 0.46, 20 * S, W * 0.5, H * 0.5, Math.max(W, H) * 0.78);
+    bg.addColorStop(0, '#12102c');
+    bg.addColorStop(0.55, '#07091b');
+    bg.addColorStop(1, '#04060f');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(148,163,184,0.05)';
+    ctx.lineWidth = Math.max(1, 1 * S);
+    const step = Math.round(56 * S);
+    ctx.beginPath();
+    for (let x = step; x < W; x += step) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = step; y < H; y += step) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSparksAndWaves(cx, cy, radius, S) {
+    ctx.save();
+    for (let i = 0; i < waves.length; i++) {
+      const wv = waves[i];
+      ctx.strokeStyle = hexToRgba(wv.col, clamp(wv.alpha, 0, 1));
+      ctx.lineWidth = 2.6 * S;
+      ctx.beginPath();
+      ctx.arc(cx + wv.nx * radius, cy + wv.ny * radius, wv.r * radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (let i = 0; i < sparks.length; i++) {
+      const sp = sparks[i];
+      const a = clamp(sp.life / sp.maxLife, 0, 1);
+      ctx.fillStyle = hexToRgba(sp.col, a);
+      ctx.beginPath();
+      ctx.arc(cx + sp.nx * radius, cy + sp.ny * radius, sp.size * S * a, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawChladniPlate(vp, S, opts) {
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.50;
+    const plateSize = Math.min(vp.w, vp.h) * (opts.scale || 0.78);
+    const x0 = cx - plateSize * 0.5;
+    const y0 = cy - plateSize * 0.5;
+
+    ctx.save();
+    // Outer acoustic glow
+    const glow = ctx.createRadialGradient(cx, cy, plateSize * 0.25, cx, cy, plateSize * 0.72);
+    glow.addColorStop(0, hexToRgba(activeModeCol, 0.20));
+    glow.addColorStop(1, 'rgba(5,7,18,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(vp.x, vp.y, vp.w, vp.h);
+
+    // Dark anodized plate
+    roundRectPath(ctx, x0, y0, plateSize, plateSize, 16 * S);
+    ctx.fillStyle = '#080c1e';
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(activeModeCol, 0.72);
+    ctx.lineWidth = 2.4 * S;
+    ctx.stroke();
+
+    // Optional standing-wave heatmap for chladni-equation phase
+    if (opts.showHeatmap) {
+      const cells = 34;
+      const cw = plateSize / cells;
+      const osc = Math.cos(simTime * 5.2);
+      ctx.save();
+      roundRectPath(ctx, x0, y0, plateSize, plateSize, 16 * S);
+      ctx.clip();
+      for (let ix = 0; ix < cells; ix++) {
+        const u = (ix + 0.5) / cells;
+        for (let iy = 0; iy < cells; iy++) {
+          const v = (iy + 0.5) / cells;
+          const val = (Math.cos(activeM * Math.PI * u) * Math.cos(activeN * Math.PI * v) -
+                       Math.cos(activeN * Math.PI * u) * Math.cos(activeM * Math.PI * v)) * osc;
+          const a = clamp(Math.abs(val) * 0.24, 0, 0.32);
+          if (a > 0.02) {
+            ctx.fillStyle = val >= 0 ? `rgba(56,189,248,${a.toFixed(3)})` : `rgba(244,114,182,${a.toFixed(3)})`;
+            ctx.fillRect(x0 + ix * cw, y0 + iy * cw, cw + 0.5, cw + 0.5);
+          }
+        }
+      }
+      ctx.restore();
+    }
+
+    // Center acoustic transducer ring
+    const pulse = 1 + Math.sin(simTime * 16) * 0.14;
+    ctx.strokeStyle = hexToRgba(activeModeCol, 0.55);
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 12 * S * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Draw 2,200 golden sand grains
+    for (let i = 0; i < SAND_COUNT; i++) {
+      const gx = x0 + px[i] * plateSize;
+      const gy = y0 + py[i] * plateSize;
+      const sz = pSize[i] * S * (0.78 + pSettled[i] * 0.28);
+      ctx.fillStyle = pTone[i] > 0.45 ? '#fde047' : '#f59e0b';
+      ctx.fillRect(gx - sz * 0.5, gy - sz * 0.5, sz, sz);
+    }
+
+    drawSparksAndWaves(cx, cy, plateSize * 0.5, S);
+
+    // Frequency & Eigenmode readout pill at bottom of viewport
+    const badgeW = Math.min(vp.w * 0.72, 420 * S);
+    const badgeH = 38 * S;
+    const bx = cx - badgeW * 0.5;
+    const by = vp.y + vp.h - badgeH - 14 * S;
+    roundRectPath(ctx, bx, by, badgeW, badgeH, 10 * S);
+    ctx.fillStyle = 'rgba(5,7,18,0.88)';
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(activeModeCol, 0.7);
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fde047';
+    ctx.font = `800 ${14 * S}px ui-monospace, monospace`;
+    if (opts.showEquation) {
+      ctx.fillText(`cos(${activeM}πx)cos(${activeN}πy) = cos(${activeN}πx)cos(${activeM}πy)`, cx, by + badgeH * 0.65);
+    } else {
+      ctx.fillText(`${Math.round(displayHz)} Hz  ·  EIGENMODE (m=${activeM}, n=${activeN})`, cx, by + badgeH * 0.65);
+    }
+    ctx.restore();
+  }
+
+  function drawWaveCrossSection(vp, S) {
+    const padX = 36 * S;
+    const x0 = vp.x + padX;
+    const w = vp.w - padX * 2;
+    const midY = vp.y + vp.h * 0.54;
+    const ampPx = vp.h * 0.23;
+    const kWave = 4 * Math.PI;
+    const phaseCos = Math.cos(simTime * 11.5);
+
+    ctx.save();
+    // Top title
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = `800 ${15 * S}px ui-monospace, monospace`;
+    ctx.fillText('SIDEWAYS PLATE CROSS-SECTION · STANDING WAVE', vp.x + vp.w * 0.5, vp.y + 44 * S);
+
+    // Silent centerline
+    ctx.strokeStyle = 'rgba(148,163,184,0.28)';
+    ctx.lineWidth = 1.4 * S;
+    ctx.setLineDash([8 * S, 6 * S]);
+    ctx.beginPath();
+    ctx.moveTo(x0, midY);
+    ctx.lineTo(x0 + w, midY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Standing-wave upper & lower amplitude envelopes
+    for (let sign = -1; sign <= 1; sign += 2) {
+      ctx.strokeStyle = 'rgba(56,189,248,0.28)';
+      ctx.lineWidth = 1.8 * S;
+      ctx.beginPath();
+      for (let i = 0; i <= 120; i++) {
+        const u = i / 120;
+        const x = x0 + u * w;
+        const y = midY + sign * Math.sin(kWave * u) * ampPx;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Active vibrating metal plate curve
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 5 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const u = i / 120;
+      const x = x0 + u * w;
+      const y = midY + Math.sin(kWave * u) * phaseCos * ampPx;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Mark the 5 silent NODES (u = 0, 0.25, 0.5, 0.75, 1.0)
+    for (let n = 0; n <= 4; n++) {
+      const nx = x0 + (n / 4) * w;
+      ctx.fillStyle = '#22d3ee';
+      ctx.beginPath();
+      ctx.arc(nx, midY, 8 * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = '#22d3ee';
+      ctx.font = `800 ${11 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('NODE', nx, midY + ampPx + 30 * S);
+    }
+
+    // Mark ANTINODES
+    for (let a = 0; a < 4; a++) {
+      const ax = x0 + ((a + 0.5) / 4) * w;
+      ctx.fillStyle = '#f472b6';
+      ctx.font = `700 ${11 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('ANTINODE', ax, midY - ampPx - 16 * S);
+    }
+
+    // Draw bouncing golden sand grains
+    for (let i = 0; i < WAVE_GRAIN_COUNT; i++) {
+      const gx = x0 + wgx[i] * w;
+      const gy = midY + wgy[i] * (ampPx / 0.28) - 4 * S;
+      ctx.fillStyle = wgSettled[i] ? '#fde047' : '#f59e0b';
+      ctx.beginPath();
+      ctx.arc(gx, gy, 3.6 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawResonanceSim(vp, S) {
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.46;
+    const glassR = Math.min(vp.w, vp.h) * 0.24;
+
+    ctx.save();
+    // Incoming acoustic wavefronts from left speaker
+    const speakerX = vp.x + 36 * S;
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2 * S;
+    roundRectPath(ctx, speakerX - 14 * S, cy - 44 * S, 28 * S, 88 * S, 8 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    for (let w = 0; w < 6; w++) {
+      const prog = ((simTime * 1.8 + w / 6) % 1);
+      const wx = lerp(speakerX + 18 * S, cx, prog);
+      const alpha = (1 - prog) * 0.65;
+      ctx.strokeStyle = hexToRgba(resShattered ? '#ef4444' : '#f59e0b', alpha);
+      ctx.lineWidth = 2.5 * S;
+      ctx.beginPath();
+      ctx.arc(speakerX + 12 * S, cy, wx - speakerX, -0.55, 0.55);
+      ctx.stroke();
+    }
+
+    if (!resShattered) {
+      // Vibrating crystalline glass ring (quadrupole mode n=2 deformation)
+      const vib = Math.sin(simTime * 28) * resAmp * 0.28;
+      const stressCol = resAmp > 0.78 ? '#ef4444' : (resAmp > 0.48 ? '#f59e0b' : '#38bdf8');
+      ctx.strokeStyle = stressCol;
+      ctx.lineWidth = 5 * S;
+      ctx.beginPath();
+      for (let i = 0; i <= 72; i++) {
+        const a = (i / 72) * Math.PI * 2;
+        const rx = glassR * (1 + vib * Math.cos(2 * a));
+        const px0 = cx + Math.cos(a) * rx;
+        const py0 = cy + Math.sin(a) * rx;
+        if (i === 0) ctx.moveTo(px0, py0);
+        else ctx.lineTo(px0, py0);
+      }
+      ctx.closePath();
+      ctx.fillStyle = hexToRgba(stressCol, 0.14 + resAmp * 0.12);
+      ctx.fill();
+      ctx.stroke();
+
+      // Inner crystal highlight ring
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      ctx.lineWidth = 1.6 * S;
+      ctx.beginPath();
+      for (let i = 0; i <= 72; i++) {
+        const a = (i / 72) * Math.PI * 2;
+        const rx = glassR * 0.86 * (1 + vib * Math.cos(2 * a));
+        const px0 = cx + Math.cos(a) * rx;
+        const py0 = cy + Math.sin(a) * rx;
+        if (i === 0) ctx.moveTo(px0, py0);
+        else ctx.lineTo(px0, py0);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      // Flying shattered crystalline shards
+      for (let i = 0; i < shards.length; i++) {
+        const sh = shards[i];
+        const sx = cx + sh.nx * glassR * 2.2;
+        const sy = cy + sh.ny * glassR * 2.2;
+        const rad = sh.sz * glassR * 2.6;
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(sh.rot);
+        ctx.fillStyle = hexToRgba(sh.col, 0.86);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.4 * S;
+        ctx.beginPath();
+        for (let k = 0; k < sh.sides; k++) {
+          const ang = (k / sh.sides) * Math.PI * 2;
+          const rx = Math.cos(ang) * rad;
+          const ry = Math.sin(ang) * rad * 0.7;
+          if (k === 0) ctx.moveTo(rx, ry);
+          else ctx.lineTo(rx, ry);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    drawSparksAndWaves(cx, cy, glassR * 2, S);
+
+    // Elastic Limit Stress Meter at bottom of viewport
+    const mw = Math.min(vp.w * 0.72, 480 * S);
+    const mh = 22 * S;
+    const mx = cx - mw * 0.5;
+    const my = vp.y + vp.h - 46 * S;
+    roundRectPath(ctx, mx, my, mw, mh, 11 * S);
+    ctx.fillStyle = 'rgba(15,23,42,0.88)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+
+    const fillW = mw * clamp(resAmp, 0, 1);
+    roundRectPath(ctx, mx, my, fillW, mh, 11 * S);
+    ctx.fillStyle = resShattered ? '#ef4444' : (resAmp > 0.72 ? '#f59e0b' : '#38bdf8');
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `800 ${13 * S}px ui-monospace, monospace`;
+    ctx.fillText(
+      resShattered ? 'ELASTIC LIMIT EXCEEDED · STRUCTURAL SHATTER!' : `RESONANCE AMPLITUDE: ${Math.round(resAmp * 100)}% OF ELASTIC LIMIT`,
+      cx,
+      my - 10 * S
+    );
+    ctx.restore();
+  }
+
+  function drawModeGallery4Way(vp, S) {
+    const pad = 20 * S;
+    const topOff = 44 * S;
+    const gap = 14 * S;
+    const cellW = (vp.w - pad * 2 - gap) * 0.5;
+    const cellH = (vp.h - topOff - pad - gap) * 0.5;
+    const highlightIdx = Math.floor(simTime * 0.75) % 4;
+
+    ctx.save();
+    for (let g = 0; g < 4; g++) {
+      const colIdx = g % 2;
+      const rowIdx = Math.floor(g / 2);
+      const cx0 = vp.x + pad + colIdx * (cellW + gap);
+      const cy0 = vp.y + topOff + rowIdx * (cellH + gap);
+      const gp = galPlates[g];
+      const gm = gp.mode;
+      const isHi = g === highlightIdx;
+
+      roundRectPath(ctx, cx0, cy0, cellW, cellH, 14 * S);
+      ctx.fillStyle = '#070b1d';
+      ctx.fill();
+      ctx.strokeStyle = isHi ? gm.col : 'rgba(148,163,184,0.28)';
+      ctx.lineWidth = (isHi ? 2.6 : 1.4) * S;
+      ctx.stroke();
+
+      // Square inner plate
+      const pSz = Math.min(cellW - 22 * S, cellH - 40 * S);
+      const px0 = cx0 + (cellW - pSz) * 0.5;
+      const py0 = cy0 + 28 * S + (cellH - 34 * S - pSz) * 0.5;
+
+      for (let i = 0; i < GAL_COUNT; i++) {
+        const sx = px0 + gp.gx[i] * pSz;
+        const sy = py0 + gp.gy[i] * pSz;
+        ctx.fillStyle = i % 2 === 0 ? '#fde047' : gm.col;
+        ctx.fillRect(sx - 1.4 * S, sy - 1.4 * S, 2.8 * S, 2.8 * S);
+      }
+
+      ctx.fillStyle = gm.col;
+      ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText(`${gm.hz} Hz`, cx0 + 12 * S, cy0 + 20 * S);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(`(${gm.m}, ${gm.n})`, cx0 + cellW - 12 * S, cy0 + 20 * S);
+    }
+    ctx.restore();
+  }
+
+  function drawSeriesOutro(vp, S) {
+    drawChladniPlate(vp, S, { scale: 0.76, showHeatmap: false, showEquation: false });
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.50;
+    const cardW = Math.min(vp.w * 0.78, 540 * S);
+    const cardH = 152 * S;
+    const bx = cx - cardW * 0.5;
+    const by = cy - cardH * 0.5;
+
+    ctx.save();
+    roundRectPath(ctx, bx, by, cardW, cardH, 18 * S);
+    ctx.fillStyle = 'rgba(7,11,28,0.90)';
+    ctx.fill();
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2.4 * S;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = ACCENT;
+    ctx.font = `800 ${14 * S}px ui-monospace, monospace`;
+    ctx.fillText(`${BRAND} · SOUND IS MOVING GEOMETRY`, cx, by + 36 * S);
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `900 ${25 * S}px system-ui, sans-serif`;
+    ctx.fillText('NEXT: 1,000 SPHERES VS GEARS', cx, by + 82 * S);
+
+    ctx.fillStyle = '#fde047';
+    ctx.font = `800 ${15 * S}px ui-monospace, monospace`;
+    ctx.fillText('SUBSCRIBE FOR 60FPS PHYSICS DEEP DIVES →', cx, by + 122 * S);
+    ctx.restore();
+  }
+
+  function renderSimulationViewport(vp, beat, S) {
+    ctx.save();
+    roundRectPath(ctx, vp.x, vp.y, vp.w, vp.h, 18 * S);
+    ctx.fillStyle = 'rgba(6,10,24,0.72)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.22)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    ctx.save();
+    roundRectPath(ctx, vp.x, vp.y, vp.w, vp.h, 18 * S);
+    ctx.clip();
+
+    const sx = (rand() - 0.5) * shake * 12 * S;
+    const sy = (rand() - 0.5) * shake * 12 * S;
+    ctx.translate(sx, sy);
+
+    const phase = beat.visualPhase || 'sand-scatter-432';
+    if (phase === 'wave-cross-section') {
+      drawWaveCrossSection(vp, S);
+    } else if (phase === 'chladni-equation') {
+      drawChladniPlate(vp, S, { scale: 0.76, showHeatmap: true, showEquation: true });
+    } else if (phase === 'resonance-buildup' || phase === 'resonance-shatter') {
+      drawResonanceSim(vp, S);
+    } else if (phase === 'mode-gallery-4way') {
+      drawModeGallery4Way(vp, S);
+    } else if (phase === 'series-outro') {
+      drawSeriesOutro(vp, S);
+    } else {
+      // sand-scatter-432, sand-lock-864, sand-lock-1440
+      drawChladniPlate(vp, S, { scale: 0.78, showHeatmap: false, showEquation: false });
+    }
+
+    if (flashAlpha > 0.01) {
+      ctx.fillStyle = hexToRgba('#fde047', flashAlpha * 0.30);
+      ctx.fillRect(vp.x, vp.y, vp.w, vp.h);
+    }
+    ctx.restore();
+
+    // Top-left live mode pill
+    const tagTxt = `MODE · ${(beat.visualPhase || 'sand-scatter-432').toUpperCase().replace(/-/g, ' ')}`;
+    ctx.font = `700 ${12 * S}px ui-monospace, monospace`;
+    const tagW = Math.min(vp.w - 32 * S, ctx.measureText(tagTxt).width + 26 * S);
+    roundRectPath(ctx, vp.x + 16 * S, vp.y + 14 * S, tagW, 28 * S, 8 * S);
+    ctx.fillStyle = 'rgba(5,7,18,0.84)';
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(activeModeCol, 0.65);
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.textAlign = 'left';
+    ctx.fillText(tagTxt, vp.x + 28 * S, vp.y + 32 * S);
+
+    // 2.0s Narrative Bridge Banner
+    const beatAge = simTime - (beat.start || 0);
+    if (beat.isBridge && beatAge >= 0 && beatAge <= 2.0) {
+      const fadeIn = easeOutCubic(beatAge / 0.28);
+      const fadeOut = beatAge > 1.55 ? 1 - clamp((beatAge - 1.55) / 0.45, 0, 1) : 1;
+      const alpha = fadeIn * fadeOut;
+      const bw = Math.min(vp.w * 0.84, 620 * S);
+      const bh = 84 * S;
+      const bx = vp.x + (vp.w - bw) * 0.5;
+      const by = vp.y + vp.h * 0.14 + (1 - fadeIn) * 18 * S;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      roundRectPath(ctx, bx, by, bw, bh, 14 * S);
+      ctx.fillStyle = 'rgba(7,11,28,0.92)';
+      ctx.fill();
+      ctx.strokeStyle = ACCENT;
+      ctx.lineWidth = 2.2 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = ACCENT;
+      ctx.fillRect(bx + 16 * S, by + bh - 6 * S, (bw - 32 * S) * clamp(beatAge / 2.0, 0, 1), 3 * S);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = ACCENT;
+      ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+      ctx.fillText(`ACT ${(beat.actIndex || 0) + 1} · NARRATIVE BRIDGE`, bx + bw * 0.5, by + 26 * S);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `900 ${21 * S}px system-ui, sans-serif`;
+      ctx.fillText(beat.actTitle || beat.caption || '', bx + bw * 0.5, by + 58 * S);
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  // ---------- 16:9 Glassmorphic Telemetry HUD ----------
+  function renderHud16x9(beat, S) {
+    const hx = W * 0.695;
+    const hy = H * 0.04;
+    const hw = W * 0.285;
+    const hh = H * 0.92;
+    const pad = 22 * S;
+
+    ctx.save();
+    roundRectPath(ctx, hx, hy, hw, hh, 18 * S);
+    ctx.fillStyle = 'rgba(11,16,36,0.82)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.22)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    // Brand Header
+    let y = hy + pad + 12 * S;
+    ctx.fillStyle = ACCENT;
+    ctx.beginPath();
+    ctx.arc(hx + pad + 6 * S, y - 5 * S, 6 * S, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `900 ${16 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(BRAND, hx + pad + 20 * S, y);
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = `700 ${12 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'right';
+    ctx.fillText('CYMATICS LAB', hx + hw - pad, y);
+
+    // 4-Act Progress Bar
+    y += 22 * S;
+    const segGap = 8 * S;
+    const segW = (hw - pad * 2 - segGap * 3) / 4;
+    const actIdx = beat.actIndex || 0;
+    const globalProg = clamp(simTime / Math.max(1, DUR), 0, 1);
+
+    for (let a = 0; a < 4; a++) {
+      const sx = hx + pad + a * (segW + segGap);
+      roundRectPath(ctx, sx, y, segW, 8 * S, 4 * S);
+      ctx.fillStyle = 'rgba(148,163,184,0.18)';
+      ctx.fill();
+
+      let fillFrac = 0;
+      if (a < actIdx) fillFrac = 1;
+      else if (a === actIdx) {
+        const bDur = Math.max(0.1, (beat.end || DUR) - (beat.start || 0));
+        fillFrac = clamp((simTime - (beat.start || 0)) / bDur, 0.12, 1);
+      }
+      if (fillFrac > 0) {
+        roundRectPath(ctx, sx, y, segW * fillFrac, 8 * S, 4 * S);
+        ctx.fillStyle = a === actIdx ? ACCENT : '#38bdf8';
+        ctx.fill();
+      }
+    }
+
+    // Active Act Title
+    y += 38 * S;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `700 ${12 * S}px ui-monospace, monospace`;
+    ctx.fillText(`ACT ${actIdx + 1} / 4 · ${(beat.actKind || 'hook').toUpperCase()}`, hx + pad, y);
+
+    y += 28 * S;
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `800 ${21 * S}px system-ui, sans-serif`;
+    const titleLines = wrapLines(ctx, beat.actTitle || TITLE, hw - pad * 2, 2);
+    for (let i = 0; i < titleLines.length; i++) {
+      ctx.fillText(titleLines[i], hx + pad, y + i * 26 * S);
+    }
+    y += titleLines.length * 26 * S + 14 * S;
+
+    // Live Caption Pill
+    const capH = 42 * S;
+    roundRectPath(ctx, hx + pad, y, hw - pad * 2, capH, 10 * S);
+    ctx.fillStyle = hexToRgba(ACCENT, 0.16);
+    ctx.fill();
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `800 ${14 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    const capLines = wrapLines(ctx, beat.caption || '', hw - pad * 2 - 20 * S, 1);
+    ctx.fillText(capLines[0] || '', hx + hw * 0.5, y + capH * 0.63);
+    y += capH + 18 * S;
+
+    // Wrapped Narration Card
+    const narH = Math.max(130 * S, hh * 0.25);
+    roundRectPath(ctx, hx + pad, y, hw - pad * 2, narH, 12 * S);
+    ctx.fillStyle = 'rgba(5,7,18,0.68)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.16)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+
+    ctx.fillStyle = ACCENT;
+    ctx.fillRect(hx + pad, y + 12 * S, 3.5 * S, narH - 24 * S);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = `500 ${16 * S}px system-ui, sans-serif`;
+    const narLines = wrapLines(ctx, beat.text || '', hw - pad * 2 - 28 * S, 6);
+    for (let i = 0; i < narLines.length; i++) {
+      ctx.fillText(narLines[i], hx + pad + 16 * S, y + 30 * S + i * 23 * S);
+    }
+    y += narH + 18 * S;
+
+    // Live Telemetry Grid (2x2)
+    const isRes = beat.visualPhase === 'resonance-buildup' || beat.visualPhase === 'resonance-shatter';
+    const metrics = [
+      { label: 'FREQUENCY', val: `${Math.round(displayHz)} Hz`, col: '#fde047' },
+      { label: 'EIGENMODE', val: `(${activeM}, ${activeN})`, col: '#38bdf8' },
+      { label: isRes ? 'AMPLITUDE' : 'NODAL LOCK', val: `${Math.round(isRes ? resAmp * 100 : nodalLockPct)}%`, col: isRes && resAmp > 0.78 ? '#ef4444' : '#f472b6' },
+      { label: 'SAND GRAINS', val: `${SAND_COUNT.toLocaleString()}`, col: '#22d3ee' }
+    ];
+    const cardGap = 10 * S;
+    const cw = (hw - pad * 2 - cardGap) * 0.5;
+    const ch = 66 * S;
+    for (let i = 0; i < metrics.length; i++) {
+      const colIdx = i % 2;
+      const rowIdx = Math.floor(i / 2);
+      const mx = hx + pad + colIdx * (cw + cardGap);
+      const my = y + rowIdx * (ch + cardGap);
+      roundRectPath(ctx, mx, my, cw, ch, 10 * S);
+      ctx.fillStyle = 'rgba(5,7,18,0.72)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148,163,184,0.18)';
+      ctx.lineWidth = 1.2 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = `700 ${10 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText(metrics[i].label, mx + 12 * S, my + 22 * S);
+
+      ctx.fillStyle = metrics[i].col;
+      ctx.font = `800 ${21 * S}px ui-monospace, monospace`;
+      ctx.fillText(metrics[i].val, mx + 12 * S, my + 50 * S);
+    }
+
+    // Bottom Timeline Scrubber
+    const barY = hy + hh - 30 * S;
+    roundRectPath(ctx, hx + pad, barY, hw - pad * 2, 6 * S, 3 * S);
+    ctx.fillStyle = 'rgba(148,163,184,0.20)';
+    ctx.fill();
+    roundRectPath(ctx, hx + pad, barY, (hw - pad * 2) * globalProg, 6 * S, 3 * S);
+    ctx.fillStyle = ACCENT;
+    ctx.fill();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `700 ${11 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(formatTime(simTime), hx + pad, barY - 8 * S);
+    ctx.textAlign = 'right';
+    ctx.fillText(formatTime(DUR), hx + hw - pad, barY - 8 * S);
+    ctx.restore();
+  }
+
+  // ---------- 9:16 Safe-Zone Vertical Layout ----------
+  function renderLayout9x16(beat, S) {
+    const safeL = W * 0.07;
+    const safeR = W * 0.88;
+    const safeW = safeR - safeL;
+    const safeCx = (safeL + safeR) * 0.5;
+
+    const partText = (SHORT_META && SHORT_META.partLabel) || `${BRAND} · ACT ${(beat.actIndex || 0) + 1}/4`;
+    const hookText = (SHORT_META && SHORT_META.hook) || beat.caption || TITLE;
+
+    ctx.save();
+    ctx.font = `800 ${14 * S}px ui-monospace, monospace`;
+    const pillW = Math.min(safeW, ctx.measureText(partText).width + 32 * S);
+    const pillH = 30 * S;
+    const pillY = H * 0.122;
+    roundRectPath(ctx, safeCx - pillW * 0.5, pillY, pillW, pillH, 15 * S);
+    ctx.fillStyle = hexToRgba(ACCENT, 0.20);
+    ctx.fill();
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+    ctx.fillStyle = '#f8fafc';
+    ctx.textAlign = 'center';
+    ctx.fillText(partText, safeCx, pillY + pillH * 0.67);
+
+    // Clamped Hook Headline
+    let hookSize = 36 * S;
+    ctx.font = `900 ${hookSize}px system-ui, sans-serif`;
+    while (hookSize > 20 * S && ctx.measureText(hookText).width > safeW * 1.85) {
+      hookSize -= 2 * S;
+      ctx.font = `900 ${hookSize}px system-ui, sans-serif`;
+    }
+    const hookLines = wrapLines(ctx, hookText, safeW, 2);
+    ctx.fillStyle = '#f8fafc';
+    for (let i = 0; i < hookLines.length; i++) {
+      ctx.fillText(hookLines[i], safeCx, pillY + pillH + 38 * S + i * (hookSize * 1.12));
+    }
+    ctx.restore();
+
+    // Center 55% Physics Viewport
+    const vp = {
+      x: W * 0.04,
+      y: H * 0.235,
+      w: W * 0.92,
+      h: H * 0.465
+    };
+    renderSimulationViewport(vp, beat, S * 0.95);
+
+    // Compact Telemetry Pill top-right inside viewport
+    ctx.save();
+    const isRes = beat.visualPhase === 'resonance-buildup' || beat.visualPhase === 'resonance-shatter';
+    const tTxt = isRes
+      ? `${Math.round(displayHz)} Hz · AMP ${Math.round(resAmp * 100)}%`
+      : `${Math.round(displayHz)} Hz · (${activeM},${activeN})`;
+    ctx.font = `800 ${13 * S}px ui-monospace, monospace`;
+    const tw = Math.min(vp.w * 0.55, ctx.measureText(tTxt).width + 24 * S);
+    roundRectPath(ctx, vp.x + vp.w - tw - 14 * S, vp.y + 14 * S, tw, 28 * S, 8 * S);
+    ctx.fillStyle = 'rgba(5,7,18,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(253,224,71,0.55)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = '#fde047';
+    ctx.textAlign = 'center';
+    ctx.fillText(tTxt, vp.x + vp.w - tw * 0.5 - 14 * S, vp.y + 32 * S);
+    ctx.restore();
+
+    // Bottom High-Contrast Caption Pill (above H * 0.78)
+    const capY = H * 0.715;
+    const capH = 54 * S;
+    ctx.save();
+    roundRectPath(ctx, safeL, capY, safeW, capH, 14 * S);
+    ctx.fillStyle = 'rgba(7,11,28,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2.2 * S;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `900 ${21 * S}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    const cLines = wrapLines(ctx, beat.caption || '', safeW - 28 * S, 1);
+    ctx.fillText(cLines[0] || '', safeCx, capY + capH * 0.65);
+    ctx.restore();
+
+    // Last 1.2s CTA Subscribe Banner
+    if (simTime >= DUR - 1.2) {
+      const p = easeOutCubic((simTime - (DUR - 1.2)) / 0.25);
+      const ctaText = (SHORT_META && SHORT_META.ctaText) || `SUBSCRIBE TO ${BRAND} →`;
+      const ctaH = 62 * S;
+      const ctaY = H * 0.635 + (1 - p) * 20 * S;
+      ctx.save();
+      ctx.globalAlpha = p;
+      roundRectPath(ctx, safeL, ctaY, safeW, ctaH, 16 * S);
+      ctx.fillStyle = ACCENT;
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.5 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = '#050712';
+      ctx.font = `900 ${20 * S}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      const ctaLines = wrapLines(ctx, ctaText, safeW - 24 * S, 1);
+      ctx.fillText(ctaLines[0] || ctaText, safeCx, ctaY + ctaH * 0.64);
+      ctx.restore();
+    }
+  }
+
+  // ---------- Main Frame Renderer ----------
+  function renderCurrentFrame() {
+    const is16x9 = ASPECT === '16:9';
+    const S = is16x9 ? (W / 1280) : (W / 720);
+    const { beat } = getBeatAt(simTime);
+
+    drawBackground(S);
+
+    if (is16x9) {
+      const vp = {
+        x: W * 0.02,
+        y: H * 0.04,
+        w: W * 0.66,
+        h: H * 0.92
+      };
+      renderSimulationViewport(vp, beat, S);
+      renderHud16x9(beat, S);
+    } else {
+      renderLayout9x16(beat, S);
+    }
+  }
+
+  // ---------- Public Window API ----------
+  window.renderBatch = (startFrame, count) => {
+    if (startFrame < currentFrame && savedCfg) {
+      resetSimulation(savedCfg);
+    }
+    const dt = 1 / Math.max(1, FPS);
+    while (currentFrame < startFrame) {
+      stepFrame(dt);
+      currentFrame++;
+    }
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      stepFrame(dt);
+      currentFrame++;
+      renderCurrentFrame();
+      const dataUrl = cv.toDataURL('image/jpeg', 0.90);
+      const idx = dataUrl.indexOf(',');
+      out.push(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
+    }
+    return out;
+  };
+
+  window.getEvents = () => events.slice();
+
+  window.ready = true;
+})();
+</script>

@@ -107,6 +107,9 @@ jobs:
         if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure') && inputs.dry_run != true
         run: |
           npx tsx src/safe-git-push.ts state/published.json "chore(publish): clear mechanics 16x9 uzun video yayinlandi"
+          if [ -f state/derived-shorts-queue.json ]; then
+            npx tsx src/safe-git-push.ts state/derived-shorts-queue.json "chore(funnel): clear mechanics vitrin short kuyrugu guncellendi"
+          fi
           if [ -f state/youtube-quota.json ]; then
             npx tsx src/safe-git-push.ts state/youtube-quota.json "chore(quota): YouTube kota durumu guncellendi"
           fi
@@ -203,6 +206,9 @@ jobs:
         if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure') && inputs.dry_run != true
         run: |
           npx tsx src/safe-git-push.ts state/published.json "chore(publish): kinetic lab 16x9 uzun video yayinlandi"
+          if [ -f state/derived-shorts-queue.json ]; then
+            npx tsx src/safe-git-push.ts state/derived-shorts-queue.json "chore(funnel): kinetic lab vitrin short kuyrugu guncellendi"
+          fi
           if [ -f state/youtube-quota.json ]; then
             npx tsx src/safe-git-push.ts state/youtube-quota.json "chore(quota): YouTube kota durumu guncellendi"
           fi

@@ -4,8 +4,11 @@ import { resolve } from "node:path";
 import type { ChannelId as ChannelKind } from "./catalog.js";
 import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
 import { assertUploadChannel, ChannelMismatchError } from "./channel-guard.js";
+import { enqueueDerivedShorts } from "./derive-shorts.js";
+import { pickNarrativeLongform } from "./longform-narrative.js";
 import { runVideoQc } from "./qc.js";
 import { renderLongformVideo } from "./render-longform.js";
+import { renderNarrativeLongformVideo } from "./render-narrative.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import {
   activeBlock,
@@ -125,18 +128,25 @@ async function main() {
     }
   }
 
+  const publishedIds = new Set(state.published.map((r) => r.id));
+  const narrativeSpec = pickNarrativeLongform(channel, publishedIds);
+
   const prevLongformCount = state.published.filter(
-    (r) => r.channel === channel && r.id.startsWith(`longform-${channel}-`),
+    (r) => r.channel === channel && (r.id.startsWith(`longform-${channel}-`) || r.id.startsWith(`narrative-${channel}-`)),
   ).length;
   const nextEp = prevLongformCount + 1;
 
-  console.log(`\n[publish-longform] Kanal=${channel} | Bölüm=#${nextEp} | Privacy=${privacy}`);
-  const rendered = await renderLongformVideo({
-    channel,
-    episodeNumber: nextEp,
-    fps: 30,
-    maxChapters: channel === "physics" ? 6 : 8,
-  });
+  console.log(
+    `\n[publish-longform] Kanal=${channel} | Bölüm=#${nextEp} | Mod=${narrativeSpec ? "4-PERDE DERİN ANLATIM" : "DERLEME (YEDEK)"} | Privacy=${privacy}`,
+  );
+  const rendered = narrativeSpec
+    ? await renderNarrativeLongformVideo(narrativeSpec, { fps: 30 })
+    : await renderLongformVideo({
+        channel,
+        episodeNumber: nextEp,
+        fps: 30,
+        maxChapters: channel === "physics" ? 6 : 8,
+      });
 
   console.log("[qc] 16:9 uzun video kalite kontrolü çalışıyor...");
   const qc = await runVideoQc(rendered.mp4Path, { width: 1920, height: 1080, minSec: 60, maxSec: 4 * 3600 });
@@ -155,6 +165,9 @@ async function main() {
     console.log(`\n[publish-longform] DRY-RUN tamamlandı (YouTube'a yüklenmedi).`);
     console.log(`  MP4: ${rendered.mp4Path}`);
     console.log(`  Başlık: ${rendered.title}`);
+    if (narrativeSpec) {
+      console.log(`  Türetilecek Vitrin Short Sayısı: ${narrativeSpec.derivedShorts.length}`);
+    }
     console.log(`  Açıklama:\n${fullDescription}`);
     return;
   }
@@ -174,7 +187,7 @@ async function main() {
         title: rendered.title,
         description: fullDescription,
         tags: rendered.tags,
-        categoryId: "28",
+        categoryId: narrativeSpec?.categoryId ?? "28",
         privacyStatus: privacy,
       },
       { clientId, clientSecret, refreshToken },
@@ -202,6 +215,11 @@ async function main() {
     publishedAt: new Date().toISOString(),
   });
   await saveState(state);
+
+  if (narrativeSpec) {
+    const added = await enqueueDerivedShorts(narrativeSpec, uploaded.videoId, watchUrl);
+    console.log(`🎯 [publish-longform] ${added.length} adet Vitrin Short huni kuyruğuna eklendi (parent=${uploaded.videoId}).`);
+  }
 }
 
 main().catch(async (err) => {

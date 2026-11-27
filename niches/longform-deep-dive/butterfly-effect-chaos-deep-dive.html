@@ -1,0 +1,1541 @@
+<!doctype html>
+<!-- Kinetic Lab Deep Dive #1: Butterfly Effect & 100 Double Pendulums (Dual-Aspect 16:9 & 9:16) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // ---------- Config & State ----------
+  let W = 1920, H = 1080, FPS = 60, DUR = 60;
+  let ASPECT = '16:9';
+  let TITLE = 'Why 0.001° Destroys Predictability';
+  let BRAND = 'KINETIC LAB';
+  let ACCENT = '#f472b6';
+  let BEATS = [];
+  let SHORT_META = null;
+  let savedCfg = null;
+
+  let rng = 1;
+  let currentFrame = 0;
+  let simTime = 0;
+  let lastBeatIdx = -1;
+  let phaseEnterTime = 0;
+  let lastVisualPhase = '';
+  let events = [];
+
+  // Physics constants & ensembles
+  const COUNT = 100;
+  const TRAIL_LEN = 26;
+  const PHASE_COUNT = 16;
+  const PHASE_TRAIL = 150;
+  const SPLIT_COUNT = 36;
+  const SPLIT_TRAIL = 18;
+  const SPREAD_THRESHOLDS = [1, 10, 45, 90, 180, 360];
+
+  let pendulums = [];
+  let phasePendulums = [];
+  let lowPendulums = [];
+  let highPendulums = [];
+  let sparks = [];
+  let waves = [];
+  let spreadHistory = []; // { t, deg }
+
+  let currentSpreadDeg = 0.001;
+  let maxSpreadDeg = 0.001;
+  let lyapunovEst = 0.0;
+  let nextThreshIdx = 0;
+  let shake = 0;
+  let flashAlpha = 0;
+  let lastSwingSoundT = -1;
+  let prevLeaderSign = 1;
+  let energyNorm = 1.0;
+
+  // Deterministic LCG PRNG
+  function rand() {
+    rng = (rng * 1664525 + 1013904223) >>> 0;
+    return rng / 4294967296;
+  }
+
+  function clamp(v, lo, hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function easeOutCubic(t) {
+    const c = clamp(t, 0, 1);
+    return 1 - Math.pow(1 - c, 3);
+  }
+
+  function roundRectPath(c, x, y, w, h, r) {
+    const rr = Math.min(r, w * 0.5, h * 0.5);
+    c.beginPath();
+    c.moveTo(x + rr, y);
+    c.lineTo(x + w - rr, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + rr);
+    c.lineTo(x + w, y + h - rr);
+    c.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    c.lineTo(x + rr, y + h);
+    c.quadraticCurveTo(x, y + h, x, y + h - rr);
+    c.lineTo(x, y + rr);
+    c.quadraticCurveTo(x, y, x + rr, y);
+    c.closePath();
+  }
+
+  function hexToRgba(hex, a) {
+    const h = (hex || '#f472b6').replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map(ch => ch + ch).join('') : h, 16);
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function wrapLines(c, text, maxW, maxLines) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (let i = 0; i < words.length; i++) {
+      const test = cur ? cur + ' ' + words[i] : words[i];
+      if (c.measureText(test).width <= maxW || !cur) {
+        cur = test;
+      } else {
+        lines.push(cur);
+        cur = words[i];
+        if (maxLines && lines.length >= maxLines - 1) {
+          // append remaining words clipped if needed
+          const rest = [cur].concat(words.slice(i + 1)).join(' ');
+          let trimmed = rest;
+          while (trimmed.length > 3 && c.measureText(trimmed + '…').width > maxW) {
+            trimmed = trimmed.slice(0, -1);
+          }
+          lines.push(trimmed === rest ? rest : trimmed + '…');
+          return lines;
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  function formatTime(sec) {
+    const s = Math.max(0, Math.floor(sec));
+    const mm = Math.floor(s / 60);
+    const ss = s % 60;
+    return `${mm}:${ss < 10 ? '0' : ''}${ss}`;
+  }
+
+  // ---------- Double Pendulum RK4 Physics (m1=m2=1, L1=L2=1) ----------
+  function deriv(th1, w1, th2, w2, g) {
+    const d = th1 - th2;
+    const s = Math.sin(d);
+    const c = Math.cos(d);
+    const den = 3 - Math.cos(2 * d); // strictly in [2, 4]
+    const a1 = (-3 * g * Math.sin(th1) - g * Math.sin(th1 - 2 * th2) - 2 * s * (w2 * w2 + w1 * w1 * c)) / den;
+    const a2 = (2 * s * (2 * w1 * w1 + 2 * g * Math.cos(th1) + w2 * w2 * c)) / den;
+    return [w1, a1, w2, a2];
+  }
+
+  function rk4Step(p, dt, g) {
+    const th1 = p.th1, w1 = p.w1, th2 = p.th2, w2 = p.w2;
+    const k1 = deriv(th1, w1, th2, w2, g);
+    const k2 = deriv(th1 + 0.5 * dt * k1[0], w1 + 0.5 * dt * k1[1], th2 + 0.5 * dt * k1[2], w2 + 0.5 * dt * k1[3], g);
+    const k3 = deriv(th1 + 0.5 * dt * k2[0], w1 + 0.5 * dt * k2[1], th2 + 0.5 * dt * k2[2], w2 + 0.5 * dt * k2[3], g);
+    const k4 = deriv(th1 + dt * k3[0], w1 + dt * k3[1], th2 + dt * k3[2], w2 + dt * k3[3], g);
+
+    p.th1 = th1 + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
+    p.w1  = w1  + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
+    p.th2 = th2 + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]);
+    p.w2  = w2  + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3]);
+
+    if (!Number.isFinite(p.th1)) p.th1 = 0;
+    if (!Number.isFinite(p.w1))  p.w1 = 0;
+    if (!Number.isFinite(p.th2)) p.th2 = 0;
+    if (!Number.isFinite(p.w2))  p.w2 = 0;
+  }
+
+  function wrapPi(a) {
+    let x = ((a + Math.PI) % (2 * Math.PI));
+    if (x < 0) x += 2 * Math.PI;
+    return x - Math.PI;
+  }
+
+  function makeEnsemble(count, baseTh1, baseTh2, spanRad, trailLen, hueStart, hueSpan) {
+    const arr = [];
+    for (let i = 0; i < count; i++) {
+      const frac = count > 1 ? i / (count - 1) : 0.5;
+      const off = (frac - 0.5) * spanRad;
+      const th1 = baseTh1 + off;
+      const th2 = baseTh2 + off * 0.5;
+      const hue = (hueStart + frac * hueSpan) % 360;
+      const tx = new Float32Array(trailLen);
+      const ty = new Float32Array(trailLen);
+      const x2u = Math.sin(th1) + Math.sin(th2);
+      const y2u = Math.cos(th1) + Math.cos(th2);
+      tx.fill(x2u);
+      ty.fill(y2u);
+      arr.push({
+        th1, w1: 0, th2, w2: 0, hue,
+        x1u: Math.sin(th1), y1u: Math.cos(th1),
+        x2u, y2u,
+        tx, ty, head: 0
+      });
+    }
+    return arr;
+  }
+
+  function stepEnsemble(arr, dt, g, subSteps, recordMode) {
+    const sdt = dt / subSteps;
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      for (let s = 0; s < subSteps; s++) rk4Step(p, sdt, g);
+      p.x1u = Math.sin(p.th1);
+      p.y1u = Math.cos(p.th1);
+      p.x2u = p.x1u + Math.sin(p.th2);
+      p.y2u = p.y1u + Math.cos(p.th2);
+      p.head = (p.head + 1) % p.tx.length;
+      if (recordMode === 'phase') {
+        p.tx[p.head] = wrapPi(p.th1);
+        p.ty[p.head] = wrapPi(p.th2);
+      } else {
+        p.tx[p.head] = p.x2u;
+        p.ty[p.head] = p.y2u;
+      }
+    }
+  }
+
+  function spawnSparks(nx, ny, col, n) {
+    for (let i = 0; i < n; i++) {
+      const a = rand() * Math.PI * 2;
+      const spd = 0.25 + rand() * 0.95;
+      sparks.push({
+        nx, ny,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd,
+        life: 0.45 + rand() * 0.55,
+        maxLife: 1.0,
+        size: 2.2 + rand() * 3.2,
+        col
+      });
+    }
+  }
+
+  function getBeatAt(t) {
+    if (!BEATS.length) {
+      return {
+        idx: 0,
+        beat: {
+          id: 'default',
+          actIndex: 0,
+          actKind: 'hook',
+          actTitle: '1. The 0.001° Illusion',
+          visualPhase: 'unified-drop',
+          caption: '100 PENDULUMS · 0.001° APART',
+          text: 'One hundred double pendulums dropped 0.001 degrees apart.',
+          start: 0,
+          end: DUR,
+          isBridge: false
+        }
+      };
+    }
+    for (let i = 0; i < BEATS.length; i++) {
+      const b = BEATS[i];
+      if (t >= b.start && t < b.end) return { idx: i, beat: b };
+    }
+    if (t < BEATS[0].start) return { idx: 0, beat: BEATS[0] };
+    return { idx: BEATS.length - 1, beat: BEATS[BEATS.length - 1] };
+  }
+
+  // ---------- Initialization ----------
+  function resetSimulation(cfg) {
+    W = cfg.width || 1920;
+    H = cfg.height || 1080;
+    FPS = cfg.fps || 60;
+    DUR = cfg.duration || cfg.seconds || 60;
+    ASPECT = cfg.aspect || (W >= H ? '16:9' : '9:16');
+    TITLE = cfg.title || 'Why 0.001° Destroys Predictability';
+    BRAND = cfg.brand || 'KINETIC LAB';
+    ACCENT = cfg.accent || '#f472b6';
+    BEATS = Array.isArray(cfg.beats) ? cfg.beats : [];
+    SHORT_META = cfg.shortMeta || null;
+
+    cv.width = W;
+    cv.height = H;
+
+    rng = (((cfg.seed || 4219) * 2654435761) + 1013904223) >>> 0;
+    currentFrame = 0;
+    simTime = 0;
+    lastBeatIdx = -1;
+    phaseEnterTime = 0;
+    lastVisualPhase = '';
+    events = [];
+
+    sparks = [];
+    waves = [];
+    spreadHistory = [];
+    currentSpreadDeg = 0.001;
+    maxSpreadDeg = 0.001;
+    lyapunovEst = 0.0;
+    nextThreshIdx = 0;
+    shake = 0;
+    flashAlpha = 0;
+    lastSwingSoundT = -1;
+    prevLeaderSign = 1;
+    energyNorm = 1.0;
+
+    // 100 main chaos pendulums
+    pendulums = makeEnsemble(COUNT, 2.42, 2.42, 1e-4, TRAIL_LEN, 185, 315);
+    // 16 phase-space tracers
+    phasePendulums = makeEnsemble(PHASE_COUNT, 2.38, 2.38, 4e-4, PHASE_TRAIL, 190, 290);
+    for (let i = 0; i < phasePendulums.length; i++) {
+      const p = phasePendulums[i];
+      p.tx.fill(wrapPi(p.th1));
+      p.ty.fill(wrapPi(p.th2));
+    }
+    // Order vs Chaos split ensembles
+    lowPendulums = makeEnsemble(SPLIT_COUNT, 0.42, 0.42, 1e-4, SPLIT_TRAIL, 180, 45);
+    highPendulums = makeEnsemble(SPLIT_COUNT, 2.42, 2.42, 1e-4, SPLIT_TRAIL, 305, 110);
+
+    // Pre-warm phase-space and split ensembles slightly so they look alive immediately if a short begins mid-story
+    const firstPhase = BEATS.length ? BEATS[0].visualPhase : 'unified-drop';
+    const preWarmDt = 1 / 60;
+    for (let k = 0; k < 180; k++) {
+      stepEnsemble(phasePendulums, preWarmDt, 11.2, 4, 'phase');
+      stepEnsemble(lowPendulums, preWarmDt, 10.5, 4, 'xy');
+      stepEnsemble(highPendulums, preWarmDt, 11.4, 4, 'xy');
+    }
+
+    // If a derived short starts directly on lyapunov-cliff or rainbow-chaos-full, pre-step main pendulums
+    // so exponential divergence is immediately visible from frame 0.
+    if (firstPhase === 'lyapunov-cliff' || firstPhase === 'rainbow-chaos-full') {
+      for (let k = 0; k < 320; k++) {
+        stepEnsemble(pendulums, preWarmDt, 11.4, 6, 'xy');
+        if (k % 8 === 0) {
+          let mn = Infinity, mx = -Infinity;
+          for (let i = 0; i < COUNT; i++) {
+            if (pendulums[i].th2 < mn) mn = pendulums[i].th2;
+            if (pendulums[i].th2 > mx) mx = pendulums[i].th2;
+          }
+          const sp = clamp((mx - mn) * (180 / Math.PI), 0.001, 360);
+          spreadHistory.push({ t: -((320 - k) * preWarmDt), deg: sp });
+        }
+      }
+    } else {
+      spreadHistory.push({ t: 0, deg: 0.001 });
+    }
+  }
+
+  window.init = (cfg) => {
+    savedCfg = Object.assign({}, cfg);
+    resetSimulation(savedCfg);
+  };
+
+  // ---------- Physics Step ----------
+  function stepFrame(dt) {
+    simTime += dt;
+    const { idx: beatIdx, beat } = getBeatAt(simTime);
+
+    // Beat transition events
+    if (beatIdx !== lastBeatIdx) {
+      if (lastBeatIdx !== -1) {
+        events.push({
+          t: clamp(simTime, 0, DUR),
+          type: beat.isBridge ? 'win' : 'bounce',
+          pitchIndex: 2 + (beat.actIndex || 0) * 3 + (beatIdx % 3),
+          intensity: beat.isBridge ? 0.82 : 0.55
+        });
+        waves.push({ nx: 0, ny: 0, r: 0.06, maxR: 1.45, alpha: 0.78, col: ACCENT });
+      } else {
+        events.push({ t: 0.04, type: 'bounce', pitchIndex: 2, intensity: 0.5 });
+      }
+      lastBeatIdx = beatIdx;
+      if (beat.visualPhase !== lastVisualPhase) {
+        lastVisualPhase = beat.visualPhase;
+        phaseEnterTime = simTime;
+      }
+    }
+
+    const phase = beat.visualPhase || 'unified-drop';
+    const g = 11.4;
+
+    // Step main 100 pendulums
+    const mainSpeed = phase === 'energy-exchange' ? 0.78 : (phase === 'series-outro' ? 0.55 : 1.0);
+    stepEnsemble(pendulums, dt * mainSpeed, g, 6, 'xy');
+
+    // Step secondary ensembles only when needed (keeps 60fps fast & deterministic)
+    if (phase === 'phase-space-plot') {
+      stepEnsemble(phasePendulums, dt, 11.2, 5, 'phase');
+    } else if (phase === 'order-vs-chaos-split') {
+      stepEnsemble(lowPendulums, dt, 10.5, 5, 'xy');
+      stepEnsemble(highPendulums, dt, 11.4, 5, 'xy');
+    }
+
+    // Measure angular spread of main ensemble
+    let minTh2 = Infinity, maxTh2 = -Infinity;
+    for (let i = 0; i < COUNT; i++) {
+      const th2 = pendulums[i].th2;
+      if (th2 < minTh2) minTh2 = th2;
+      if (th2 > maxTh2) maxTh2 = th2;
+    }
+    const rawSpread = Math.max(0.001, (maxTh2 - minTh2) * (180 / Math.PI));
+    currentSpreadDeg = Math.min(360, rawSpread);
+    if (currentSpreadDeg > maxSpreadDeg) maxSpreadDeg = currentSpreadDeg;
+
+    // Estimate instantaneous Lyapunov exponent
+    const ratio = Math.max(1, maxSpreadDeg / 0.0057);
+    const tEff = Math.max(0.5, simTime);
+    lyapunovEst = clamp(Math.log(ratio) / tEff, 0.0, 2.45);
+
+    // Record spread history for Lyapunov cliff graph
+    if (currentFrame % 4 === 0) {
+      spreadHistory.push({ t: simTime, deg: currentSpreadDeg });
+      if (spreadHistory.length > 360) spreadHistory.shift();
+    }
+
+    // Leader energy calculation for energy-exchange phase
+    const lead = pendulums[Math.floor(COUNT * 0.5)];
+    const ke1 = 0.5 * lead.w1 * lead.w1;
+    const ke2 = 0.5 * (lead.w1 * lead.w1 + lead.w2 * lead.w2 + 2 * lead.w1 * lead.w2 * Math.cos(lead.th1 - lead.th2));
+    energyNorm = clamp((ke1 + ke2) / 36, 0.05, 1.0);
+
+    // Subtle swing sound during early unified phase
+    const leaderSign = Math.sin(lead.th1) >= 0 ? 1 : -1;
+    if (leaderSign !== prevLeaderSign) {
+      prevLeaderSign = leaderSign;
+      if (simTime - lastSwingSoundT > 0.7 && currentSpreadDeg < 20) {
+        lastSwingSoundT = simTime;
+        events.push({
+          t: clamp(simTime, 0, DUR),
+          type: 'bounce',
+          pitchIndex: 1 + Math.floor(clamp(currentSpreadDeg / 5, 0, 5)),
+          intensity: 0.42
+        });
+      }
+    }
+
+    // Spread milestone chaos bursts
+    while (nextThreshIdx < SPREAD_THRESHOLDS.length && currentSpreadDeg >= SPREAD_THRESHOLDS[nextThreshIdx]) {
+      const idx = nextThreshIdx;
+      nextThreshIdx++;
+      const col = idx >= 4 ? '#f472b6' : (idx >= 2 ? '#38bdf8' : '#22d3ee');
+      waves.push({ nx: 0, ny: 0, r: 0.05, maxR: 1.55, alpha: 0.9, col });
+      spawnSparks(lead.x2u * 0.35, lead.y2u * 0.35, col, 16 + idx * 5);
+      shake = Math.min(1.0, shake + 0.25 + idx * 0.1);
+      flashAlpha = Math.max(flashAlpha, 0.22 + idx * 0.04);
+      events.push({
+        t: clamp(simTime, 0, DUR),
+        type: idx >= 4 ? 'win' : 'break',
+        pitchIndex: 3 + idx * 2,
+        intensity: clamp(0.62 + idx * 0.07, 0.5, 1.0)
+      });
+    }
+
+    // Update sparks & waves
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const sp = sparks[i];
+      sp.nx += sp.vx * dt;
+      sp.ny += sp.vy * dt;
+      sp.vx *= 0.96;
+      sp.vy *= 0.96;
+      sp.life -= dt;
+      if (sp.life <= 0) sparks.splice(i, 1);
+    }
+    for (let i = waves.length - 1; i >= 0; i--) {
+      const wv = waves[i];
+      wv.r += dt * 1.45;
+      wv.alpha *= 0.92;
+      if (wv.r >= wv.maxR || wv.alpha < 0.02) waves.splice(i, 1);
+    }
+
+    shake *= 0.88;
+    flashAlpha *= 0.86;
+  }
+
+  // ---------- Viewport Physics Renderers ----------
+  function drawBackground(S) {
+    const bg = ctx.createRadialGradient(W * 0.42, H * 0.46, 20 * S, W * 0.5, H * 0.5, Math.max(W, H) * 0.78);
+    bg.addColorStop(0, '#0d1430');
+    bg.addColorStop(0.55, '#070b1d');
+    bg.addColorStop(1, '#04060f');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle lab grid
+    ctx.save();
+    ctx.strokeStyle = 'rgba(148,163,184,0.05)';
+    ctx.lineWidth = Math.max(1, 1 * S);
+    const step = Math.round(56 * S);
+    ctx.beginPath();
+    for (let x = step; x < W; x += step) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = step; y < H; y += step) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPendulumEnsemble(arr, cx, cy, rodLen, opts) {
+    const alphaTrail = opts.alphaTrail ?? 0.55;
+    const alphaRod = opts.alphaRod ?? 0.45;
+    const bobRadius = opts.bobRadius ?? 4.5;
+    const rodWidth = opts.rodWidth ?? 1.8;
+    const showPivot = opts.showPivot !== false;
+
+    // Reference circles
+    ctx.save();
+    ctx.strokeStyle = 'rgba(148,163,184,0.10)';
+    ctx.lineWidth = Math.max(1, rodWidth * 0.6);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rodLen, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, rodLen * 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Glowing trails
+    ctx.lineCap = 'round';
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      const len = p.tx.length;
+      ctx.beginPath();
+      for (let k = 0; k < len; k++) {
+        const idx = (p.head + 1 + k) % len;
+        const px = cx + p.tx[idx] * rodLen;
+        const py = cy + p.ty[idx] * rodLen;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = `hsla(${p.hue}, 95%, 64%, ${alphaTrail})`;
+      ctx.lineWidth = rodWidth * 1.15;
+      ctx.stroke();
+    }
+
+    // Rods & bobs
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      const x1 = cx + p.x1u * rodLen;
+      const y1 = cy + p.y1u * rodLen;
+      const x2 = cx + p.x2u * rodLen;
+      const y2 = cy + p.y2u * rodLen;
+
+      ctx.strokeStyle = `hsla(${p.hue}, 92%, 68%, ${alphaRod})`;
+      ctx.lineWidth = rodWidth;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      ctx.fillStyle = `hsla(${p.hue}, 100%, 72%, 0.92)`;
+      ctx.beginPath();
+      ctx.arc(x2, y2, bobRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Pivot hub
+    if (showPivot) {
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = Math.max(1.5, rodWidth * 1.1);
+      ctx.beginPath();
+      ctx.arc(cx, cy, bobRadius * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawSparksAndWaves(cx, cy, radius, S) {
+    ctx.save();
+    for (let i = 0; i < waves.length; i++) {
+      const wv = waves[i];
+      ctx.strokeStyle = hexToRgba(wv.col, clamp(wv.alpha, 0, 1));
+      ctx.lineWidth = 2.6 * S;
+      ctx.beginPath();
+      ctx.arc(cx + wv.nx * radius, cy + wv.ny * radius, wv.r * radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (let i = 0; i < sparks.length; i++) {
+      const sp = sparks[i];
+      const a = clamp(sp.life / sp.maxLife, 0, 1);
+      ctx.fillStyle = hexToRgba(sp.col, a);
+      ctx.beginPath();
+      ctx.arc(cx + sp.nx * radius, cy + sp.ny * radius, sp.size * S * a, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawPhaseUnifiedOrSplit(vp, phase, S) {
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.49;
+    const rodLen = Math.min(vp.w, vp.h) * 0.215;
+
+    // Extra ambient aura for rainbow-chaos-full
+    if (phase === 'rainbow-chaos-full') {
+      ctx.save();
+      for (let r = 1; r <= 4; r++) {
+        const rad = rodLen * (0.6 + r * 0.42);
+        ctx.strokeStyle = `hsla(${(200 + r * 42 + simTime * 28) % 360}, 90%, 62%, 0.14)`;
+        ctx.lineWidth = 2 * S;
+        ctx.setLineDash([12 * S, 10 * S]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, rad, simTime * (r % 2 ? 0.25 : -0.2), simTime * (r % 2 ? 0.25 : -0.2) + Math.PI * 1.65);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    drawPendulumEnsemble(pendulums, cx, cy, rodLen, {
+      alphaTrail: phase === 'rainbow-chaos-full' ? 0.72 : 0.52,
+      alphaRod: phase === 'unified-drop' ? 0.35 : 0.42,
+      bobRadius: 4.2 * S,
+      rodWidth: 1.7 * S
+    });
+    drawSparksAndWaves(cx, cy, rodLen * 2, S);
+
+    // Magnifier inset during unified-drop to visualize 0.001° separation
+    if (phase === 'unified-drop') {
+      const boxW = Math.min(vp.w * 0.30, 260 * S);
+      const boxH = 112 * S;
+      const bx = vp.x + vp.w - boxW - 18 * S;
+      const by = vp.y + vp.h - boxH - 18 * S;
+      ctx.save();
+      roundRectPath(ctx, bx, by, boxW, boxH, 12 * S);
+      ctx.fillStyle = 'rgba(7,11,28,0.86)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(56,189,248,0.55)';
+      ctx.lineWidth = 1.6 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = `700 ${12 * S}px ui-monospace, monospace`;
+      ctx.fillText('1000× MICRO-LOUPE', bx + 12 * S, by + 22 * S);
+
+      // Draw 12 zoomed-in rainbow threads separating slightly
+      const sep = clamp(currentSpreadDeg * 14, 1.5, boxH * 0.45);
+      for (let i = 0; i < 12; i++) {
+        const f = i / 11 - 0.5;
+        ctx.strokeStyle = `hsla(${(185 + (i / 11) * 315) % 360}, 95%, 65%, 0.9)`;
+        ctx.lineWidth = 2.2 * S;
+        ctx.beginPath();
+        ctx.moveTo(bx + 16 * S, by + boxH * 0.62);
+        ctx.quadraticCurveTo(bx + boxW * 0.52, by + boxH * 0.62 + f * sep * 0.4, bx + boxW - 16 * S, by + boxH * 0.62 + f * sep);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = `700 ${13 * S}px ui-monospace, monospace`;
+      ctx.fillText(`Δθ = ${currentSpreadDeg.toFixed(3)}°`, bx + 12 * S, by + boxH - 12 * S);
+      ctx.restore();
+    }
+
+    // Angular fan arc during first-split
+    if (phase === 'first-split') {
+      const lead = pendulums[0];
+      const tail = pendulums[COUNT - 1];
+      const a0 = Math.atan2(lead.y2u, lead.x2u);
+      const spreadRad = clamp(currentSpreadDeg * Math.PI / 180, 0.04, Math.PI * 2);
+      ctx.save();
+      ctx.strokeStyle = hexToRgba(ACCENT, 0.7);
+      ctx.lineWidth = 4 * S;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rodLen * 2.08, a0, a0 + spreadRad);
+      ctx.stroke();
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `800 ${16 * S}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`FAN SPREAD: ${currentSpreadDeg.toFixed(1)}°`, cx, vp.y + vp.h - 20 * S);
+      ctx.restore();
+    }
+
+    // 14-day weather horizon badge on rainbow-chaos-full
+    if (phase === 'rainbow-chaos-full') {
+      const bw = Math.min(vp.w * 0.64, 480 * S);
+      const bh = 46 * S;
+      const bx = cx - bw * 0.5;
+      const by = vp.y + vp.h - bh - 16 * S;
+      ctx.save();
+      roundRectPath(ctx, bx, by, bw, bh, 12 * S);
+      ctx.fillStyle = 'rgba(15,23,42,0.88)';
+      ctx.fill();
+      ctx.strokeStyle = hexToRgba(ACCENT, 0.75);
+      ctx.lineWidth = 1.6 * S;
+      ctx.stroke();
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `800 ${15 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('ATMOSPHERIC PREDICTION WALL ≈ 14 DAYS', cx, by + bh * 0.63);
+      ctx.restore();
+    }
+  }
+
+  function drawPhaseEnergyExchange(vp, S) {
+    const cx = vp.x + vp.w * 0.44;
+    const cy = vp.y + vp.h * 0.48;
+    const rodLen = Math.min(vp.w, vp.h) * 0.22;
+
+    // 10 faint ghost companions
+    const ghosts = [];
+    for (let i = 0; i < 10; i++) ghosts.push(pendulums[i * 10]);
+    drawPendulumEnsemble(ghosts, cx, cy, rodLen, {
+      alphaTrail: 0.22,
+      alphaRod: 0.14,
+      bobRadius: 2.5 * S,
+      rodWidth: 1.2 * S,
+      showPivot: false
+    });
+
+    // Hero double pendulum
+    const p = pendulums[50];
+    const x1 = cx + p.x1u * rodLen;
+    const y1 = cy + p.y1u * rodLen;
+    const x2 = cx + p.x2u * rodLen;
+    const y2 = cy + p.y2u * rodLen;
+
+    ctx.save();
+    // Upper arm (cyan) & lower arm (magenta)
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 6 * S;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 6 * S;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    // Velocity vector arrows at elbow and tip
+    const v1x = Math.cos(p.th1) * p.w1 * 18 * S;
+    const v1y = -Math.sin(p.th1) * p.w1 * 18 * S;
+    const v2x = v1x + Math.cos(p.th2) * p.w2 * 16 * S;
+    const v2y = v1y - Math.sin(p.th2) * p.w2 * 16 * S;
+
+    function drawArrow(ax, ay, dx, dy, col) {
+      const len = Math.hypot(dx, dy);
+      if (len < 4 * S) return;
+      const scale = Math.min(1, (110 * S) / len);
+      const ex = ax + dx * scale;
+      const ey = ay + dy * scale;
+      const ang = Math.atan2(ey - ay, ex - ax);
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - Math.cos(ang - 0.45) * 12 * S, ey - Math.sin(ang - 0.45) * 12 * S);
+      ctx.lineTo(ex - Math.cos(ang + 0.45) * 12 * S, ey - Math.sin(ang + 0.45) * 12 * S);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    drawArrow(x1, y1, v1x, v1y, '#22d3ee');
+    drawArrow(x2, y2, v2x, v2y, '#fde047');
+
+    // Torque whip ring at elbow
+    ctx.strokeStyle = 'rgba(253,224,71,0.75)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.beginPath();
+    ctx.arc(x1, y1, 20 * S, p.th1, p.th2, p.w2 < 0);
+    ctx.stroke();
+
+    // Joints
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(x1, y1, 9 * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#f472b6';
+    ctx.beginPath();
+    ctx.arc(x2, y2, 11 * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8 * S, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Energy transfer bar panel on right of viewport
+    const ke1 = clamp(0.5 * p.w1 * p.w1 / 24, 0.04, 1);
+    const ke2 = clamp(0.5 * p.w2 * p.w2 / 36, 0.04, 1);
+    const pot = clamp((4 - Math.cos(p.th1) - Math.cos(p.th2)) / 6, 0.05, 1);
+    const px = vp.x + vp.w - 135 * S;
+    const py = vp.y + vp.h * 0.22;
+    const barH = vp.h * 0.54;
+    const bars = [
+      { label: 'ARM 1', val: ke1, col: '#38bdf8' },
+      { label: 'ARM 2', val: ke2, col: '#f472b6' },
+      { label: 'POTEN', val: pot, col: '#fde047' }
+    ];
+    for (let i = 0; i < bars.length; i++) {
+      const bx = px + i * 40 * S;
+      roundRectPath(ctx, bx, py, 24 * S, barH, 8 * S);
+      ctx.fillStyle = 'rgba(15,23,42,0.82)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148,163,184,0.28)';
+      ctx.lineWidth = 1.2 * S;
+      ctx.stroke();
+
+      const fh = barH * bars[i].val;
+      roundRectPath(ctx, bx + 2 * S, py + barH - fh, 20 * S, fh, 6 * S);
+      ctx.fillStyle = bars[i].col;
+      ctx.fill();
+
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = `700 ${10 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText(bars[i].label, bx + 12 * S, py + barH + 18 * S);
+    }
+    ctx.restore();
+  }
+
+  function drawPhaseSpacePlot(vp, S) {
+    const pad = 28 * S;
+    const plotSize = Math.min(vp.w - pad * 2.4, vp.h - pad * 3.0);
+    const px = vp.x + (vp.w - plotSize) * 0.5;
+    const py = vp.y + (vp.h - plotSize) * 0.52;
+
+    ctx.save();
+    roundRectPath(ctx, px, py, plotSize, plotSize, 14 * S);
+    ctx.fillStyle = 'rgba(6,10,26,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+    ctx.lineWidth = 1.8 * S;
+    ctx.stroke();
+
+    // Grid lines (-pi, 0, +pi)
+    ctx.strokeStyle = 'rgba(148,163,184,0.14)';
+    ctx.lineWidth = 1 * S;
+    for (let i = 1; i < 4; i++) {
+      const gx = px + plotSize * (i / 4);
+      const gy = py + plotSize * (i / 4);
+      ctx.beginPath();
+      ctx.moveTo(gx, py);
+      ctx.lineTo(gx, py + plotSize);
+      ctx.moveTo(px, gy);
+      ctx.lineTo(px + plotSize, gy);
+      ctx.stroke();
+    }
+
+    // Center axes
+    ctx.strokeStyle = 'rgba(56,189,248,0.35)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.beginPath();
+    ctx.moveTo(px + plotSize * 0.5, py);
+    ctx.lineTo(px + plotSize * 0.5, py + plotSize);
+    ctx.moveTo(px, py + plotSize * 0.5);
+    ctx.lineTo(px + plotSize, py + plotSize * 0.5);
+    ctx.stroke();
+
+    // Unstable saddle points at (±pi, 0) & (0, ±pi)
+    const saddles = [
+      [px + plotSize * 0.5, py + 14 * S],
+      [px + plotSize * 0.5, py + plotSize - 14 * S],
+      [px + 14 * S, py + plotSize * 0.5],
+      [px + plotSize - 14 * S, py + plotSize * 0.5]
+    ];
+    for (let i = 0; i < saddles.length; i++) {
+      const sx = saddles[i][0], sy = saddles[i][1];
+      ctx.strokeStyle = 'rgba(244,114,182,0.75)';
+      ctx.lineWidth = 1.8 * S;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 8 * S, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Clip to plot box and draw 16 rainbow (theta1, theta2) trajectories
+    ctx.save();
+    roundRectPath(ctx, px, py, plotSize, plotSize, 14 * S);
+    ctx.clip();
+    for (let i = 0; i < phasePendulums.length; i++) {
+      const p = phasePendulums[i];
+      const len = p.tx.length;
+      ctx.strokeStyle = `hsla(${p.hue}, 95%, 64%, 0.72)`;
+      ctx.lineWidth = 2.0 * S;
+      ctx.beginPath();
+      let prevX = null, prevY = null;
+      for (let k = 0; k < len; k++) {
+        const idx = (p.head + 1 + k) % len;
+        const ux = (p.tx[idx] + Math.PI) / (2 * Math.PI);
+        const uy = (p.ty[idx] + Math.PI) / (2 * Math.PI);
+        const sx = px + ux * plotSize;
+        const sy = py + (1 - uy) * plotSize;
+        if (prevX === null || Math.abs(sx - prevX) > plotSize * 0.4 || Math.abs(sy - prevY) > plotSize * 0.4) {
+          ctx.moveTo(sx, sy);
+        } else {
+          ctx.lineTo(sx, sy);
+        }
+        prevX = sx;
+        prevY = sy;
+      }
+      ctx.stroke();
+
+      // Head dot
+      const hx = px + ((wrapPi(p.th1) + Math.PI) / (2 * Math.PI)) * plotSize;
+      const hy = py + (1 - (wrapPi(p.th2) + Math.PI) / (2 * Math.PI)) * plotSize;
+      ctx.fillStyle = `hsla(${p.hue}, 100%, 76%, 1)`;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 4.5 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Axis labels
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `700 ${13 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('UPPER ANGLE θ₁  (−π  →  +π)', px + plotSize * 0.5, py + plotSize + 22 * S);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('PHASE SPACE TORUS (θ₁ vs θ₂)', px + plotSize * 0.5, py - 10 * S);
+    ctx.restore();
+  }
+
+  function drawPhaseLyapunovCliff(vp, S) {
+    const padX = 48 * S;
+    const padY = 44 * S;
+    const gx = vp.x + padX;
+    const gy = vp.y + padY + 12 * S;
+    const gw = vp.w - padX * 1.45;
+    const gh = vp.h - padY * 2.2;
+
+    ctx.save();
+    roundRectPath(ctx, gx, gy, gw, gh, 14 * S);
+    ctx.fillStyle = 'rgba(6,10,26,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.32)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    // Log-scale horizontal grid: 0.001°, 0.01°, 0.1°, 1°, 10°, 100°, 360°
+    const logMin = -3.0; // 10^-3 = 0.001°
+    const logMax = 2.6;  // ~400°
+    const ticks = [
+      { v: -3, lbl: '0.001°' },
+      { v: -2, lbl: '0.01°' },
+      { v: -1, lbl: '0.1°' },
+      { v: 0,  lbl: '1°' },
+      { v: 1,  lbl: '10°' },
+      { v: 2,  lbl: '100°' }
+    ];
+    ctx.font = `700 ${11 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'right';
+    for (let i = 0; i < ticks.length; i++) {
+      const f = (ticks[i].v - logMin) / (logMax - logMin);
+      const y = gy + gh - f * gh;
+      ctx.strokeStyle = 'rgba(148,163,184,0.14)';
+      ctx.lineWidth = 1 * S;
+      ctx.beginPath();
+      ctx.moveTo(gx, y);
+      ctx.lineTo(gx + gw, y);
+      ctx.stroke();
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(ticks[i].lbl, gx - 8 * S, y + 4 * S);
+    }
+
+    // Prediction horizon cliff line at 45° (log10(45) ≈ 1.653)
+    const horY = gy + gh - ((1.653 - logMin) / (logMax - logMin)) * gh;
+    ctx.strokeStyle = 'rgba(244,114,182,0.85)';
+    ctx.lineWidth = 2 * S;
+    ctx.setLineDash([8 * S, 6 * S]);
+    ctx.beginPath();
+    ctx.moveTo(gx, horY);
+    ctx.lineTo(gx + gw, horY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#f472b6';
+    ctx.textAlign = 'left';
+    ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+    ctx.fillText('PREDICTION HORIZON CLIFF (45°)', gx + 12 * S, horY - 8 * S);
+
+    // Draw live divergence curve
+    if (spreadHistory.length >= 2) {
+      const t0 = spreadHistory[0].t;
+      const t1 = Math.max(t0 + 6, spreadHistory[spreadHistory.length - 1].t);
+      const grad = ctx.createLinearGradient(gx, gy + gh, gx + gw, gy);
+      grad.addColorStop(0, '#22d3ee');
+      grad.addColorStop(0.55, '#a855f7');
+      grad.addColorStop(1, '#f472b6');
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 3.5 * S;
+      ctx.beginPath();
+      for (let i = 0; i < spreadHistory.length; i++) {
+        const pt = spreadHistory[i];
+        const ux = clamp((pt.t - t0) / (t1 - t0), 0, 1);
+        const lv = clamp(Math.log10(Math.max(0.001, pt.deg)), logMin, logMax);
+        const uy = (lv - logMin) / (logMax - logMin);
+        const sx = gx + ux * gw;
+        const sy = gy + gh - uy * gh;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.stroke();
+
+      // Current point glow
+      const last = spreadHistory[spreadHistory.length - 1];
+      const lx = gx + clamp((last.t - t0) / (t1 - t0), 0, 1) * gw;
+      const ly = gy + gh - ((clamp(Math.log10(Math.max(0.001, last.deg)), logMin, logMax) - logMin) / (logMax - logMin)) * gh;
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(lx, ly, 6 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Mini 100-pendulum chaos inset in top-left of graph
+    const insW = Math.min(gw * 0.34, 210 * S);
+    const insH = Math.min(gh * 0.42, 180 * S);
+    const ix = gx + 14 * S;
+    const iy = gy + 14 * S;
+    roundRectPath(ctx, ix, iy, insW, insH, 10 * S);
+    ctx.fillStyle = 'rgba(5,7,18,0.88)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(56,189,248,0.45)';
+    ctx.lineWidth = 1.4 * S;
+    ctx.stroke();
+    drawPendulumEnsemble(pendulums.slice(0, 36), ix + insW * 0.5, iy + insH * 0.48, Math.min(insW, insH) * 0.21, {
+      alphaTrail: 0.45,
+      alphaRod: 0.3,
+      bobRadius: 2.2 * S,
+      rodWidth: 1.0 * S
+    });
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = `800 ${13 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`LYAPUNOV EXPONENT  λ ≈ ${Math.max(1.12, lyapunovEst).toFixed(2)} s⁻¹  ·  Δθ(t) ≈ Δθ₀·e^(λt)`, gx + gw * 0.5, gy - 12 * S);
+    ctx.restore();
+  }
+
+  function drawPhaseOrderVsChaos(vp, S) {
+    const midX = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.50;
+    const rodLen = Math.min(vp.w * 0.23, vp.h * 0.21);
+
+    ctx.save();
+    // Left half: Order (cyan tint)
+    ctx.fillStyle = 'rgba(34,211,238,0.04)';
+    ctx.fillRect(vp.x, vp.y, vp.w * 0.5, vp.h);
+    // Right half: Chaos (magenta tint)
+    ctx.fillStyle = 'rgba(244,114,182,0.05)';
+    ctx.fillRect(midX, vp.y, vp.w * 0.5, vp.h);
+
+    // Center glowing divider
+    ctx.strokeStyle = 'rgba(226,232,240,0.35)';
+    ctx.lineWidth = 2 * S;
+    ctx.setLineDash([8 * S, 6 * S]);
+    ctx.beginPath();
+    ctx.moveTo(midX, vp.y + 16 * S);
+    ctx.lineTo(midX, vp.y + vp.h - 16 * S);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    drawPendulumEnsemble(lowPendulums, vp.x + vp.w * 0.25, cy, rodLen, {
+      alphaTrail: 0.55,
+      alphaRod: 0.45,
+      bobRadius: 3.6 * S,
+      rodWidth: 1.5 * S
+    });
+    drawPendulumEnsemble(highPendulums, vp.x + vp.w * 0.75, cy, rodLen, {
+      alphaTrail: 0.62,
+      alphaRod: 0.42,
+      bobRadius: 3.6 * S,
+      rodWidth: 1.5 * S
+    });
+
+    // Headers
+    ctx.textAlign = 'center';
+    ctx.font = `800 ${15 * S}px ui-monospace, monospace`;
+    ctx.fillStyle = '#22d3ee';
+    ctx.fillText('LOW ENERGY · ORDER', vp.x + vp.w * 0.25, vp.y + 34 * S);
+    ctx.fillStyle = '#f472b6';
+    ctx.fillText('HIGH ENERGY · CHAOS', vp.x + vp.w * 0.75, vp.y + 34 * S);
+
+    ctx.font = `700 ${12 * S}px ui-monospace, monospace`;
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('θ₀ = 24° · QUASI-PERIODIC', vp.x + vp.w * 0.25, vp.y + vp.h - 20 * S);
+    ctx.fillText('θ₀ = 139° · EXPONENTIAL CHAOS', vp.x + vp.w * 0.75, vp.y + vp.h - 20 * S);
+    ctx.restore();
+  }
+
+  function drawPhaseSeriesOutro(vp, S) {
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.48;
+    const rodLen = Math.min(vp.w, vp.h) * 0.21;
+
+    // Soft rainbow pendulum trails in background
+    drawPendulumEnsemble(pendulums.slice(0, 48), cx, cy, rodLen, {
+      alphaTrail: 0.35,
+      alphaRod: 0.18,
+      bobRadius: 3.0 * S,
+      rodWidth: 1.3 * S
+    });
+
+    // Shimmering Chladni preview rings
+    ctx.save();
+    for (let k = 1; k <= 5; k++) {
+      const r = rodLen * (0.45 + k * 0.32) + Math.sin(simTime * 2.5 + k) * 6 * S;
+      ctx.strokeStyle = `rgba(253,224,71,${0.26 - k * 0.035})`;
+      ctx.lineWidth = 2 * S;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    const cardW = Math.min(vp.w * 0.78, 540 * S);
+    const cardH = 158 * S;
+    const bx = cx - cardW * 0.5;
+    const by = cy - cardH * 0.5;
+    roundRectPath(ctx, bx, by, cardW, cardH, 18 * S);
+    ctx.fillStyle = 'rgba(7,11,28,0.90)';
+    ctx.fill();
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2.4 * S;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = ACCENT;
+    ctx.font = `800 ${14 * S}px ui-monospace, monospace`;
+    ctx.fillText(`${BRAND} · SERIES CONTINUES`, cx, by + 36 * S);
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `900 ${26 * S}px system-ui, sans-serif`;
+    ctx.fillText('NEXT: SOUND SCULPTS SAND', cx, by + 84 * S);
+
+    ctx.fillStyle = '#fde047';
+    ctx.font = `800 ${16 * S}px ui-monospace, monospace`;
+    ctx.fillText('SUBSCRIBE FOR 60FPS PHYSICS DEEP DIVES →', cx, by + 126 * S);
+    ctx.restore();
+  }
+
+  function renderSimulationViewport(vp, beat, S) {
+    ctx.save();
+    // Viewport glass frame
+    roundRectPath(ctx, vp.x, vp.y, vp.w, vp.h, 18 * S);
+    ctx.fillStyle = 'rgba(6,10,24,0.72)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.22)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    // Clip contents to viewport
+    ctx.save();
+    roundRectPath(ctx, vp.x, vp.y, vp.w, vp.h, 18 * S);
+    ctx.clip();
+
+    // Camera micro-shake on chaos milestones
+    const sx = (rand() - 0.5) * shake * 10 * S;
+    const sy = (rand() - 0.5) * shake * 10 * S;
+    ctx.translate(sx, sy);
+
+    const phase = beat.visualPhase || 'unified-drop';
+    if (phase === 'energy-exchange') {
+      drawPhaseEnergyExchange(vp, S);
+    } else if (phase === 'phase-space-plot') {
+      drawPhaseSpacePlot(vp, S);
+    } else if (phase === 'lyapunov-cliff') {
+      drawPhaseLyapunovCliff(vp, S);
+    } else if (phase === 'order-vs-chaos-split') {
+      drawPhaseOrderVsChaos(vp, S);
+    } else if (phase === 'series-outro') {
+      drawPhaseSeriesOutro(vp, S);
+    } else {
+      // unified-drop, first-split, rainbow-chaos-full
+      drawPhaseUnifiedOrSplit(vp, phase, S);
+    }
+
+    // Milestone flash
+    if (flashAlpha > 0.01) {
+      ctx.fillStyle = hexToRgba(ACCENT, flashAlpha * 0.25);
+      ctx.fillRect(vp.x, vp.y, vp.w, vp.h);
+    }
+    ctx.restore();
+
+    // Top-left live phase tag inside viewport
+    const tagTxt = `MODE · ${(beat.visualPhase || 'unified-drop').toUpperCase().replace(/-/g, ' ')}`;
+    ctx.font = `700 ${12 * S}px ui-monospace, monospace`;
+    const tagW = Math.min(vp.w - 32 * S, ctx.measureText(tagTxt).width + 26 * S);
+    roundRectPath(ctx, vp.x + 16 * S, vp.y + 14 * S, tagW, 28 * S, 8 * S);
+    ctx.fillStyle = 'rgba(5,7,18,0.82)';
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(ACCENT, 0.55);
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.textAlign = 'left';
+    ctx.fillText(tagTxt, vp.x + 28 * S, vp.y + 32 * S);
+
+    // 2.0s Narrative Bridge Banner when beat.isBridge === true
+    const beatAge = simTime - (beat.start || 0);
+    if (beat.isBridge && beatAge >= 0 && beatAge <= 2.0) {
+      const fadeIn = easeOutCubic(beatAge / 0.28);
+      const fadeOut = beatAge > 1.55 ? 1 - clamp((beatAge - 1.55) / 0.45, 0, 1) : 1;
+      const alpha = fadeIn * fadeOut;
+      const bw = Math.min(vp.w * 0.84, 620 * S);
+      const bh = 84 * S;
+      const bx = vp.x + (vp.w - bw) * 0.5;
+      const by = vp.y + vp.h * 0.14 + (1 - fadeIn) * 18 * S;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      roundRectPath(ctx, bx, by, bw, bh, 14 * S);
+      ctx.fillStyle = 'rgba(7,11,28,0.92)';
+      ctx.fill();
+      ctx.strokeStyle = ACCENT;
+      ctx.lineWidth = 2.2 * S;
+      ctx.stroke();
+
+      // Sweep bar
+      ctx.fillStyle = ACCENT;
+      ctx.fillRect(bx + 16 * S, by + bh - 6 * S, (bw - 32 * S) * clamp(beatAge / 2.0, 0, 1), 3 * S);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = ACCENT;
+      ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+      ctx.fillText(`ACT ${(beat.actIndex || 0) + 1} · NARRATIVE BRIDGE`, bx + bw * 0.5, by + 26 * S);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `900 ${21 * S}px system-ui, sans-serif`;
+      ctx.fillText(beat.actTitle || beat.caption || '', bx + bw * 0.5, by + 58 * S);
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  // ---------- 16:9 Glassmorphic Telemetry HUD ----------
+  function renderHud16x9(beat, S) {
+    const hx = W * 0.695;
+    const hy = H * 0.04;
+    const hw = W * 0.285;
+    const hh = H * 0.92;
+    const pad = 22 * S;
+
+    ctx.save();
+    roundRectPath(ctx, hx, hy, hw, hh, 18 * S);
+    ctx.fillStyle = 'rgba(11,16,36,0.82)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.22)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    // Brand header
+    let y = hy + pad + 12 * S;
+    ctx.fillStyle = ACCENT;
+    ctx.beginPath();
+    ctx.arc(hx + pad + 6 * S, y - 5 * S, 6 * S, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `900 ${16 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(BRAND, hx + pad + 20 * S, y);
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = `700 ${12 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'right';
+    ctx.fillText('60FPS · RK4 LAB', hx + hw - pad, y);
+
+    // 4-Act Progress Bar
+    y += 22 * S;
+    const segGap = 8 * S;
+    const segW = (hw - pad * 2 - segGap * 3) / 4;
+    const actIdx = beat.actIndex || 0;
+    const globalProg = clamp(simTime / Math.max(1, DUR), 0, 1);
+
+    for (let a = 0; a < 4; a++) {
+      const sx = hx + pad + a * (segW + segGap);
+      roundRectPath(ctx, sx, y, segW, 8 * S, 4 * S);
+      ctx.fillStyle = 'rgba(148,163,184,0.18)';
+      ctx.fill();
+
+      let fillFrac = 0;
+      if (a < actIdx) fillFrac = 1;
+      else if (a === actIdx) {
+        const bDur = Math.max(0.1, (beat.end || DUR) - (beat.start || 0));
+        fillFrac = clamp((simTime - (beat.start || 0)) / bDur, 0.12, 1);
+      }
+      if (fillFrac > 0) {
+        roundRectPath(ctx, sx, y, segW * fillFrac, 8 * S, 4 * S);
+        ctx.fillStyle = a === actIdx ? ACCENT : '#38bdf8';
+        ctx.fill();
+      }
+    }
+
+    // Active Act Title
+    y += 38 * S;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `700 ${12 * S}px ui-monospace, monospace`;
+    ctx.fillText(`ACT ${actIdx + 1} / 4 · ${(beat.actKind || 'hook').toUpperCase()}`, hx + pad, y);
+
+    y += 28 * S;
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `800 ${21 * S}px system-ui, sans-serif`;
+    const titleLines = wrapLines(ctx, beat.actTitle || TITLE, hw - pad * 2, 2);
+    for (let i = 0; i < titleLines.length; i++) {
+      ctx.fillText(titleLines[i], hx + pad, y + i * 26 * S);
+    }
+    y += titleLines.length * 26 * S + 14 * S;
+
+    // Live Caption Pill
+    const capH = 42 * S;
+    roundRectPath(ctx, hx + pad, y, hw - pad * 2, capH, 10 * S);
+    ctx.fillStyle = hexToRgba(ACCENT, 0.16);
+    ctx.fill();
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `800 ${14 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    const capLines = wrapLines(ctx, beat.caption || '', hw - pad * 2 - 20 * S, 1);
+    ctx.fillText(capLines[0] || '', hx + hw * 0.5, y + capH * 0.63);
+    y += capH + 18 * S;
+
+    // Wrapped Narration Card
+    const narH = Math.max(130 * S, hh * 0.25);
+    roundRectPath(ctx, hx + pad, y, hw - pad * 2, narH, 12 * S);
+    ctx.fillStyle = 'rgba(5,7,18,0.68)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.16)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+
+    // Accent left strip
+    ctx.fillStyle = ACCENT;
+    ctx.fillRect(hx + pad, y + 12 * S, 3.5 * S, narH - 24 * S);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = `500 ${16 * S}px system-ui, sans-serif`;
+    const narLines = wrapLines(ctx, beat.text || '', hw - pad * 2 - 28 * S, 6);
+    for (let i = 0; i < narLines.length; i++) {
+      ctx.fillText(narLines[i], hx + pad + 16 * S, y + 30 * S + i * 23 * S);
+    }
+    y += narH + 18 * S;
+
+    // Live Telemetry Grid (2x2)
+    const predictability = clamp(100 * (1 - currentSpreadDeg / 180), 0, 100);
+    const metrics = [
+      { label: 'ANGULAR SPREAD', val: `${currentSpreadDeg < 1 ? currentSpreadDeg.toFixed(3) : currentSpreadDeg.toFixed(1)}°`, col: '#f472b6' },
+      { label: 'LYAPUNOV λ', val: `${Math.max(0.01, lyapunovEst).toFixed(2)} s⁻¹`, col: '#38bdf8' },
+      { label: 'PREDICTABILITY', val: `${predictability.toFixed(0)}%`, col: predictability > 50 ? '#22d3ee' : '#f59e0b' },
+      { label: 'KINETIC FLUX', val: `${(energyNorm * 100).toFixed(0)}%`, col: '#fde047' }
+    ];
+    const cardGap = 10 * S;
+    const cw = (hw - pad * 2 - cardGap) * 0.5;
+    const ch = 66 * S;
+    for (let i = 0; i < metrics.length; i++) {
+      const colIdx = i % 2;
+      const rowIdx = Math.floor(i / 2);
+      const mx = hx + pad + colIdx * (cw + cardGap);
+      const my = y + rowIdx * (ch + cardGap);
+      roundRectPath(ctx, mx, my, cw, ch, 10 * S);
+      ctx.fillStyle = 'rgba(5,7,18,0.72)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148,163,184,0.18)';
+      ctx.lineWidth = 1.2 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = `700 ${10 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText(metrics[i].label, mx + 12 * S, my + 22 * S);
+
+      ctx.fillStyle = metrics[i].col;
+      ctx.font = `800 ${21 * S}px ui-monospace, monospace`;
+      ctx.fillText(metrics[i].val, mx + 12 * S, my + 50 * S);
+    }
+
+    // Bottom Timeline Scrubber
+    const barY = hy + hh - 30 * S;
+    roundRectPath(ctx, hx + pad, barY, hw - pad * 2, 6 * S, 3 * S);
+    ctx.fillStyle = 'rgba(148,163,184,0.20)';
+    ctx.fill();
+    roundRectPath(ctx, hx + pad, barY, (hw - pad * 2) * globalProg, 6 * S, 3 * S);
+    ctx.fillStyle = ACCENT;
+    ctx.fill();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `700 ${11 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(formatTime(simTime), hx + pad, barY - 8 * S);
+    ctx.textAlign = 'right';
+    ctx.fillText(formatTime(DUR), hx + hw - pad, barY - 8 * S);
+    ctx.restore();
+  }
+
+  // ---------- 9:16 Safe-Zone Vertical Layout ----------
+  function renderLayout9x16(beat, S) {
+    const safeL = W * 0.07;
+    const safeR = W * 0.88;
+    const safeW = safeR - safeL;
+    const safeCx = (safeL + safeR) * 0.5;
+
+    // Top: Part Label Pill + Clamped Hook Headline (inside y: [0.12*H, 0.24*H])
+    const partText = (SHORT_META && SHORT_META.partLabel) || `${BRAND} · ACT ${(beat.actIndex || 0) + 1}/4`;
+    const hookText = (SHORT_META && SHORT_META.hook) || beat.caption || TITLE;
+
+    ctx.save();
+    ctx.font = `800 ${14 * S}px ui-monospace, monospace`;
+    const pillW = Math.min(safeW, ctx.measureText(partText).width + 32 * S);
+    const pillH = 30 * S;
+    const pillY = H * 0.122;
+    roundRectPath(ctx, safeCx - pillW * 0.5, pillY, pillW, pillH, 15 * S);
+    ctx.fillStyle = hexToRgba(ACCENT, 0.20);
+    ctx.fill();
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+    ctx.fillStyle = '#f8fafc';
+    ctx.textAlign = 'center';
+    ctx.fillText(partText, safeCx, pillY + pillH * 0.67);
+
+    // Huge clamped Hook headline
+    let hookSize = 36 * S;
+    ctx.font = `900 ${hookSize}px system-ui, sans-serif`;
+    while (hookSize > 20 * S && ctx.measureText(hookText).width > safeW * 1.85) {
+      hookSize -= 2 * S;
+      ctx.font = `900 ${hookSize}px system-ui, sans-serif`;
+    }
+    const hookLines = wrapLines(ctx, hookText, safeW, 2);
+    ctx.fillStyle = '#f8fafc';
+    for (let i = 0; i < hookLines.length; i++) {
+      ctx.fillText(hookLines[i], safeCx, pillY + pillH + 38 * S + i * (hookSize * 1.12));
+    }
+    ctx.restore();
+
+    // Center 55% Physics Viewport (y: 0.235*H to 0.705*H)
+    const vp = {
+      x: W * 0.04,
+      y: H * 0.235,
+      w: W * 0.92,
+      h: H * 0.465
+    };
+    renderSimulationViewport(vp, beat, S * 0.95);
+
+    // Compact Telemetry Pill at bottom-right inside viewport
+    ctx.save();
+    const tTxt = `Δθ ${currentSpreadDeg < 1 ? currentSpreadDeg.toFixed(3) : currentSpreadDeg.toFixed(1)}° · λ ${Math.max(0.01, lyapunovEst).toFixed(2)}`;
+    ctx.font = `800 ${13 * S}px ui-monospace, monospace`;
+    const tw = Math.min(vp.w * 0.55, ctx.measureText(tTxt).width + 24 * S);
+    roundRectPath(ctx, vp.x + vp.w - tw - 14 * S, vp.y + 14 * S, tw, 28 * S, 8 * S);
+    ctx.fillStyle = 'rgba(5,7,18,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(56,189,248,0.55)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = '#38bdf8';
+    ctx.textAlign = 'center';
+    ctx.fillText(tTxt, vp.x + vp.w - tw * 0.5 - 14 * S, vp.y + 32 * S);
+    ctx.restore();
+
+    // Bottom High-Contrast Caption Pill (strictly above H * 0.78)
+    const capY = H * 0.715;
+    const capH = 54 * S;
+    ctx.save();
+    roundRectPath(ctx, safeL, capY, safeW, capH, 14 * S);
+    ctx.fillStyle = 'rgba(7,11,28,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2.2 * S;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `900 ${21 * S}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    const cLines = wrapLines(ctx, beat.caption || '', safeW - 28 * S, 1);
+    ctx.fillText(cLines[0] || '', safeCx, capY + capH * 0.65);
+    ctx.restore();
+
+    // Last 1.2s CTA Subscribe Banner (inside safe zone)
+    if (simTime >= DUR - 1.2) {
+      const p = easeOutCubic((simTime - (DUR - 1.2)) / 0.25);
+      const ctaText = (SHORT_META && SHORT_META.ctaText) || `SUBSCRIBE TO ${BRAND} →`;
+      const ctaH = 62 * S;
+      const ctaY = H * 0.635 + (1 - p) * 20 * S;
+      ctx.save();
+      ctx.globalAlpha = p;
+      roundRectPath(ctx, safeL, ctaY, safeW, ctaH, 16 * S);
+      ctx.fillStyle = ACCENT;
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.5 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = '#050712';
+      ctx.font = `900 ${20 * S}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      const ctaLines = wrapLines(ctx, ctaText, safeW - 24 * S, 1);
+      ctx.fillText(ctaLines[0] || ctaText, safeCx, ctaY + ctaH * 0.64);
+      ctx.restore();
+    }
+  }
+
+  // ---------- Main Frame Renderer ----------
+  function renderCurrentFrame() {
+    const is16x9 = ASPECT === '16:9';
+    const S = is16x9 ? (W / 1280) : (W / 720);
+    const { beat } = getBeatAt(simTime);
+
+    drawBackground(S);
+
+    if (is16x9) {
+      const vp = {
+        x: W * 0.02,
+        y: H * 0.04,
+        w: W * 0.66,
+        h: H * 0.92
+      };
+      renderSimulationViewport(vp, beat, S);
+      renderHud16x9(beat, S);
+    } else {
+      renderLayout9x16(beat, S);
+    }
+  }
+
+  // ---------- Public Window API ----------
+  window.renderBatch = (startFrame, count) => {
+    if (startFrame < currentFrame && savedCfg) {
+      resetSimulation(savedCfg);
+    }
+    const dt = 1 / Math.max(1, FPS);
+    while (currentFrame < startFrame) {
+      stepFrame(dt);
+      currentFrame++;
+    }
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      stepFrame(dt);
+      currentFrame++;
+      renderCurrentFrame();
+      const dataUrl = cv.toDataURL('image/jpeg', 0.90);
+      const idx = dataUrl.indexOf(',');
+      out.push(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
+    }
+    return out;
+  };
+
+  window.getEvents = () => events.slice();
+
+  window.ready = true;
+})();
+</script>

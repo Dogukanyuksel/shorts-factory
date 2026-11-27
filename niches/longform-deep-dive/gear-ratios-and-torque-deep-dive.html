@@ -1,0 +1,1398 @@
+<!doctype html>
+<!--
+  Clear Mechanics — Deep Dive #2: Why Impossible Gears Multiply Force by 15,625x
+  Native Dual-Aspect (16:9 Documentary + 9:16 Vertical Safe-Zone), 60fps, Deterministic
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050814;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // --- Deterministic Math Utilities ---
+  const TAU = Math.PI * 2;
+  const PHI = (1 + Math.sqrt(5)) / 2;
+  const clamp = (v, lo, hi) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo);
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = (a, b, t) => {
+    const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1);
+    return x * x * (3 - 2 * x);
+  };
+  const hash = (n) => {
+    const x = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+    return x - Math.floor(x);
+  };
+  const safeR = (r) => Math.max(0.5, Number.isFinite(r) ? r : 0.5);
+
+  // --- State ---
+  let W = 1920, H = 1080, FPS = 60, DUR = 240;
+  let ASPECT = '16:9';
+  let TITLE = 'Why Impossible Gears Can Multiply Force by 15,625x';
+  let BRAND = 'CLEAR MECHANICS';
+  let ACCENT = '#38bdf8';
+  let SHORT_META = null;
+  let BEATS = [];
+  let EVENTS = [];
+  let FIB_DATA = null;
+
+  const DEFAULT_BEATS = [
+    { id: 'g1-hook-1', actIndex: 0, actKind: 'hook', actTitle: '1. The 15,625-Turn Puzzle', visualPhase: 'six-gear-cascade', caption: '15,625 CRANKS = 1 TURN', text: 'Turn a small hand crank 15,625 times to make the final golden gear rotate once.' },
+    { id: 'g1-hook-2', actIndex: 0, actKind: 'hook', actTitle: '1. The 15,625-Turn Puzzle', visualPhase: 'torque-multiplier', caption: 'SPEED TRADED FOR FORCE', text: 'Every time you cut speed by five, you multiply turning force by five.' },
+    { id: 'g1-hook-3', actIndex: 0, actKind: 'hook', actTitle: '1. The 15,625-Turn Puzzle', visualPhase: 'non-round-teaser', caption: "GEARS DON'T HAVE TO BE ROUND", text: 'Gears do not even have to be circular to mesh seamlessly.' },
+    { id: 'g2-bridge', actIndex: 1, actKind: 'mechanism', actTitle: '2. How Teeth Multiply Torque', visualPhase: 'involute-mesh', caption: 'INVOLUTE TOOTH CURVE', isBridge: true, text: 'Start with a single pair of meshing teeth to see how ratios stack.' },
+    { id: 'g2-ratio', actIndex: 1, actKind: 'mechanism', actTitle: '2. How Teeth Multiply Torque', visualPhase: 'involute-mesh', caption: '5:1 PER STAGE → 5⁶ = 15,625', text: 'A 10-tooth pinion driving a 50-tooth wheel multiplies ratios across stages.' },
+    { id: 'g2-fibonacci', actIndex: 1, actKind: 'mechanism', actTitle: '2. How Teeth Multiply Torque', visualPhase: 'fibonacci-spiral', caption: 'r₁(θ₁) + r₂(θ₂) = D', text: 'Fibonacci spiral gears keep contact radii summing to exact shaft distance D.' },
+    { id: 'g2-energy', actIndex: 1, actKind: 'mechanism', actTitle: '2. How Teeth Multiply Torque', visualPhase: 'power-balance', caption: 'POWER = TORQUE × SPEED', text: 'Mechanical power equals torque times angular speed — energy stays conserved.' },
+    { id: 'g3-bridge', actIndex: 2, actKind: 'failure', actTitle: '3. Friction, Backlash & Tooth Shear', visualPhase: 'friction-loss', caption: 'THE REAL-WORLD LIMIT', isBridge: true, text: 'See why real metal gears fail long before 20 stacked stages.' },
+    { id: 'g3-friction', actIndex: 2, actKind: 'failure', actTitle: '3. Friction, Backlash & Tooth Shear', visualPhase: 'friction-loss', caption: 'COMPOUNDING FRICTION', text: 'Every gear mesh loses 3–5% of energy to sliding friction and heat.' },
+    { id: 'g3-shear', actIndex: 2, actKind: 'failure', actTitle: '3. Friction, Backlash & Tooth Shear', visualPhase: 'tooth-fracture', caption: 'ROOT BENDING STRESS', text: 'Multiplied torque concentrates on one millimeter of steel at the tooth root.' },
+    { id: 'g4-bridge', actIndex: 3, actKind: 'comparison', actTitle: '4. Spur vs Planetary vs Spiral', visualPhase: 'gearbox-compare', caption: '3 GEAR ARCHITECTURES', isBridge: true, text: 'Compare three classic gearbox architectures side by side.' },
+    { id: 'g4-compare', actIndex: 3, actKind: 'comparison', actTitle: '4. Spur vs Planetary vs Spiral', visualPhase: 'gearbox-compare', caption: 'PLANETARY SHARES THE LOAD', text: 'Planetary gearboxes split torque across three or four orbiting planet gears.' },
+    { id: 'g4-outro', actIndex: 3, actKind: 'comparison', actTitle: '4. Spur vs Planetary vs Spiral', visualPhase: 'series-outro', caption: 'SUBSCRIBE FOR NEXT DEEP DIVE', text: 'Subscribe to Clear Mechanics for the next engineering breakdown.' },
+  ];
+
+  // --- Precompute Conjugate Golden-Ratio Fibonacci Gears ---
+  function r1Norm(theta) {
+    const wave = Math.cos(theta) + 0.14 * Math.sin(2 * theta);
+    return Math.pow(PHI, 0.5 * wave);
+  }
+
+  function buildConjugateFibonacci() {
+    const N = 360;
+    const dth = TAU / N;
+    const r1Raw = new Float64Array(N + 1);
+    let rMax = -Infinity;
+    for (let i = 0; i <= N; i++) {
+      const r = r1Norm(i * dth);
+      r1Raw[i] = r;
+      if (r > rMax) rMax = r;
+    }
+
+    // Solve center distance D so integral_0^{2pi} r1/(D-r1) du = 2*pi
+    let lo = rMax + 0.05, hi = rMax * 6.0;
+    for (let iter = 0; iter < 42; iter++) {
+      const mid = 0.5 * (lo + hi);
+      let integ = 0;
+      for (let i = 0; i < N; i++) {
+        const rm = 0.5 * (r1Raw[i] + r1Raw[i + 1]);
+        integ += (rm / (mid - rm)) * dth;
+      }
+      if (integ > TAU) lo = mid; else hi = mid;
+    }
+    const D = 0.5 * (lo + hi);
+
+    const th1Arr = new Float64Array(N + 1);
+    const th2Arr = new Float64Array(N + 1);
+    const r2Arr = new Float64Array(N + 1);
+    const sArr = new Float64Array(N + 1);
+    th2Arr[0] = 0;
+    sArr[0] = 0;
+    for (let i = 0; i <= N; i++) {
+      th1Arr[i] = i * dth;
+      r2Arr[i] = D - r1Raw[i];
+      if (i > 0) {
+        const r1m = 0.5 * (r1Raw[i - 1] + r1Raw[i]);
+        const r2m = D - r1m;
+        th2Arr[i] = th2Arr[i - 1] + (r1m / r2m) * dth;
+        const dr1 = (r1Raw[i] - r1Raw[i - 1]) / dth;
+        sArr[i] = sArr[i - 1] + Math.hypot(r1m, dr1) * dth;
+      }
+    }
+    const th2Scale = TAU / Math.max(1e-6, th2Arr[N]);
+    for (let i = 0; i <= N; i++) th2Arr[i] *= th2Scale;
+    const totalS = sArr[N];
+    const teeth = 26;
+
+    function sampleByArc(u, isGear2) {
+      const targetS = (((u % 1) + 1) % 1) * totalS;
+      let loI = 0, hiI = N;
+      while (loI + 1 < hiI) {
+        const m = (loI + hiI) >> 1;
+        if (sArr[m] <= targetS) loI = m; else hiI = m;
+      }
+      const frac = (targetS - sArr[loI]) / Math.max(1e-9, sArr[hiI] - sArr[loI]);
+      const th = isGear2 ? lerp(th2Arr[loI], th2Arr[hiI], frac) : lerp(th1Arr[loI], th1Arr[hiI], frac);
+      const r = isGear2 ? lerp(r2Arr[loI], r2Arr[hiI], frac) : lerp(r1Raw[loI], r1Raw[hiI], frac);
+      return { th, r };
+    }
+
+    function buildPoly(isGear2) {
+      const pts = [];
+      const sub = 6;
+      const total = teeth * sub;
+      const add = 0.064;
+      const ded = 0.072;
+      for (let i = 0; i < total; i++) {
+        const u = i / total;
+        const phase = (i % sub) / sub;
+        // Shift gear 2 by half-tooth so teeth interlock cleanly
+        const pAdj = isGear2 ? (phase + 0.5) % 1 : phase;
+        let dr = 0;
+        if (pAdj < 0.22) dr = -ded;
+        else if (pAdj < 0.36) dr = lerp(-ded, add, (pAdj - 0.22) / 0.14);
+        else if (pAdj < 0.64) dr = add;
+        else if (pAdj < 0.78) dr = lerp(add, -ded, (pAdj - 0.64) / 0.14);
+        else dr = -ded;
+        const s = sampleByArc(u, isGear2);
+        const rr = Math.max(0.12, s.r + dr);
+        pts.push([Math.cos(s.th) * rr, Math.sin(s.th) * rr]);
+      }
+      return pts;
+    }
+
+    function mapAngle(th1) {
+      const a = ((th1 % TAU) + TAU) % TAU;
+      const idxF = (a / TAU) * N;
+      const i0 = Math.min(N - 1, Math.floor(idxF));
+      const f = idxF - i0;
+      const r1 = lerp(r1Raw[i0], r1Raw[i0 + 1], f);
+      const th2 = lerp(th2Arr[i0], th2Arr[i0 + 1], f);
+      return { r1, r2: D - r1, th2 };
+    }
+
+    return { D, poly1: buildPoly(false), poly2: buildPoly(true), mapAngle };
+  }
+
+  // --- Drawing Helpers ---
+  function roundRect(x, y, w, h, r) {
+    const rr = Math.min(r, w * 0.5, h * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  function fitFont(text, basePx, maxW, weight = '800', family = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif') {
+    let px = Math.max(10, Math.round(basePx));
+    ctx.font = `${weight} ${px}px ${family}`;
+    const mw = ctx.measureText(text).width || 1;
+    if (mw > maxW && maxW > 10) {
+      px = Math.max(10, Math.floor(px * (maxW / mw)));
+      ctx.font = `${weight} ${px}px ${family}`;
+    }
+    return px;
+  }
+
+  function wrapLines(text, maxW, maxLines) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (let i = 0; i < words.length; i++) {
+      const test = cur ? cur + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width <= maxW || !cur) {
+        cur = test;
+      } else {
+        lines.push(cur);
+        cur = words[i];
+        if (lines.length >= maxLines - 1) {
+          cur = words.slice(i).join(' ');
+          break;
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    if (lines.length > maxLines) lines.length = maxLines;
+    if (lines.length > 0) {
+      let last = lines[lines.length - 1];
+      while (last.length > 4 && ctx.measureText(last).width > maxW) {
+        last = last.slice(0, -4).trimEnd() + '…';
+      }
+      lines[lines.length - 1] = last;
+    }
+    return lines;
+  }
+
+  function drawBlueprintBg(t) {
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#050814');
+    bg.addColorStop(0.55, '#070e1f');
+    bg.addColorStop(1, '#040711');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    const step = Math.max(36, Math.round(Math.min(W, H) * 0.048));
+    const ox = (t * 6) % step;
+    const oy = (t * 3) % step;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.045)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = -step + ox; x < W + step; x += step) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = -step + oy; y < H + step; y += step) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+
+    const sx = ASPECT === '16:9' ? W * 0.34 : W * 0.5;
+    const sy = ASPECT === '16:9' ? H * 0.5 : H * 0.45;
+    const sr = Math.min(W, H) * 0.54;
+    const rad = ctx.createRadialGradient(sx, sy, 10, sx, sy, safeR(sr));
+    rad.addColorStop(0, 'rgba(56, 189, 248, 0.09)');
+    rad.addColorStop(0.55, 'rgba(250, 204, 21, 0.03)');
+    rad.addColorStop(1, 'rgba(5, 8, 20, 0)');
+    ctx.fillStyle = rad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  function drawGear(cx, cy, pitchR, teeth, angle, fillTop, fillBot, strokeCol, S, opts = {}) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    const toothPitch = (TAU * pitchR) / Math.max(6, teeth);
+    const add = clamp(toothPitch * 0.30, 2.5 * S, 14 * S);
+    const ded = add * 1.15;
+    const outerR = pitchR + add;
+    const rootR = Math.max(4 * S, pitchR - ded);
+
+    ctx.beginPath();
+    for (let i = 0; i < teeth; i++) {
+      const a0 = (i / teeth) * TAU;
+      const step = TAU / teeth;
+      const a1 = a0 + step * 0.17;
+      const a2 = a0 + step * 0.30;
+      const a3 = a0 + step * 0.56;
+      const a4 = a0 + step * 0.69;
+      if (i === 0) ctx.moveTo(Math.cos(a0) * rootR, Math.sin(a0) * rootR);
+      else ctx.lineTo(Math.cos(a0) * rootR, Math.sin(a0) * rootR);
+      ctx.lineTo(Math.cos(a1) * rootR, Math.sin(a1) * rootR);
+      ctx.lineTo(Math.cos(a2) * outerR, Math.sin(a2) * outerR);
+      ctx.lineTo(Math.cos(a3) * outerR, Math.sin(a3) * outerR);
+      ctx.lineTo(Math.cos(a4) * rootR, Math.sin(a4) * rootR);
+    }
+    ctx.closePath();
+
+    const grad = ctx.createLinearGradient(-outerR, -outerR, outerR, outerR);
+    grad.addColorStop(0, fillTop);
+    grad.addColorStop(1, fillBot);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = Math.max(1, 2 * S);
+    ctx.stroke();
+
+    // Spokes / cutouts for larger gears
+    if (rootR > 26 * S && !opts.solid) {
+      ctx.fillStyle = '#060c1b';
+      const holes = 5;
+      for (let i = 0; i < holes; i++) {
+        const ha = (i / holes) * TAU;
+        ctx.beginPath();
+        ctx.arc(Math.cos(ha) * rootR * 0.56, Math.sin(ha) * rootR * 0.56, safeR(rootR * 0.17), 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    // Center shaft hub
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(0, 0, safeR(Math.min(14 * S, rootR * 0.28)), 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = Math.max(1, 1.8 * S);
+    ctx.stroke();
+
+    // Marker dot to show rotation speed clearly
+    if (opts.marker !== false) {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(rootR * 0.82, 0, safeR(Math.max(2.6 * S, rootR * 0.06)), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // --- Phase 1: 6-Gear Neon Cascade (5^6 = 15,625:1) ---
+  function drawSixGearCascade(rx, ry, rw, rh, t, opts = {}) {
+    const S = Math.min(rw / 640, rh / 560);
+    const cx = rx + rw * 0.5;
+    const cy = ry + rh * 0.5;
+    const colors = [
+      ['#38bdf8', '#0284c7', '#bae6fd'],
+      ['#22d3ee', '#0891b2', '#cffafe'],
+      ['#34d399', '#059669', '#d1fae5'],
+      ['#a3e635', '#4d7c0f', '#ecfccb'],
+      ['#fb923c', '#c2410c', '#ffedd5'],
+      ['#facc15', '#b45309', '#fef08a'],
+    ];
+
+    // Arrange 6 compound gear stages in a sleek 2-row S-curve cascade
+    const coords = [
+      [-190, -108], [0, -108], [190, -108],
+      [190, 96], [0, 96], [-190, 96],
+    ];
+
+    ctx.save();
+    // Connecting power-flow conduits between stages
+    ctx.strokeStyle = opts.frictionMode ? 'rgba(239, 68, 68, 0.45)' : 'rgba(56, 189, 248, 0.28)';
+    ctx.lineWidth = Math.max(2, 5 * S);
+    ctx.setLineDash([10 * S, 8 * S]);
+    ctx.lineDashOffset = -t * 70 * S;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const px = cx + coords[i][0] * S;
+      const py = cy + coords[i][1] * S;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const baseOmega = 14.0; // Stage 1 spins fast
+    for (let i = 0; i < 6; i++) {
+      const gx = cx + coords[i][0] * S;
+      const gy = cy + coords[i][1] * S;
+      const ratio = Math.pow(5, i);
+      const dir = i % 2 === 0 ? 1 : -1;
+      const ang = (t * baseOmega / ratio) * dir;
+      const wheelR = (54 + i * 4.5) * S;
+      const pinR = 22 * S;
+      const [cTop, cBot, cStr] = colors[i];
+
+      // Big driven wheel
+      drawGear(gx, gy, wheelR, 24, ang, cTop, cBot, cStr, S);
+      // Coaxial small driving pinion
+      if (i < 5) {
+        drawGear(gx, gy, pinR, 10, ang, '#e2e8f0', '#64748b', '#ffffff', S, { solid: true });
+      }
+
+      // Friction heat glow at each mesh in friction-loss phase
+      if (opts.frictionMode) {
+        const heatR = safeR((32 + i * 6 + Math.sin(t * 10 + i) * 5) * S);
+        const hg = ctx.createRadialGradient(gx + wheelR * 0.7, gy, 2, gx + wheelR * 0.7, gy, heatR);
+        hg.addColorStop(0, 'rgba(254, 240, 138, 0.85)');
+        hg.addColorStop(0.45, 'rgba(239, 68, 68, 0.65)');
+        hg.addColorStop(1, 'rgba(239, 68, 68, 0)');
+        ctx.fillStyle = hg;
+        ctx.beginPath();
+        ctx.arc(gx + wheelR * 0.7, gy, heatR, 0, TAU);
+        ctx.fill();
+      }
+
+      // Stage label badge
+      const eff = Math.round(Math.pow(0.95, i + 1) * 100);
+      const lbl = opts.frictionMode ? `STAGE ${i + 1} · ${eff}% EFF` : `5^${i + 1} = ${Math.pow(5, i + 1).toLocaleString()}:1`;
+      ctx.fillStyle = 'rgba(10, 17, 34, 0.9)';
+      ctx.strokeStyle = opts.frictionMode ? '#ef4444' : cTop;
+      ctx.lineWidth = Math.max(1, 1.5 * S);
+      const bw = 132 * S;
+      const bh = 24 * S;
+      const by = gy + wheelR + 14 * S;
+      roundRect(gx - bw * 0.5, by, bw, bh, 999);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = opts.frictionMode ? '#fca5a5' : '#f8fafc';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      fitFont(lbl, 11.5 * S, bw - 12 * S, '800', 'monospace');
+      ctx.fillText(lbl, gx, by + bh * 0.5);
+    }
+
+    // Top summary banner inside stage
+    const headTxt = opts.frictionMode
+      ? 'COMPOUND FRICTION LOSS: 0.95⁶ = 73.5% → 0.95²⁰ = 35.8%'
+      : '6 COMPOUND STAGES · 15,625 INPUT TURNS = 1 OUTPUT TURN';
+    ctx.fillStyle = opts.frictionMode ? '#f87171' : '#facc15';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(headTxt, 17 * S, rw - 24 * S, '900');
+    ctx.fillText(headTxt, cx, ry + 20 * S);
+    ctx.restore();
+  }
+
+  // --- Phase 2: Torque Multiplier ---
+  function drawTorqueMultiplier(rx, ry, rw, rh, t) {
+    const S = Math.min(rw / 620, rh / 520);
+    const cx = rx + rw * 0.5;
+    const cy = ry + rh * 0.46;
+
+    const rSmall = 44 * S;
+    const rBig = 132 * S;
+    const xSmall = cx - rBig * 0.65;
+    const xBig = xSmall + rSmall + rBig + 4 * S;
+    const aSmall = t * 6.5;
+    const aBig = -aSmall * (10 / 30) + 0.1;
+
+    ctx.save();
+    drawGear(xSmall, cy, rSmall, 10, aSmall, '#38bdf8', '#0284c7', '#e0f2fe', S, { solid: true });
+    drawGear(xBig, cy, rBig, 30, aBig, '#facc15', '#b45309', '#fef08a', S);
+
+    // Glowing mesh contact flash
+    const mx = xSmall + rSmall + 2 * S;
+    const mg = ctx.createRadialGradient(mx, cy, 2, mx, cy, safeR(26 * S));
+    mg.addColorStop(0, '#ffffff');
+    mg.addColorStop(0.5, 'rgba(56, 189, 248, 0.7)');
+    mg.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    ctx.fillStyle = mg;
+    ctx.beginPath();
+    ctx.arc(mx, cy, safeR(26 * S), 0, TAU);
+    ctx.fill();
+
+    // Force bar comparison below
+    const barY = cy + rBig + 36 * S;
+    const barW = Math.min(rw * 0.84, 500 * S);
+    const bx = cx - barW * 0.5;
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#38bdf8';
+    fitFont('INPUT: HIGH SPEED (5x) · LOW FORCE (1x)', 14 * S, barW, '800', 'monospace');
+    ctx.fillText('INPUT: HIGH SPEED (5x) · LOW FORCE (1x)', bx, barY);
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+    roundRect(bx, barY + 14 * S, barW, 14 * S, 999);
+    ctx.fill();
+    ctx.fillStyle = '#38bdf8';
+    roundRect(bx, barY + 14 * S, barW * 0.18, 14 * S, 999);
+    ctx.fill();
+
+    ctx.fillStyle = '#facc15';
+    fitFont('OUTPUT: SLOW SPEED (1/5x) · MULTIPLIED TORQUE (5x → 15,625x)', 14 * S, barW, '800', 'monospace');
+    ctx.fillText('OUTPUT: SLOW SPEED (1/5x) · MULTIPLIED TORQUE (5x → 15,625x)', bx, barY + 50 * S);
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+    roundRect(bx, barY + 64 * S, barW, 14 * S, 999);
+    ctx.fill();
+    const fillAnim = 0.72 + 0.25 * Math.sin(t * 2.5);
+    ctx.fillStyle = '#facc15';
+    roundRect(bx, barY + 64 * S, barW * fillAnim, 14 * S, 999);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- Phase 3 & 5: Conjugate Fibonacci Spiral Gears ---
+  function drawFibonacciGears(rx, ry, rw, rh, t, isTeaser) {
+    if (!FIB_DATA) FIB_DATA = buildConjugateFibonacci();
+    const { D, poly1, poly2, mapAngle } = FIB_DATA;
+    const S = Math.min(rw / 600, rh / 540);
+    const scalePx = (Math.min(rw, rh) * 0.42) / D;
+    const cx = rx + rw * 0.5;
+    const cy = ry + rh * (isTeaser ? 0.50 : 0.44);
+
+    // Place centers horizontally in 16:9 or vertically in 9:16
+    const horiz = rw >= rh * 0.95;
+    const halfD = (D * scalePx) * 0.5;
+    const c1x = horiz ? cx - halfD : cx;
+    const c1y = horiz ? cy : cy - halfD;
+    const c2x = horiz ? cx + halfD : cx;
+    const c2y = horiz ? cy : cy + halfD;
+
+    const baseOffset = horiz ? 0 : Math.PI * 0.5;
+    const th1 = t * 1.45;
+    const mapped = mapAngle(th1);
+    const th2 = mapped.th2;
+
+    function drawNonRound(x, y, poly, rot, fillA, fillB, stroke) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rot);
+      ctx.beginPath();
+      for (let i = 0; i < poly.length; i++) {
+        const px = poly[i][0] * scalePx;
+        const py = poly[i][1] * scalePx;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      const g = ctx.createRadialGradient(-20 * S, -20 * S, 8 * S, 0, 0, safeR(1.5 * scalePx));
+      g.addColorStop(0, fillA);
+      g.addColorStop(1, fillB);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = Math.max(1.2, 2.2 * S);
+      ctx.stroke();
+
+      // Golden spiral decorative curve inside gear
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = Math.max(1, 1.6 * S);
+      ctx.beginPath();
+      for (let k = 0; k <= 40; k++) {
+        const a = (k / 40) * TAU;
+        const rr = 0.25 * scalePx * Math.pow(PHI, (k / 40) * 1.4);
+        const sx = Math.cos(a) * rr;
+        const sy = Math.sin(a) * rr;
+        if (k === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.stroke();
+
+      // Center shaft
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(0, 0, safeR(14 * S), 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = '#f8fafc';
+      ctx.lineWidth = Math.max(1, 2 * S);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.save();
+    drawNonRound(c1x, c1y, poly1, baseOffset - th1, '#38bdf8', '#0369a1', '#bae6fd');
+    drawNonRound(c2x, c2y, poly2, baseOffset + Math.PI + th2, '#facc15', '#b45309', '#fef08a');
+
+    // Centerline & moving contact point
+    const contactDist = mapped.r1 * scalePx;
+    const contactX = horiz ? c1x + contactDist : c1x;
+    const contactY = horiz ? c1y : c1y + contactDist;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = Math.max(1.5, 2.2 * S);
+    ctx.setLineDash([6 * S, 6 * S]);
+    ctx.beginPath();
+    ctx.moveTo(c1x, c1y);
+    ctx.lineTo(c2x, c2y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Glowing contact dot
+    const cg = ctx.createRadialGradient(contactX, contactY, 2, contactX, contactY, safeR(22 * S));
+    cg.addColorStop(0, '#ffffff');
+    cg.addColorStop(0.4, '#38bdf8');
+    cg.addColorStop(1, 'rgba(56,189,248,0)');
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.arc(contactX, contactY, safeR(22 * S), 0, TAU);
+    ctx.fill();
+
+    // Instantaneous ratio & equation readout
+    const instRatio = mapped.r1 / Math.max(0.05, mapped.r2);
+    const botY = ry + rh - 36 * S;
+    ctx.fillStyle = 'rgba(10, 17, 34, 0.9)';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.6;
+    const bw = Math.min(rw * 0.9, 460 * S);
+    roundRect(cx - bw * 0.5, botY - 22 * S, bw, 44 * S, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const eq = isTeaser
+      ? `NON-CIRCULAR MESH · ZERO JAMMING · RATIO ${instRatio.toFixed(2)}x`
+      : `r₁(${mapped.r1.toFixed(2)}) + r₂(${mapped.r2.toFixed(2)}) = D(${D.toFixed(2)})  ·  SPEED ${instRatio.toFixed(2)}x`;
+    fitFont(eq, 15 * S, bw - 20 * S, '800', 'monospace');
+    ctx.fillText(eq, cx, botY);
+    ctx.restore();
+  }
+
+  // --- Phase 4: Involute Tooth Mesh Close-Up ---
+  function drawInvoluteMesh(rx, ry, rw, rh, t) {
+    const S = Math.min(rw / 620, rh / 540);
+    const cx = rx + rw * 0.5;
+    const cy = ry + rh * 0.5;
+
+    const r1 = 68 * S; // 10-tooth pinion
+    const r2 = 170 * S; // 25-tooth visual scaled for 5:1 callout
+    const x1 = cx - 108 * S;
+    const x2 = x1 + r1 + r2;
+    const a1 = t * 3.8;
+    const a2 = -a1 * (10 / 25) + 0.12;
+
+    ctx.save();
+    // Clip to stage box so oversized driven gear looks like a crisp engineering close-up
+    ctx.beginPath();
+    ctx.rect(rx, ry, rw, rh);
+    ctx.clip();
+
+    drawGear(x1, cy, r1, 10, a1, '#38bdf8', '#0369a1', '#e0f2fe', S, { solid: true });
+    drawGear(x2, cy, r2, 25, a2, '#f59e0b', '#92400e', '#fde68a', S);
+
+    // Pitch circles (dashed cyan & gold)
+    ctx.setLineDash([8 * S, 6 * S]);
+    ctx.lineWidth = Math.max(1.2, 2 * S);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.75)';
+    ctx.beginPath();
+    ctx.arc(x1, cy, safeR(r1), 0, TAU);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(250, 204, 21, 0.75)';
+    ctx.beginPath();
+    ctx.arc(x2, cy, safeR(r2), 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 20-degree Pressure Angle Line of Action through pitch point
+    const px = x1 + r1;
+    const py = cy;
+    const pa = (20 * Math.PI) / 180;
+    const len = 130 * S;
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    ctx.moveTo(px - Math.sin(pa) * len, py - Math.cos(pa) * len);
+    ctx.lineTo(px + Math.sin(pa) * len, py + Math.cos(pa) * len);
+    ctx.stroke();
+
+    // Pitch point glow
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(px, py, safeR(6 * S), 0, TAU);
+    ctx.fill();
+
+    // Labels
+    ctx.fillStyle = '#22c55e';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont('20° INVOLUTE LINE OF ACTION · CONSTANT VELOCITY RATIO', 15 * S, rw - 24 * S, '800', 'monospace');
+    ctx.fillText('20° INVOLUTE LINE OF ACTION · CONSTANT VELOCITY RATIO', cx, ry + 26 * S);
+
+    ctx.fillStyle = '#facc15';
+    fitFont('10T PINION → 50T WHEEL = 5:1 PER STAGE (5⁶ = 15,625:1)', 15 * S, rw - 24 * S, '900', 'monospace');
+    ctx.fillText('10T PINION → 50T WHEEL = 5:1 PER STAGE (5⁶ = 15,625:1)', cx, ry + rh - 26 * S);
+    ctx.restore();
+  }
+
+  // --- Phase 6: Power Balance (P = Torque x Speed) ---
+  function drawPowerBalance(rx, ry, rw, rh, t) {
+    const S = Math.min(rw / 620, rh / 540);
+    const pad = 48 * S;
+    const gx = rx + pad + 18 * S;
+    const gy = ry + pad + 14 * S;
+    const gw = rw - pad * 2 - 24 * S;
+    const gh = rh - pad * 2 - 48 * S;
+
+    ctx.save();
+    // Axes
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = Math.max(1.5, 2.2 * S);
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx, gy + gh);
+    ctx.lineTo(gx + gw, gy + gh);
+    ctx.stroke();
+
+    // Constant-power hyperbola: y * x = const (P = tau * omega)
+    const u = 0.14 + 0.72 * (0.5 + 0.5 * Math.sin(t * 1.1));
+    const hyper = (xNorm) => clamp(0.16 / Math.max(0.12, xNorm), 0.1, 0.96);
+    const yNorm = hyper(u);
+
+    // Shaded constant-area rectangle (represents conserved Power P = tau * omega)
+    const ptX = gx + u * gw;
+    const ptY = gy + gh * (1 - yNorm);
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.22)';
+    ctx.fillRect(gx, ptY, ptX - gx, gy + gh - ptY);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = Math.max(1.5, 2.2 * S);
+    ctx.strokeRect(gx, ptY, ptX - gx, gy + gh - ptY);
+
+    // Hyperbola curve
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = Math.max(2, 3.6 * S);
+    ctx.beginPath();
+    for (let i = 0; i <= 80; i++) {
+      const xn = 0.14 + (i / 80) * 0.84;
+      const yn = hyper(xn);
+      const px = gx + xn * gw;
+      const py = gy + gh * (1 - yn);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Operating point glow
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(ptX, ptY, safeR(9 * S), 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 3 * S;
+    ctx.stroke();
+
+    // Axis labels
+    ctx.fillStyle = '#facc15';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    fitFont('TORQUE (τ)', 16 * S, 180 * S, '900', 'monospace');
+    ctx.fillText('TORQUE (τ)', gx + 10 * S, gy + 14 * S);
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.textAlign = 'right';
+    fitFont('ANGULAR SPEED (ω)', 16 * S, 240 * S, '900', 'monospace');
+    ctx.fillText('ANGULAR SPEED (ω)', gx + gw, gy + gh + 26 * S);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    fitFont('CONSTANT AREA = CONSERVED POWER (P = τ × ω)', 17 * S, gw, '900');
+    ctx.fillText('CONSTANT AREA = CONSERVED POWER (P = τ × ω)', gx + gw * 0.5, gy - 18 * S);
+
+    // Live operating readout inside rectangle
+    const torqueVal = Math.round(yNorm * 1000);
+    const speedVal = Math.round(u * 1000);
+    ctx.fillStyle = '#e0f2fe';
+    fitFont(`τ = ${torqueVal} N·m  ×  ω = ${speedVal} RPM`, 15 * S, Math.max(120 * S, gw * 0.7), '800', 'monospace');
+    ctx.fillText(`τ = ${torqueVal} N·m  ×  ω = ${speedVal} RPM`, gx + gw * 0.5, gy + gh + 54 * S);
+    ctx.restore();
+  }
+
+  // --- Phase 8: Root Tooth Fracture Stress Heatmap ---
+  function drawToothFracture(rx, ry, rw, rh, t) {
+    const S = Math.min(rw / 600, rh / 540);
+    const cx = rx + rw * 0.5;
+    const cy = ry + rh * 0.58;
+    const cyc = (t * 0.45) % 1;
+    const stress = smooth(0.05, 0.72, cyc);
+    const snap = smooth(0.72, 0.96, cyc);
+
+    ctx.save();
+    // Base gear rim
+    ctx.fillStyle = '#334155';
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    ctx.beginPath();
+    ctx.arc(cx, cy + 180 * S, safeR(210 * S), Math.PI * 1.18, Math.PI * 1.82);
+    ctx.lineTo(cx + 180 * S, cy + 160 * S);
+    ctx.lineTo(cx - 180 * S, cy + 160 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Magnified steel tooth (breaks off when snap > 0)
+    ctx.save();
+    const breakX = snap * 55 * S;
+    const breakY = -snap * 28 * S;
+    ctx.translate(cx + breakX, cy - 30 * S + breakY);
+    ctx.rotate(snap * 0.65);
+
+    // Finite-element stress heatmap gradient concentrated at left root fillet
+    const fem = ctx.createRadialGradient(-44 * S, 24 * S, 6 * S, -10 * S, -20 * S, safeR(170 * S));
+    if (stress > 0.35) {
+      fem.addColorStop(0, `rgba(255, 255, 255, ${0.85 * stress})`);
+      fem.addColorStop(0.18, `rgba(239, 68, 68, ${0.95 * stress})`);
+      fem.addColorStop(0.45, `rgba(245, 158, 11, ${0.85 * stress})`);
+      fem.addColorStop(0.75, '#10b981');
+      fem.addColorStop(1, '#1d4ed8');
+    } else {
+      fem.addColorStop(0, '#38bdf8');
+      fem.addColorStop(1, '#1e3a8a');
+    }
+
+    ctx.fillStyle = fem;
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = Math.max(1.5, 2.6 * S);
+    ctx.beginPath();
+    ctx.moveTo(-64 * S, 36 * S);
+    ctx.quadraticCurveTo(-50 * S, 18 * S, -44 * S, -22 * S);
+    ctx.quadraticCurveTo(-36 * S, -108 * S, -24 * S, -144 * S);
+    ctx.lineTo(24 * S, -144 * S);
+    ctx.quadraticCurveTo(36 * S, -108 * S, 44 * S, -22 * S);
+    ctx.quadraticCurveTo(50 * S, 18 * S, 64 * S, 36 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Crack propagation line at root fillet
+    if (stress > 0.45) {
+      const cLen = smooth(0.45, 0.74, cyc);
+      ctx.strokeStyle = '#050814';
+      ctx.lineWidth = Math.max(2, 4 * S);
+      ctx.beginPath();
+      ctx.moveTo(-48 * S, 14 * S);
+      ctx.lineTo(-48 * S + 38 * S * cLen, 14 * S + 10 * S * cLen);
+      ctx.lineTo(-48 * S + 76 * S * cLen, 14 * S - 2 * S * cLen);
+      ctx.lineTo(-48 * S + 102 * S * cLen, 14 * S + 14 * S * cLen);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Applied torque force arrow pushing tooth tip
+    const arrY = cy - 135 * S;
+    ctx.strokeStyle = '#ef4444';
+    ctx.fillStyle = '#ef4444';
+    ctx.lineWidth = Math.max(3, 6 * S);
+    ctx.beginPath();
+    ctx.moveTo(cx - 170 * S, arrY);
+    ctx.lineTo(cx - 48 * S, arrY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 34 * S, arrY);
+    ctx.lineTo(cx - 58 * S, arrY - 14 * S);
+    ctx.lineTo(cx - 58 * S, arrY + 14 * S);
+    ctx.closePath();
+    ctx.fill();
+
+    // Fracture sparks when snapping
+    if (snap > 0.02 && snap < 0.85) {
+      for (let i = 0; i < 16; i++) {
+        const a = -Math.PI + hash(i * 11.7) * TAU;
+        const d = (15 + hash(i * 5.3) * 85) * S * snap;
+        ctx.strokeStyle = i % 2 === 0 ? '#fef08a' : '#f97316';
+        ctx.lineWidth = Math.max(1.5, 2.6 * S);
+        ctx.beginPath();
+        ctx.moveTo(cx - 38 * S, cy - 12 * S);
+        ctx.lineTo(cx - 38 * S + Math.cos(a) * d, cy - 12 * S + Math.sin(a) * d);
+        ctx.stroke();
+      }
+    }
+
+    // Readout
+    const mpa = Math.round(lerp(180, 1280, stress));
+    ctx.fillStyle = mpa > 900 ? '#ef4444' : '#facc15';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(`ROOT BENDING STRESS: ${mpa} MPa ${mpa > 950 ? '— YIELD EXCEEDED!' : ''}`, 17 * S, rw - 20 * S, '900', 'monospace');
+    ctx.fillText(`ROOT BENDING STRESS: ${mpa} MPa ${mpa > 950 ? '— YIELD EXCEEDED!' : ''}`, cx, ry + 26 * S);
+    ctx.restore();
+  }
+
+  // --- Phase 9: 3-Way Gearbox Comparison (Spur vs Planetary vs Spiral) ---
+  function drawGearboxCompare(rx, ry, rw, rh, t) {
+    const horiz = rw >= rh * 0.9;
+    const gap = Math.min(rw, rh) * 0.025;
+    const cw = horiz ? (rw - gap * 2) / 3 : rw;
+    const ch = horiz ? rh : (rh - gap * 2) / 3;
+    const S = Math.min(cw, ch) / 220;
+
+    const panels = [
+      { title: 'SPUR GEAR', sub: '1 CONTACT POINT', metric: '1× LOAD', col: '#94a3b8', kind: 'spur' },
+      { title: 'PLANETARY', sub: '3 ORBITING PLANETS', metric: '3×–4× LOAD', col: '#38bdf8', kind: 'planetary', highlight: true },
+      { title: 'FIBONACCI SPIRAL', sub: 'VARIABLE RATIO', metric: '0.62x–1.62x', col: '#facc15', kind: 'spiral' },
+    ];
+
+    for (let i = 0; i < 3; i++) {
+      const x = horiz ? rx + i * (cw + gap) : rx;
+      const y = horiz ? ry : ry + i * (ch + gap);
+      const p = panels[i];
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(10, 17, 34, 0.88)';
+      ctx.strokeStyle = p.highlight ? '#38bdf8' : 'rgba(148, 163, 184, 0.25)';
+      ctx.lineWidth = p.highlight ? 2.5 : 1.4;
+      roundRect(x, y, cw, ch, 16 * S);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = p.col;
+      fitFont(p.title, 18 * S, cw - 16 * S, '900');
+      ctx.fillText(p.title, x + cw * 0.5, y + 24 * S);
+
+      const mx = x + cw * 0.5;
+      const my = y + ch * 0.52;
+      const mR = Math.min(cw, ch) * 0.30;
+
+      if (p.kind === 'spur') {
+        drawGear(mx - mR * 0.55, my, mR * 0.42, 10, t * 3.0, '#94a3b8', '#475569', '#e2e8f0', S * 0.85, { solid: true });
+        drawGear(mx + mR * 0.35, my, mR * 0.52, 14, -t * 3.0 * (10 / 14), '#cbd5e1', '#64748b', '#f8fafc', S * 0.85);
+      } else if (p.kind === 'planetary') {
+        // Outer ring
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = Math.max(3, 6 * S);
+        ctx.beginPath();
+        ctx.arc(mx, my, safeR(mR * 0.96), 0, TAU);
+        ctx.stroke();
+        // Central sun gear
+        drawGear(mx, my, mR * 0.30, 12, t * 4.2, '#facc15', '#b45309', '#fef08a', S * 0.75, { solid: true });
+        // 3 orbiting planet gears
+        const carrierAng = t * 1.4;
+        for (let k = 0; k < 3; k++) {
+          const oa = carrierAng + (k / 3) * TAU;
+          const px = mx + Math.cos(oa) * mR * 0.62;
+          const py = my + Math.sin(oa) * mR * 0.62;
+          drawGear(px, py, mR * 0.28, 10, -t * 2.8, '#38bdf8', '#0284c7', '#e0f2fe', S * 0.7, { solid: true });
+        }
+      } else {
+        // Mini dual oval/spiral mesh
+        ctx.save();
+        ctx.translate(mx - mR * 0.44, my);
+        ctx.rotate(t * 2.0);
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, safeR(mR * 0.54), safeR(mR * 0.34), 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+        ctx.save();
+        ctx.translate(mx + mR * 0.44, my);
+        ctx.rotate(-t * 2.0 + Math.PI * 0.5);
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, safeR(mR * 0.54), safeR(mR * 0.34), 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.fillStyle = '#f8fafc';
+      fitFont(p.metric, 17 * S, cw - 16 * S, '900', 'monospace');
+      ctx.fillText(p.metric, x + cw * 0.5, y + ch - 36 * S);
+
+      ctx.fillStyle = '#94a3b8';
+      fitFont(p.sub, 12 * S, cw - 16 * S, '700', 'monospace');
+      ctx.fillText(p.sub, x + cw * 0.5, y + ch - 16 * S);
+      ctx.restore();
+    }
+  }
+
+  // --- Phase 10: Series Outro ---
+  function drawSeriesOutro(cx, cy, S, t) {
+    ctx.save();
+    const rad = ctx.createRadialGradient(cx, cy, 10, cx, cy, safeR(230 * S));
+    rad.addColorStop(0, 'rgba(56, 189, 248, 0.22)');
+    rad.addColorStop(1, 'rgba(5, 8, 20, 0)');
+    ctx.fillStyle = rad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, safeR(230 * S), 0, TAU);
+    ctx.fill();
+
+    // Animated skyscraper pendulum teaser silhouette
+    const pendA = Math.sin(t * 2.4) * 0.38;
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = Math.max(2, 4 * S);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 120 * S);
+    ctx.lineTo(cx + Math.sin(pendA) * 95 * S, cy - 120 * S + Math.cos(pendA) * 95 * S);
+    ctx.stroke();
+
+    const bx = cx + Math.sin(pendA) * 95 * S;
+    const by = cy - 120 * S + Math.cos(pendA) * 95 * S;
+    const bg = ctx.createRadialGradient(bx - 10 * S, by - 10 * S, 4 * S, bx, by, safeR(38 * S));
+    bg.addColorStop(0, '#fef08a');
+    bg.addColorStop(0.6, '#f59e0b');
+    bg.addColorStop(1, '#78350f');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.arc(bx, by, safeR(34 * S), 0, TAU);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#38bdf8';
+    fitFont(BRAND, 22 * S, 380 * S, '900');
+    ctx.fillText(BRAND, cx, cy + 56 * S);
+
+    ctx.fillStyle = '#f8fafc';
+    fitFont('NEXT: 660-TON SKYSCRAPER PENDULUM', 23 * S, 450 * S, '900');
+    ctx.fillText('NEXT: 660-TON SKYSCRAPER PENDULUM', cx, cy + 94 * S);
+
+    const pw = 290 * S;
+    const ph = 46 * S;
+    ctx.fillStyle = '#facc15';
+    roundRect(cx - pw * 0.5, cy + 128 * S, pw, ph, 999);
+    ctx.fill();
+    ctx.fillStyle = '#050814';
+    fitFont('SUBSCRIBE FOR NEXT DEEP DIVE', 16 * S, pw - 24 * S, '900');
+    ctx.fillText('SUBSCRIBE FOR NEXT DEEP DIVE', cx, cy + 128 * S + ph * 0.5);
+    ctx.restore();
+  }
+
+  // --- Telemetry per Visual Phase ---
+  function getTelemetry(phase, t) {
+    switch (phase) {
+      case 'six-gear-cascade':
+        return { ratio: '15,625 : 1', torque: '15,625 N·m', eff: 74, stress: 0.42, status: '6-STAGE CASCADE' };
+      case 'torque-multiplier':
+        return { ratio: '5 : 1 / STAGE', torque: '5,000 N·m', eff: 86, stress: 0.52, status: 'FORCE MULTIPLIER' };
+      case 'non-round-teaser':
+        return { ratio: '0.62x – 1.62x', torque: 'PULSING', eff: 94, stress: 0.36, status: 'NON-CIRCULAR MESH' };
+      case 'involute-mesh':
+        return { ratio: '5 : 1 (10T→50T)', torque: '500 N·m', eff: 96, stress: 0.30, status: '20° INVOLUTE' };
+      case 'fibonacci-spiral':
+        return { ratio: 'φ = 1.618', torque: 'WAVE PULSE', eff: 93, stress: 0.38, status: 'r₁ + r₂ = D' };
+      case 'power-balance':
+        return { ratio: 'P = τ × ω', torque: 'CONSERVED', eff: 95, stress: 0.34, status: 'ENERGY BALANCE' };
+      case 'friction-loss':
+        return { ratio: '20 STAGES', torque: 'HEAT LOSS', eff: 36, stress: 0.78, status: 'FRICTION DECAY' };
+      case 'tooth-fracture':
+        return { ratio: '15,625 : 1', torque: '1,280 MPa', eff: 12, stress: 1.0, status: 'TOOTH SHEAR!' };
+      case 'gearbox-compare':
+        return { ratio: '4× LOAD SPLIT', torque: 'PLANETARY', eff: 97, stress: 0.28, status: 'LOAD SHARING' };
+      case 'series-outro':
+      default:
+        return { ratio: '15,625 : 1', torque: 'MAX TORQUE', eff: 95, stress: 0.25, status: 'CLEAR MECHANICS' };
+    }
+  }
+
+  // --- Right 30% Glassmorphic Telemetry Card (16:9 Mode) ---
+  function drawRightTelemetryCard(beat, t, tel) {
+    const pad = W * 0.022;
+    const cardX = W * 0.69;
+    const cardY = pad;
+    const cardW = W * 0.288;
+    const cardH = H - pad * 2;
+    const S = H / 1080;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 17, 36, 0.82)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.28)';
+    ctx.lineWidth = 1.6;
+    roundRect(cardX, cardY, cardW, cardH, 22 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    const ix = cardX + 24 * S;
+    const iw = cardW - 48 * S;
+    let y = cardY + 28 * S;
+
+    ctx.fillStyle = ACCENT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    fitFont(BRAND, 14 * S, iw * 0.7, '900');
+    ctx.fillText(BRAND, ix, y);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#94a3b8';
+    const ts = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    fitFont(ts, 14 * S, iw * 0.3, '700', 'monospace');
+    ctx.fillText(ts, ix + iw, y);
+
+    y += 28 * S;
+
+    // 4-Act Progress Bar
+    const actGap = 8 * S;
+    const segW = (iw - actGap * 3) / 4;
+    for (let a = 0; a < 4; a++) {
+      const sx = ix + a * (segW + actGap);
+      const active = a === beat.actIndex;
+      const done = a < beat.actIndex;
+      ctx.fillStyle = active ? ACCENT : done ? 'rgba(56, 189, 248, 0.45)' : 'rgba(51, 65, 85, 0.65)';
+      roundRect(sx, y, segW, 7 * S, 999);
+      ctx.fill();
+
+      ctx.fillStyle = active ? '#f8fafc' : '#64748b';
+      ctx.textAlign = 'center';
+      ctx.font = `800 ${Math.round(11 * S)}px Inter, sans-serif`;
+      ctx.fillText(`ACT ${a + 1}`, sx + segW * 0.5, y + 20 * S);
+    }
+
+    y += 46 * S;
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#f8fafc';
+    fitFont(beat.actTitle || 'Gear Ratios & Torque', 21 * S, iw, '800');
+    ctx.fillText(beat.actTitle || 'Gear Ratios & Torque', ix, y);
+
+    y += 34 * S;
+
+    // Live Caption Pill
+    const isFailure = beat.actKind === 'failure';
+    const pillCol = isFailure ? '#ef4444' : '#facc15';
+    const pillBg = isFailure ? 'rgba(239, 68, 68, 0.16)' : 'rgba(250, 204, 21, 0.14)';
+    ctx.fillStyle = pillBg;
+    ctx.strokeStyle = pillCol;
+    ctx.lineWidth = 1.6;
+    roundRect(ix, y, iw, 42 * S, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = pillCol;
+    ctx.textAlign = 'center';
+    fitFont(beat.caption || '', 17 * S, iw - 20 * S, '900');
+    ctx.fillText(beat.caption || '', ix + iw * 0.5, y + 21 * S);
+
+    y += 66 * S;
+
+    // Narration Subtitle Box
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    roundRect(ix, y, iw, 200 * S, 14 * S);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = `500 ${Math.round(18 * S)}px Inter, -apple-system, sans-serif`;
+    const lines = wrapLines(beat.text || '', iw - 28 * S, 6);
+    const lh = Math.round(27 * S);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], ix + 14 * S, y + 16 * S + i * lh);
+    }
+
+    y += 224 * S;
+
+    // Live Telemetry Gauges
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText(`TELEMETRY · ${tel.status}`, ix, y);
+    y += 24 * S;
+
+    const gauges = [
+      { label: 'GEAR RATIO', val: tel.ratio, frac: 0.85, col: '#38bdf8' },
+      { label: 'OUTPUT TORQUE', val: tel.torque, frac: 0.92, col: '#facc15' },
+      { label: 'MESH EFFICIENCY', val: `${tel.eff}%`, frac: clamp(tel.eff / 100, 0, 1), col: tel.eff < 50 ? '#ef4444' : '#22c55e' },
+      { label: 'TOOTH ROOT STRESS', val: `${Math.round(tel.stress * 100)}%`, frac: clamp(tel.stress, 0, 1), col: tel.stress > 0.75 ? '#ef4444' : '#fb923c' },
+    ];
+
+    for (const g of gauges) {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = `700 ${Math.round(12 * S)}px Inter, sans-serif`;
+      ctx.fillText(g.label, ix, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `800 ${Math.round(14 * S)}px monospace`;
+      ctx.fillText(g.val, ix + iw, y);
+
+      const by = y + 14 * S;
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+      roundRect(ix, by, iw, 9 * S, 999);
+      ctx.fill();
+      ctx.fillStyle = g.col;
+      roundRect(ix, by, Math.max(8 * S, iw * g.frac), 9 * S, 999);
+      ctx.fill();
+      y += 48 * S;
+    }
+
+    const progY = cardY + cardH - 22 * S;
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+    roundRect(ix, progY, iw, 6 * S, 999);
+    ctx.fill();
+    ctx.fillStyle = ACCENT;
+    roundRect(ix, progY, iw * clamp(t / Math.max(1, DUR), 0, 1), 6 * S, 999);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- Narrative Bridge Banner (16:9, first 2.0s) ---
+  function drawBridgeBanner(beat, localT) {
+    if (!beat.isBridge || localT < 0 || localT >= 2.0) return;
+    const S = H / 1080;
+    const enter = smooth(0, 0.28, localT);
+    const exit = 1 - smooth(1.65, 2.0, localT);
+    const alpha = clamp(enter * exit, 0, 1);
+    const slideY = lerp(-40 * S, 24 * S, enter);
+    const bw = W * 0.62;
+    const bh = 54 * S;
+    const bx = W * 0.03;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(14, 165, 233, 0.18)';
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2;
+    roundRect(bx, slideY, bw, bh, 14 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = ACCENT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const label = `ACT ${beat.actIndex + 1} · ${beat.actTitle.toUpperCase()}`;
+    fitFont(label, 19 * S, bw - 40 * S, '900');
+    ctx.fillText(label, bx + 22 * S, slideY + bh * 0.5);
+    ctx.restore();
+  }
+
+  // --- 9:16 Native Vertical Safe-Zone Overlay ---
+  function drawVerticalOverlay(beat, t, tel) {
+    const safeL = W * 0.07;
+    const safeRBound = W * 0.88;
+    const safeW = safeRBound - safeL;
+    const safeCx = (safeL + safeRBound) * 0.5;
+    const S = W / 1080;
+
+    ctx.save();
+    const partLabel = (SHORT_META && SHORT_META.partLabel) || `${BRAND} · ACT ${beat.actIndex + 1}`;
+    const topY = H * 0.125;
+    const pillH = 38 * S;
+    const pillW = Math.min(safeW * 0.88, Math.max(260 * S, safeW * 0.72));
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.16)';
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2 * S;
+    roundRect(safeCx - pillW * 0.5, topY, pillW, pillH, 999);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#e0f2fe';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(partLabel, 21 * S, pillW - 26 * S, '800');
+    ctx.fillText(partLabel, safeCx, topY + pillH * 0.5);
+
+    const hookText = (SHORT_META && SHORT_META.hook) || beat.actTitle.toUpperCase();
+    const hookY = topY + pillH + 34 * S;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(5, 8, 20, 0.9)';
+    ctx.shadowBlur = 12 * S;
+    fitFont(hookText, 50 * S, safeW - 12 * S, '900');
+    ctx.fillText(hookText, safeCx, hookY);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#94a3b8';
+    fitFont(`${tel.ratio}  ·  ${tel.eff}% EFF  ·  ${tel.status}`, 20 * S, safeW, '700', 'monospace');
+    ctx.fillText(`${tel.ratio}  ·  ${tel.eff}% EFF  ·  ${tel.status}`, safeCx, hookY + 42 * S);
+
+    // Bottom caption pill (above H*0.78)
+    const capPillH = 66 * S;
+    const capPillY = H * 0.78 - capPillH - 12 * S;
+    const capBg = beat.actIndex % 2 === 1 ? '#38bdf8' : '#facc15';
+    ctx.fillStyle = capBg;
+    roundRect(safeL, capPillY, safeW, capPillH, 16 * S);
+    ctx.fill();
+
+    ctx.fillStyle = '#050814';
+    fitFont(beat.caption || '', 34 * S, safeW - 32 * S, '900');
+    ctx.fillText(beat.caption || '', safeCx, capPillY + capPillH * 0.5);
+
+    // Last 1.2s CTA Subscribe banner
+    const timeRem = DUR - t;
+    if (timeRem <= 1.2 && SHORT_META && SHORT_META.ctaText) {
+      const pop = smooth(0, 0.22, 1.2 - timeRem);
+      const ctaH = 74 * S;
+      const ctaY = capPillY - ctaH - 16 * S;
+      ctx.save();
+      ctx.globalAlpha = pop;
+      ctx.fillStyle = '#ef4444';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3 * S;
+      roundRect(safeL, ctaY, safeW, ctaH, 18 * S);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      fitFont(SHORT_META.ctaText, 30 * S, safeW - 32 * S, '900');
+      ctx.fillText(SHORT_META.ctaText, safeCx, ctaY + ctaH * 0.5);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function findBeat(t) {
+    if (!BEATS.length) {
+      return {
+        id: 'default', actIndex: 0, actKind: 'hook', actTitle: 'Gear Ratios & Torque',
+        visualPhase: 'six-gear-cascade', caption: '15,625:1', text: '', start: 0, end: DUR,
+      };
+    }
+    for (let i = 0; i < BEATS.length; i++) {
+      if (t >= BEATS[i].start && t < BEATS[i].end) return BEATS[i];
+    }
+    return t < BEATS[0].start ? BEATS[0] : BEATS[BEATS.length - 1];
+  }
+
+  function renderFrame(frameIdx) {
+    const t = frameIdx / Math.max(1, FPS);
+    const beat = findBeat(t);
+    const localT = Math.max(0, t - beat.start);
+    const phase = beat.visualPhase || 'six-gear-cascade';
+
+    drawBlueprintBg(t);
+
+    const isVert = ASPECT === '9:16';
+    const stageX = isVert ? W * 0.07 : W * 0.03;
+    const stageY = isVert ? H * 0.24 : H * 0.08;
+    const stageW = isVert ? W * 0.81 : W * 0.64;
+    const stageH = isVert ? H * 0.46 : H * 0.84;
+    const stageCx = stageX + stageW * 0.5;
+    const stageCy = stageY + stageH * 0.5;
+    const stageS = Math.min(stageW / 600, stageH / 600);
+
+    if (phase === 'six-gear-cascade') {
+      drawSixGearCascade(stageX, stageY, stageW, stageH, t, { frictionMode: false });
+    } else if (phase === 'torque-multiplier') {
+      drawTorqueMultiplier(stageX, stageY, stageW, stageH, t);
+    } else if (phase === 'non-round-teaser') {
+      drawFibonacciGears(stageX, stageY, stageW, stageH, t, true);
+    } else if (phase === 'involute-mesh') {
+      drawInvoluteMesh(stageX, stageY, stageW, stageH, t);
+    } else if (phase === 'fibonacci-spiral') {
+      drawFibonacciGears(stageX, stageY, stageW, stageH, t, false);
+    } else if (phase === 'power-balance') {
+      drawPowerBalance(stageX, stageY, stageW, stageH, t);
+    } else if (phase === 'friction-loss') {
+      drawSixGearCascade(stageX, stageY, stageW, stageH, t, { frictionMode: true });
+    } else if (phase === 'tooth-fracture') {
+      drawToothFracture(stageX, stageY, stageW, stageH, t);
+    } else if (phase === 'gearbox-compare') {
+      drawGearboxCompare(stageX, stageY, stageW, stageH, t);
+    } else if (phase === 'series-outro') {
+      drawSeriesOutro(stageCx, stageCy, stageS * 1.15, t);
+    } else {
+      drawSixGearCascade(stageX, stageY, stageW, stageH, t, { frictionMode: false });
+    }
+
+    const tel = getTelemetry(phase, t);
+
+    if (isVert) {
+      drawVerticalOverlay(beat, t, tel);
+    } else {
+      drawRightTelemetryCard(beat, t, tel);
+      drawBridgeBanner(beat, localT);
+    }
+  }
+
+  function buildEvents() {
+    const evs = [];
+    for (let i = 0; i < BEATS.length; i++) {
+      const b = BEATS[i];
+      const t0 = clamp(b.start + 0.08, 0.05, Math.max(0.1, DUR - 0.1));
+      if (b.visualPhase === 'tooth-fracture') {
+        evs.push({ t: t0, type: 'break', pitchIndex: 2, intensity: 1.0 });
+        if (b.end - b.start > 2.5) {
+          evs.push({ t: clamp(b.start + 1.6, 0.1, DUR - 0.1), type: 'break', pitchIndex: 1, intensity: 0.92 });
+        }
+      } else if (b.visualPhase === 'series-outro') {
+        evs.push({ t: t0, type: 'win', pitchIndex: 10, intensity: 0.95 });
+      } else if (b.isBridge) {
+        evs.push({ t: t0, type: 'win', pitchIndex: 6 + b.actIndex, intensity: 0.72 });
+      } else {
+        evs.push({ t: t0, type: 'bounce', pitchIndex: 3 + (i % 7), intensity: 0.65 });
+      }
+    }
+    evs.sort((a, b) => a.t - b.t);
+    return evs;
+  }
+
+  window.init = (cfg = {}) => {
+    W = Math.max(160, Math.round(cfg.width || 1920));
+    H = Math.max(160, Math.round(cfg.height || 1080));
+    FPS = Math.max(1, Number(cfg.fps) || 60);
+    ASPECT = cfg.aspect === '9:16' || H > W ? '9:16' : '16:9';
+    DUR = Math.max(1, Number(cfg.duration) || 240);
+    TITLE = cfg.title || TITLE;
+    BRAND = cfg.brand || BRAND;
+    ACCENT = cfg.accent || '#38bdf8';
+    SHORT_META = cfg.shortMeta || null;
+
+    if (Array.isArray(cfg.beats) && cfg.beats.length > 0) {
+      BEATS = cfg.beats.map((b, idx) => ({
+        id: b.id || `b-${idx}`,
+        actIndex: Number.isFinite(b.actIndex) ? b.actIndex : 0,
+        actKind: b.actKind || 'hook',
+        actTitle: b.actTitle || '',
+        visualPhase: b.visualPhase || 'six-gear-cascade',
+        caption: b.caption || '',
+        text: b.text || '',
+        start: Number.isFinite(b.start) ? b.start : (idx * DUR) / cfg.beats.length,
+        end: Number.isFinite(b.end) ? b.end : ((idx + 1) * DUR) / cfg.beats.length,
+        isBridge: Boolean(b.isBridge),
+      }));
+    } else {
+      const seg = DUR / DEFAULT_BEATS.length;
+      BEATS = DEFAULT_BEATS.map((b, idx) => ({ ...b, start: idx * seg, end: (idx + 1) * seg }));
+    }
+
+    if (!FIB_DATA) FIB_DATA = buildConjugateFibonacci();
+    cv.width = W;
+    cv.height = H;
+    EVENTS = buildEvents();
+  };
+
+  window.renderBatch = (startFrame, count) => {
+    const out = [];
+    const n = Math.max(0, Math.floor(count || 0));
+    const s = Math.max(0, Math.floor(startFrame || 0));
+    for (let i = 0; i < n; i++) {
+      renderFrame(s + i);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.9);
+      out.push(dataUrl.replace(/^data:[^,]+,/, ''));
+    }
+    return out;
+  };
+
+  window.getEvents = () => EVENTS;
+  window.ready = true;
+})();
+</script>

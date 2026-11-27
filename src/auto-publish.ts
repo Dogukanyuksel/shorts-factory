@@ -22,7 +22,15 @@ import {
 } from "./instagram.js";
 import { hoursSinceLastPublish, resolveMetaToken, resolveMinGapHours } from "./devops.js";
 import { assertUploadChannel, ChannelMismatchError } from "./channel-guard.js";
+import {
+  buildFunnelMetadata,
+  loadDerivedShortsQueue,
+  pickNextDerivedShort,
+  saveDerivedShortsQueue,
+} from "./derive-shorts.js";
+import { getNarrativeLongformBySlug } from "./longform-narrative.js";
 import { runVideoQc } from "./qc.js";
+import { renderDerivedShortVideo } from "./render-narrative.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import {
   activeBlock,
@@ -277,6 +285,121 @@ async function main() {
   }
 
   const publishedIds = new Set(state.published.map((r) => r.id));
+
+  // ÖNCELİK 1: Yayınlanmış 4-perdeli uzun videodan türetilmiş Vitrin Short huni kuyruğu
+  const derivedQueue = await loadDerivedShortsQueue();
+  const derivedItem = pickNextDerivedShort(derivedQueue, channel, publishedIds);
+  if (derivedItem) {
+    const parentSpec = getNarrativeLongformBySlug(derivedItem.parentSlug);
+    if (parentSpec) {
+      console.log(`\n🎯 [auto-publish] Huni Vitrin Short seçildi: ${derivedItem.id} (ana video: ${derivedItem.parentVideoId})`);
+      const mp4Path = await renderDerivedShortVideo(parentSpec, derivedItem, { fps: 60 });
+      const qc = await runVideoQc(mp4Path);
+      if (!qc.ok) {
+        throw new Error(`QC Gate REDDETTİ (türetilmiş short): ${qc.errors.join(" | ")}`);
+      }
+      console.log(`✅ [qc] GEÇTİ: ${qc.width}x${qc.height}, ${qc.durationSec.toFixed(1)}s, ${(qc.fileSizeBytes / 1024 / 1024).toFixed(1)} MB`);
+      const funnel = buildFunnelMetadata(derivedItem);
+      if (dryRun) {
+        console.log(`[auto-publish] DRY-RUN Vitrin Short tamamlandı: ${mp4Path}`);
+        console.log(`  Açıklama:\n${funnel.description}`);
+        return;
+      }
+      const { clientId, clientSecret } = ytClient;
+      const refreshToken = resolveRefreshToken(channel);
+      if (!clientId || !clientSecret || !refreshToken) {
+        throw new Error(`YouTube API kimlik bilgileri eksik (${channel})`);
+      }
+      let result: Awaited<ReturnType<typeof uploadVideoToYouTube>>;
+      try {
+        result = await uploadVideoToYouTube(
+          mp4Path,
+          {
+            title: derivedItem.title,
+            description: funnel.description,
+            tags: derivedItem.tags,
+            categoryId: parentSpec.categoryId,
+            privacyStatus,
+          },
+          { clientId, clientSecret, refreshToken },
+        );
+      } catch (err) {
+        if (err instanceof YouTubeQuotaError) {
+          const block = await recordQuotaBlock(quotaKey(clientId), err.reason, channel);
+          await writePublishNotice(
+            `⏸️ ${channel} Vitrin Short atlandı: YouTube kotası dolu (${err.reason}). Kota ${formatTrTime(block.until)} sonra sıfırlanır.`,
+          );
+          return;
+        }
+        throw err;
+      }
+      console.log(`✅ [auto-publish] VİTRİN SHORT YAYINLANDI: ${result.url}`);
+      derivedItem.publishedAt = new Date().toISOString();
+      derivedItem.shortVideoId = result.videoId;
+      derivedItem.shortUrl = result.url;
+      await saveDerivedShortsQueue(derivedQueue);
+
+      const record: PublishedRecord = {
+        id: derivedItem.id,
+        channel,
+        title: derivedItem.title,
+        videoId: result.videoId,
+        url: result.url,
+        publishedAt: derivedItem.publishedAt,
+      };
+      state.published.push(record);
+      await saveState(state);
+
+      // İlk yorum olarak ana 4 dakikalık videoya huni linki at
+      try {
+        const token = await refreshAccessToken({ clientId, clientSecret, refreshToken });
+        await postYouTubeTopLevelComment(result.videoId, funnel.pinnedComment, token);
+      } catch (cErr) {
+        console.warn("[auto-publish] Vitrin Short ilk yorum uyarısı:", cErr);
+      }
+
+      // Telegram: 5 saniyede yerel Related Video rozetini bağlamak için tek tık Studio linki
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+      const tgChat = process.env.TELEGRAM_CHAT_ID?.trim();
+      if (tgToken && tgChat) {
+        try {
+          const updatedFunnel = buildFunnelMetadata(derivedItem);
+          await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: tgChat,
+              text: updatedFunnel.studioRelatedVideoAlert,
+              parse_mode: "HTML",
+              disable_web_page_preview: true,
+            }),
+            signal: AbortSignal.timeout(15_000),
+          });
+        } catch (tgErr) {
+          console.warn("[auto-publish] Telegram Related Video uyarısı gönderilemedi:", tgErr);
+        }
+      }
+
+      // Instagram Reels'e de paralel yayınla
+      const igUserId =
+        process.env.IG_USER_ID?.trim() ||
+        (channel === "explainer" ? process.env.IG_USER_ID_EXPLAINER?.trim() : process.env.IG_USER_ID_PHYSICS?.trim()) ||
+        "";
+      const metaToken = resolveMetaToken(channel);
+      if (igUserId && metaToken) {
+        try {
+          const igCaption = buildInstagramCaption(derivedItem.title, funnel.description);
+          const igRes = await uploadReelToInstagram(mp4Path, igCaption, { igUserId, accessToken: metaToken });
+          record.instagramMediaId = igRes.mediaId;
+          await saveState(state);
+          await postInstagramComment(igRes.mediaId, funnel.pinnedComment, { igUserId, accessToken: metaToken }).catch(() => {});
+        } catch (igErr) {
+          console.warn("[auto-publish] Vitrin Short IG uyarısı:", igErr);
+        }
+      }
+      return;
+    }
+  }
 
   // Önceki videonun hem YouTube Shorts hem Instagram Reels yorumlarındaki A/B oylarını birleştirip kazananı öne al
   let votedJob: PublishJob | null = null;

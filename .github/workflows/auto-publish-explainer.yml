@@ -94,6 +94,8 @@ jobs:
           # Gecikmiş cron + watchdog tetiklemesi aynı slotta 2. videoyu yayınlamasın
           MIN_PUBLISH_GAP_HOURS: "2"
           FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
         run: npm run publish:explainer
 
       - name: Yayın durumunu (state/published.json) güvenli kaydet
@@ -101,6 +103,9 @@ jobs:
         if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure') && inputs.dry_run != true
         run: |
           npx tsx src/safe-git-push.ts state/published.json "chore(publish): explainer short yayinlandi"
+          if [ -f state/derived-shorts-queue.json ]; then
+            npx tsx src/safe-git-push.ts state/derived-shorts-queue.json "chore(funnel): vitrin short kuyrugu guncellendi"
+          fi
           if [ -f state/youtube-quota.json ]; then
             npx tsx src/safe-git-push.ts state/youtube-quota.json "chore(quota): YouTube kota durumu guncellendi"
           fi

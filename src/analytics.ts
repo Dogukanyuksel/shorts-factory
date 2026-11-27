@@ -132,6 +132,42 @@ async function main() {
 
   await mkdir(dirname(ANALYTICS_PATH), { recursive: true });
   await writeFile(ANALYTICS_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+
+  // İlk 14 gün veri odaklı şablon optimizasyonu: saat başı izlenme hızı + etkileşim liderlerini özetle
+  const nowMs = Date.now();
+  const summarizeChannel = (ch: ChannelId) =>
+    videos
+      .filter((v) => v.channel === ch)
+      .map((v) => {
+        const ageHours = Math.max(1, (nowMs - Date.parse(v.publishedAt)) / 3_600_000);
+        return {
+          id: v.id,
+          title: v.title,
+          views: v.views,
+          likes: v.likes,
+          comments: v.comments,
+          viewsPerHour: Number((v.views / ageHours).toFixed(1)),
+          engagementRatePct: v.engagementRatePct,
+        };
+      })
+      .sort((a, b) => b.viewsPerHour - a.viewsPerHour)
+      .slice(0, 5);
+
+  const winningPatternsPath = resolve("state", "winning-patterns.json");
+  await writeFile(
+    winningPatternsPath,
+    `${JSON.stringify(
+      {
+        updatedAt: report.updatedAt,
+        physicsTopVelocity: summarizeChannel("physics"),
+        explainerTopVelocity: summarizeChannel("explainer"),
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
   console.log(
     `[analytics] Güncellendi: ${report.totals.videos} video | ${report.totals.views} izlenme | ${report.totals.likes} beğeni | ${report.totals.comments} yorum`,
   );
