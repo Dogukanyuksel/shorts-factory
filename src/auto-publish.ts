@@ -388,11 +388,14 @@ async function main() {
       const metaToken = resolveMetaToken(channel);
       if (igUserId && metaToken) {
         try {
-          const igCaption = buildInstagramCaption(derivedItem.title, funnel.description);
+          const ytHandle = channel === "explainer" ? "@clearmechanicsshorts" : "@kineticlabshorts";
+          const igFunnelLine = `\n\n🎬 Full 4-min deep dive on YouTube → ${ytHandle} (Link in Bio!)`;
+          const igCaption = buildInstagramCaption(derivedItem.title, `${funnel.description}${igFunnelLine}`);
           const igRes = await uploadReelToInstagram(mp4Path, igCaption, { igUserId, accessToken: metaToken });
           record.instagramMediaId = igRes.mediaId;
           await saveState(state);
-          await postInstagramComment(igRes.mediaId, funnel.pinnedComment, { igUserId, accessToken: metaToken }).catch(() => {});
+          const igComment = `${funnel.pinnedComment}\n\n🎬 Watch full video on YouTube → Search ${ytHandle} (Link in Bio!)`;
+          await postInstagramComment(igRes.mediaId, igComment, { igUserId, accessToken: metaToken }).catch(() => {});
         } catch (igErr) {
           console.warn("[auto-publish] Vitrin Short IG uyarısı:", igErr);
         }
@@ -571,14 +574,17 @@ async function main() {
   if (igUserId && metaToken) {
     try {
       console.log("[auto-publish] Instagram Reels'e yükleniyor...");
-      const igCaption = buildInstagramCaption(job.title, kit.enrichedDescription);
+      const ytHandle = channel === "explainer" ? "@clearmechanicsshorts" : "@kineticlabshorts";
+      const igYtFunnel = `\n\n🎬 Full 4-min deep dives on YouTube → ${ytHandle} (Link in Bio!)`;
+      const igCaption = buildInstagramCaption(job.title, `${kit.enrichedDescription}${igYtFunnel}`);
       const igCreds = { igUserId, accessToken: metaToken };
       const igRes = await uploadReelToInstagram(mp4Path, igCaption, igCreds);
       instagramMediaId = igRes.mediaId;
       console.log(`✅ [auto-publish] INSTAGRAM REELS YAYINLANDI: mediaId=${igRes.mediaId}`);
       try {
-        const commentId = await postInstagramComment(igRes.mediaId, kit.commentPrompt, igCreds);
-        console.log(`💬 [auto-publish] INSTAGRAM A/B ANKET YORUMU ATILDI: ${commentId}`);
+        const igComment = `${kit.commentPrompt}\n\n🎬 Full 4-min breakdown on YouTube → Search ${ytHandle} (Link in Bio!)`;
+        const commentId = await postInstagramComment(igRes.mediaId, igComment, igCreds);
+        console.log(`💬 [auto-publish] INSTAGRAM A/B + YOUTUBE HUNİ YORUMU ATILDI: ${commentId}`);
       } catch (cErr) {
         console.warn("[auto-publish] Instagram otomatik yorum uyarısı:", cErr);
       }
