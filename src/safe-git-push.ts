@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { mergePublishedRecords, sleepSync, type MinimalPublishedRecord } from "./devops.js";
+import { mergePublishedFiles, sleepSync, type PublishedFile } from "./devops.js";
 
 /**
  * GitHub Actions'da state/*.json dosyalarını yarışma (race condition) olmadan main'e push eder.
@@ -37,17 +37,16 @@ function main() {
       // hicbir alakasiz dosya (or. .github/workflows/*) asla stage edilmez.
       runGit(["reset", "--mixed", "origin/main"]);
       if (isPublishedJson) {
-        let remotePublished: MinimalPublishedRecord[] = [];
+        let remoteFile: Partial<PublishedFile> = {};
         try {
-          const remoteRaw = runGit(["show", `origin/main:${filePath}`]);
-          const parsed = JSON.parse(remoteRaw) as { published?: MinimalPublishedRecord[] };
-          if (Array.isArray(parsed.published)) remotePublished = parsed.published;
+          remoteFile = JSON.parse(runGit(["show", `origin/main:${filePath}`])) as Partial<PublishedFile>;
         } catch {
           // Uzakta dosya yoksa boş başla
         }
-        const localParsed = JSON.parse(localContent) as { published?: MinimalPublishedRecord[] };
-        const merged = mergePublishedRecords(remotePublished, localParsed.published || []);
-        writeFileSync(abs, `${JSON.stringify({ published: merged }, null, 2)}\n`, "utf8");
+        const localFile = JSON.parse(localContent) as Partial<PublishedFile>;
+        // Silinenler listesi her iki taraftan birleşir → eski kopya silinmiş kaydı geri getiremez
+        const merged = mergePublishedFiles(remoteFile, localFile);
+        writeFileSync(abs, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
       } else {
         writeFileSync(abs, localContent, "utf8");
       }

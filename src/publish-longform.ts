@@ -32,6 +32,7 @@ interface PublishedRecord {
 
 interface PublishedState {
   published: PublishedRecord[];
+  removedVideoIds?: string[];
 }
 
 const STATE_PATH = resolve("state", "published.json");
@@ -44,7 +45,9 @@ function parseArg(name: string, fallback: string): string {
 async function loadState(): Promise<PublishedState> {
   if (!existsSync(STATE_PATH)) return { published: [] };
   const raw = await readFile(STATE_PATH, "utf8");
-  return JSON.parse(raw) as PublishedState;
+  const parsed = JSON.parse(raw) as PublishedState;
+  const removed = new Set(parsed.removedVideoIds ?? []);
+  return { ...parsed, published: (parsed.published ?? []).filter((r) => !removed.has(r.videoId)) };
 }
 
 async function saveState(state: PublishedState): Promise<void> {

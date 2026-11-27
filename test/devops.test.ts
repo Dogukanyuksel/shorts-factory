@@ -63,3 +63,23 @@ test("resolveMetaToken: kanala özel Meta token ortak token'a göre önceliklidi
   assert.equal(resolveMetaToken("explainer", env), "shared");
   assert.equal(resolveMetaToken("explainer", {}), "");
 });
+
+test("mergePublishedFiles: silinen kayıt eski bir kopyadan geri GELMEZ (tombstone)", async () => {
+  const { mergePublishedFiles } = await import("../src/devops.js");
+  const remote = { published: [{ id: "a", videoId: "A" }], removedVideoIds: ["X"] };
+  const staleLocal = { published: [{ id: "a", videoId: "A" }, { id: "x", videoId: "X" }, { id: "b", videoId: "B" }] };
+  const merged = mergePublishedFiles(remote, staleLocal);
+  assert.deepEqual(merged.published.map((r) => r.id), ["a", "b"]);
+  assert.deepEqual(merged.removedVideoIds, ["X"]);
+  // Aynı iş yeniden (farklı videoId ile) yayınlanınca kayıt korunur
+  const republished = mergePublishedFiles(merged, { published: [{ id: "x", videoId: "X2" }] });
+  assert.ok(republished.published.some((r) => r.id === "x" && r.videoId === "X2"));
+});
+
+test("mergePublishedFiles: eski kopyadaki silinmiş kayıt yeniden yayını ezmez", async () => {
+  const { mergePublishedFiles } = await import("../src/devops.js");
+  const remote = { published: [{ id: "x", videoId: "X2" }], removedVideoIds: ["X"] };
+  const staleLocal = { published: [{ id: "x", videoId: "X" }] };
+  const merged = mergePublishedFiles(remote, staleLocal);
+  assert.deepEqual(merged.published, [{ id: "x", videoId: "X2" }]);
+});
