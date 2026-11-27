@@ -226,7 +226,8 @@ async function main() {
       "-c:v", "libx264", "-profile:v", "main", "-level", "4.1", "-preset", "medium", "-crf", "20",
       "-maxrate", "6M", "-bufsize", "12M", "-g", String(fps * 2), "-keyint_min", String(fps),
       "-sc_threshold", "0", "-bf", "2", "-r", String(fps),
-      "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart",
+      // Ses yüksekliği platform standardına (-14 LUFS) normalize: akışta diğer videolardan sessiz/bağırgan kalmaz
+      "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart",
       finalMp4,
     ]);
     console.log(`[shorts-factory] TAMAM: ${finalMp4}`);

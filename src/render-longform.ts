@@ -1118,7 +1118,9 @@ export async function renderLongformVideo(opts: {
     const mp4Path = join(outDir, `${plan.id}-1080p.mp4`);
     await runCmd(ffmpegPath, [
       "-y", "-f", "concat", "-safe", "0", "-i", concatList,
-      "-c", "copy", "-movflags", "+faststart",
+      // Görüntü kopyalanır; ses tüm video boyunca tek seferde -14 LUFS'a normalize edilir (bölümler arası seviye farkı kalmaz)
+      "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+      "-movflags", "+faststart",
       mp4Path,
     ]);
 
