@@ -309,6 +309,21 @@
       },
       "publishedAt": "2026-11-27T14:57:23.745Z",
       "instagramMediaId": "17953734732339397"
+    },
+    {
+      "id": "pendulum-chaos-100-seed122",
+      "channel": "physics",
+      "title": "100 Double Pendulums Dropped 0.001° Apart: Pure Chaos #shorts",
+      "videoId": "H92qhYlJvOQ",
+      "url": "https://youtube.com/shorts/H92qhYlJvOQ",
+      "poll": {
+        "optionAKey": "chladni-sand",
+        "optionBKey": "crusher-split",
+        "optionA": "Chladni Sound Sand",
+        "optionB": "Pendulum Crusher 2x"
+      },
+      "publishedAt": "2026-11-27T14:58:41.321Z",
+      "instagramMediaId": "18095484065239025"
     }
   ],
   "removedVideoIds": [
