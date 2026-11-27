@@ -294,6 +294,21 @@
       },
       "publishedAt": "2026-11-27T11:39:17.409Z",
       "instagramMediaId": "18157398220551689"
+    },
+    {
+      "id": "explainer-four-stroke-3d",
+      "channel": "explainer",
+      "title": "How a 4-Stroke Engine Actually Works (3D Cutaway) #shorts",
+      "videoId": "-D71y8sEf5c",
+      "url": "https://youtube.com/shorts/-D71y8sEf5c",
+      "poll": {
+        "optionAKey": "fibonacci-gears",
+        "optionBKey": "potential-vs-kinetic",
+        "optionA": "Fibonacci Gears",
+        "optionB": "Potential Vs Kinetic"
+      },
+      "publishedAt": "2026-11-27T14:57:23.745Z",
+      "instagramMediaId": "17953734732339397"
     }
   ],
   "removedVideoIds": [
