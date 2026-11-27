@@ -1,0 +1,602 @@
+<!doctype html>
+<!--
+  Bio Mechanics — How Your Immune System Destroys a Virus in Real Time
+  60fps, deterministic, audio-synced HTML5 Canvas microscopic bioluminescent cutaway
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Right now, a microscopic war is raging inside your bloodstream—and your immune system fights to win.', caption: 'IMMUNE WARFARE' },
+  { id: 'invade', text: 'Spiky crimson viruses hijack cells and multiply rapidly, flooding your tissue in minutes.', caption: '1. VIRAL INVASION' },
+  { id: 'macrophage', text: 'First on the scene: a giant cyan macrophage engulfs an invader and displays its spike protein as a target.', caption: '2. MACROPHAGE SCAN' },
+  { id: 'tcell', text: 'A helper T-cell reads that blueprint and blasts a chemical alarm across your entire immune network.', caption: '3. T-CELL ALARM' },
+  { id: 'antibodies', text: 'B-cells unleash hundreds of golden Y-shaped antibodies that lock onto every single viral spike.', caption: '4. ANTIBODY SWARM' },
+  { id: 'neutralize', text: 'Coated and immobilized, the viruses shatter harmlessly—and your body remembers them for years.', caption: 'THREAT NEUTRALIZED' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lInv = getLine('invade', 1);
+  const lMac = getLine('macrophage', 2);
+  const lTce = getLine('tcell', 3);
+  const lAnt = getLine('antibodies', 4);
+  const lNeu = getLine('neutralize', 5);
+
+  EVENTS = [
+    { t: lInv.start + 0.14, type: 'bounce', pitchIndex: 2, intensity: 0.60 },
+    { t: lMac.start + 0.18, type: 'bounce', pitchIndex: 4, intensity: 0.68 },
+    { t: lTce.start + 0.16, type: 'bounce', pitchIndex: 6, intensity: 0.80 },
+    { t: lAnt.start + 0.12, type: 'bounce', pitchIndex: 8, intensity: 0.88 },
+    { t: lAnt.start + 0.72, type: 'bounce', pitchIndex: 9, intensity: 0.82 },
+    { t: lNeu.start + 0.15, type: 'break', pitchIndex: 3, intensity: 1.0 },
+    { t: Math.min(DUR - 0.25, lNeu.start + 1.35), type: 'win', pitchIndex: 10, intensity: 0.96 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function getActivePhase(t) {
+  for (let i = SCRIPT.length - 1; i >= 0; i--) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) return { idx: i, line: ln };
+  }
+  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
+}
+
+// Draw a 3D-shaded spiky crimson virion
+function drawVirus(x, y, r, rot, alpha, neutralAmt, S) {
+  if (alpha <= 0.01 || r <= 0.5) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  // Subtle crimson bioluminescent aura (fades as virus is neutralized)
+  const auraR = r * 2.1;
+  const ag = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, auraR);
+  const redA = (0.42 * (1 - neutralAmt * 0.7)).toFixed(2);
+  ag.addColorStop(0, `rgba(244,63,94,${redA})`);
+  ag.addColorStop(0.55, `rgba(190,18,60,${(0.18 * (1 - neutralAmt * 0.7)).toFixed(2)})`);
+  ag.addColorStop(1, 'rgba(190,18,60,0)');
+  ctx.fillStyle = ag;
+  ctx.beginPath(); ctx.arc(0, 0, auraR, 0, Math.PI * 2); ctx.fill();
+
+  // 10 Club-shaped spike proteins
+  const spikes = 10;
+  for (let s = 0; s < spikes; s++) {
+    const a = (s * Math.PI * 2) / spikes;
+    const x1 = Math.cos(a) * r * 0.86;
+    const y1 = Math.sin(a) * r * 0.86;
+    const x2 = Math.cos(a) * r * 1.44;
+    const y2 = Math.sin(a) * r * 1.44;
+    ctx.strokeStyle = neutralAmt > 0.5 ? '#94a3b8' : '#fb7185';
+    ctx.lineWidth = Math.max(1.5 * S, r * 0.14);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+
+    ctx.fillStyle = neutralAmt > 0.5 ? '#cbd5e1' : '#fda4af';
+    ctx.beginPath(); ctx.arc(x2, y2, Math.max(2 * S, r * 0.19), 0, Math.PI * 2); ctx.fill();
+  }
+
+  // 3D Crimson Viral Capsid Core
+  const cg = ctx.createRadialGradient(-r * 0.32, -r * 0.32, r * 0.1, 0, 0, r);
+  if (neutralAmt > 0.5) {
+    cg.addColorStop(0, '#e2e8f0');
+    cg.addColorStop(0.45, '#64748b');
+    cg.addColorStop(1, '#1e293b');
+  } else {
+    cg.addColorStop(0, '#fda4af');
+    cg.addColorStop(0.38, '#e11d48');
+    cg.addColorStop(0.8, '#881337');
+    cg.addColorStop(1, '#4c0519');
+  }
+  ctx.fillStyle = cg;
+  ctx.strokeStyle = neutralAmt > 0.5 ? '#94a3b8' : '#fb7185';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Inner RNA helix hint
+  ctx.strokeStyle = 'rgba(255,228,230,0.42)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.48, 0.3, Math.PI * 1.45);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Draw a crisp glowing golden Y-shaped Antibody
+function drawAntibodyY(x, y, size, angle, alpha, S) {
+  if (alpha <= 0.01) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  ctx.strokeStyle = '#fde047';
+  ctx.lineWidth = Math.max(1.8 * S, size * 0.24);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = '#f59e0b';
+  ctx.shadowBlur = 8 * S;
+
+  // Stem (Fc region) pointing outward, Y-fork (Fab tips) locking onto spike
+  ctx.beginPath();
+  ctx.moveTo(0, size * 0.85);
+  ctx.lineTo(0, 0);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-size * 0.58, -size * 0.62);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(size * 0.58, -size * 0.62);
+  ctx.stroke();
+
+  // Bright tip nodes
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fffbeb';
+  ctx.beginPath();
+  ctx.arc(-size * 0.58, -size * 0.62, size * 0.16, 0, Math.PI * 2);
+  ctx.arc(size * 0.58, -size * 0.62, size * 0.16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Draw organic bioluminescent cyan Macrophage with undulating pseudopods
+function drawMacrophage(x, y, r, t, engulfAmt, presentAmt, S) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Outer cyan bioluminescent halo
+  const hg = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 1.55);
+  hg.addColorStop(0, 'rgba(34,211,238,0.42)');
+  hg.addColorStop(0.6, 'rgba(6,182,212,0.16)');
+  hg.addColorStop(1, 'rgba(6,182,212,0)');
+  ctx.fillStyle = hg;
+  ctx.beginPath(); ctx.arc(0, 0, r * 1.55, 0, Math.PI * 2); ctx.fill();
+
+  // Undulating amoeba membrane
+  const pts = 32;
+  ctx.beginPath();
+  for (let i = 0; i <= pts; i++) {
+    const a = (i / pts) * Math.PI * 2;
+    const wave = 1 + 0.10 * Math.sin(a * 5 + t * 3.2) + 0.06 * Math.cos(a * 3 - t * 2.1);
+    // Indent slightly on right side while engulfing
+    const mouthPull = (engulfAmt > 0.05 && engulfAmt < 0.85) ? Math.exp(-Math.pow(a, 2) / 0.35) * 0.22 * Math.sin(engulfAmt * Math.PI) : 0;
+    const rad = r * (wave - mouthPull);
+    const px = Math.cos(a) * rad;
+    const py = Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+
+  const mg = ctx.createRadialGradient(-r * 0.25, -r * 0.25, r * 0.1, 0, 0, r * 1.1);
+  mg.addColorStop(0, 'rgba(165,243,252,0.78)');
+  mg.addColorStop(0.45, 'rgba(6,182,212,0.68)');
+  mg.addColorStop(0.88, 'rgba(14,116,144,0.82)');
+  mg.addColorStop(1, 'rgba(8,51,68,0.94)');
+  ctx.fillStyle = mg;
+  ctx.strokeStyle = '#67e8f9';
+  ctx.lineWidth = 2.6 * S;
+  ctx.fill();
+  ctx.stroke();
+
+  // Kidney-shaped translucent nucleus
+  ctx.fillStyle = 'rgba(8,47,73,0.72)';
+  ctx.strokeStyle = 'rgba(165,243,252,0.55)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.22, r * 0.08, r * 0.34, r * 0.24, -0.35, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Lysosome vesicle digesting captured virus inside macrophage
+  if (engulfAmt > 0.45) {
+    const digAlpha = clamp((engulfAmt - 0.45) * 2, 0, 1);
+    ctx.fillStyle = `rgba(251,113,133,${(0.35 * digAlpha).toFixed(2)})`;
+    ctx.strokeStyle = `rgba(253,164,175,${(0.75 * digAlpha).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(r * 0.28, -r * 0.08, r * 0.22, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+
+  // MHC Antigen Presenter Beacon on upper-right rim
+  if (presentAmt > 0.05) {
+    const bx = r * 0.72;
+    const by = -r * 0.62;
+    ctx.save();
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 16 * S * presentAmt;
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 3.2 * S;
+    ctx.beginPath(); ctx.moveTo(r * 0.50, -r * 0.44); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.fillStyle = '#f43f5e';
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath(); ctx.arc(bx, by, (8 + 3 * Math.sin(t * 8)) * S * presentAmt, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// Draw Helper T-Cell with glowing receptor docking & cytokine beacon
+function drawTCell(x, y, r, t, alarmAmt, S) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Expanding Cytokine Alarm Rings
+  if (alarmAmt > 0.05) {
+    for (let k = 0; k < 3; k++) {
+      const waveU = ((t * 0.95 + k / 3) % 1 + 1) % 1;
+      const ringR = r + waveU * 230 * S;
+      ctx.strokeStyle = `rgba(52,211,153,${((1 - waveU) * 0.65 * alarmAmt).toFixed(2)})`;
+      ctx.lineWidth = (3.2 * (1 - waveU) + 1) * S;
+      ctx.beginPath(); ctx.arc(0, 0, ringR, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // Cell body
+  const tg = ctx.createRadialGradient(-r * 0.28, -r * 0.28, r * 0.1, 0, 0, r);
+  tg.addColorStop(0, '#a7f3d0');
+  tg.addColorStop(0.45, '#10b981');
+  tg.addColorStop(1, '#064e3b');
+  ctx.fillStyle = tg;
+  ctx.strokeStyle = '#6ee7b7';
+  ctx.lineWidth = 2.6 * S;
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = (14 + 14 * alarmAmt) * S;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Nucleus
+  ctx.fillStyle = 'rgba(6,78,59,0.75)';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.56, 0, Math.PI * 2); ctx.fill();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('T-CELL', 13 * S, r * 1.5, '900');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.fillText('T-CELL', 0, 1 * S);
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const cx = W * 0.465;
+  const safeLeft = W * 0.08;
+  const safeRight = W * 0.85;
+  const safeW = safeRight - safeLeft;
+
+  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
+  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
+
+  const lInv = getLine('invade', 1);
+  const lMac = getLine('macrophage', 2);
+  const lTce = getLine('tcell', 3);
+  const lAnt = getLine('antibodies', 4);
+  const lNeu = getLine('neutralize', 5);
+
+  const macEnter = smooth(lMac.start, lMac.start + 0.9, t);
+  const macEngulf = smooth(lMac.start + 0.65, lMac.end - 0.3, t);
+  const macPresent = smooth(lMac.end - 0.85, lTce.start + 0.4, t);
+  const tCellEnter = smooth(lTce.start, lTce.start + 0.85, t);
+  const tCellAlarm = smooth(lTce.start + 0.55, lAnt.start + 0.4, t) * (1 - smooth(lNeu.start, lNeu.end, t) * 0.5);
+  const abSwarm = smooth(lAnt.start, lAnt.end - 0.2, t);
+  const shatterU = smooth(lNeu.start + 0.15, lNeu.start + 1.45, t);
+
+  // === 1. DEEP MIDNIGHT #050712 MICROSCOPIC BACKGROUND ===
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  const viewY = H * 0.402;
+  const viewR = Math.min(safeW * 0.49, H * 0.215);
+
+  // Bioluminescent ambient glow behind microscope viewport
+  const bgGlow = ctx.createRadialGradient(cx, viewY, 16 * S, cx, viewY, viewR * 1.45);
+  if (shatterU > 0.3) {
+    bgGlow.addColorStop(0, 'rgba(16,185,129,0.22)');
+  } else if (abSwarm > 0.2) {
+    bgGlow.addColorStop(0, 'rgba(250,204,21,0.18)');
+  } else {
+    bgGlow.addColorStop(0, 'rgba(225,29,72,0.18)');
+  }
+  bgGlow.addColorStop(0.55, 'rgba(8,47,73,0.16)');
+  bgGlow.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // === 2. CIRCULAR MICROSCOPIC CUTAWAY VIEWPORT ===
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, viewY, viewR, 0, Math.PI * 2);
+  ctx.fillStyle = '#070d1d';
+  ctx.fill();
+  ctx.strokeStyle = shatterU > 0.4 ? 'rgba(52,211,153,0.65)' : 'rgba(56,189,248,0.38)';
+  ctx.lineWidth = 2.6 * S;
+  ctx.stroke();
+
+  // Clip microscopic action cleanly inside viewport
+  ctx.clip();
+
+  // Soft out-of-focus background blood plasma bokeh
+  for (let b = 0; b < 16; b++) {
+    const bx = cx + (hash(b * 11) - 0.5) * viewR * 2.1 + Math.sin(t * 0.6 + b) * 14 * S;
+    const by = viewY + (hash(b * 23) - 0.5) * viewR * 2.1 + Math.cos(t * 0.5 + b) * 14 * S;
+    const br = (10 + hash(b * 7) * 26) * S;
+    ctx.fillStyle = b % 3 === 0 ? 'rgba(190,18,60,0.08)' : 'rgba(14,116,144,0.08)';
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // --- A. 12 SPIKY CRIMSON VIRIONS (MULTIPLY -> COATED BY ANTIBODIES -> SHATTER) ---
+  const virusNodes = [];
+  const virusCount = 12;
+  for (let i = 0; i < virusCount; i++) {
+    // First 3 exist in hook; remaining 9 multiply rapidly during invade phase
+    const spawnT = i < 3 ? 0 : lerp(lInv.start, lInv.end - 0.4, (i - 3) / (virusCount - 3));
+    const spawnU = i < 3 ? 1 : smooth(spawnT, spawnT + 0.45, t);
+    if (spawnU <= 0.01) continue;
+
+    // Distribute nicely across viewport (index 0 is the target engulfed by Macrophage!)
+    const ang = (i * 2.39996) + 0.4; // Golden-angle spiral distribution
+    const dist = i === 0 ? viewR * 0.16 : viewR * (0.34 + 0.46 * Math.sqrt((i + 0.5) / virusCount));
+    let vx = cx + Math.cos(ang) * dist + Math.sin(t * 1.4 + i * 2.1) * 10 * S;
+    let vy = viewY + Math.sin(ang) * dist + Math.cos(t * 1.2 + i * 1.7) * 10 * S;
+    let vr = (16 + hash(i * 17) * 7) * S * spawnU;
+    let vAlpha = spawnU;
+
+    // Virus #0 gets pulled into Macrophage during phase 3
+    if (i === 0 && macEngulf > 0.01) {
+      const macX = lerp(cx - viewR * 1.05, cx - viewR * 0.34, macEnter);
+      const macY = viewY + viewR * 0.12;
+      vx = lerp(vx, macX + 12 * S, macEngulf);
+      vy = lerp(vy, macY - 4 * S, macEngulf);
+      vr *= (1 - macEngulf * 0.78);
+      vAlpha *= (1 - smooth(0.55, 0.95, macEngulf));
+    }
+
+    // During neutralization shatter, viruses shrink and explode into golden-cyan stardust
+    const localShatter = smooth(lNeu.start + 0.1 + (i / virusCount) * 0.45, lNeu.start + 0.95 + (i / virusCount) * 0.45, t);
+    if (i > 0 && localShatter > 0.01) {
+      vAlpha *= (1 - localShatter);
+      // Draw stardust burst fragments
+      for (let f = 0; f < 8; f++) {
+        const fa = (f * Math.PI * 2) / 8 + i;
+        const fd = localShatter * 46 * S;
+        const fx = vx + Math.cos(fa) * fd;
+        const fy = vy + Math.sin(fa) * fd;
+        ctx.fillStyle = f % 2 === 0
+          ? `rgba(253,224,71,${((1 - localShatter) * 0.9).toFixed(2)})`
+          : `rgba(103,232,249,${((1 - localShatter) * 0.85).toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(fx, fy, (3.2 * (1 - localShatter * 0.5)) * S, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    const vRot = t * (0.45 + (i % 3) * 0.18) * (i % 2 === 0 ? 1 : -1) + i;
+    const coatedAmt = i === 0 ? 0 : clamp(abSwarm * 1.25 - (i / virusCount) * 0.25, 0, 1);
+
+    drawVirus(vx, vy, vr, vRot, vAlpha, coatedAmt * 0.8 + localShatter, S);
+    if (i > 0 && vAlpha > 0.05) {
+      virusNodes.push({ x: vx, y: vy, r: vr, rot: vRot, alpha: vAlpha, idx: i });
+    }
+  }
+
+  // --- B. GLOWING CYAN MACROPHAGE (ENGULF & ANTIGEN PRESENTATION) ---
+  if (macEnter > 0.01) {
+    const macFadeOut = 1 - smooth(lAnt.start + 0.8, lNeu.start + 0.2, t) * 0.35;
+    const macX = lerp(cx - viewR * 1.15, cx - viewR * 0.34, macEnter);
+    const macY = viewY + viewR * 0.12 + Math.sin(t * 1.8) * 6 * S;
+    ctx.save();
+    ctx.globalAlpha = macFadeOut;
+    drawMacrophage(macX, macY, 64 * S, t, macEngulf, macPresent, S);
+    ctx.restore();
+  }
+
+  // --- C. HELPER T-CELL & CYTOKINE SIGNALING CASCADE ---
+  if (tCellEnter > 0.01) {
+    const tcFadeOut = 1 - smooth(lAnt.start + 1.0, lNeu.start + 0.3, t) * 0.35;
+    const tcX = lerp(cx + viewR * 1.05, cx - viewR * 0.02, tCellEnter);
+    const tcY = lerp(viewY - viewR * 0.95, viewY - viewR * 0.28, tCellEnter);
+    ctx.save();
+    ctx.globalAlpha = tcFadeOut;
+    drawTCell(tcX, tcY, 38 * S, t, tCellAlarm, S);
+    ctx.restore();
+
+    // Glowing cytokine signaling particles radiating outward from T-Cell
+    if (tCellAlarm > 0.08) {
+      for (let p = 0; p < 24; p++) {
+        const pu = ((t * 0.72 + hash(p * 19)) % 1 + 1) % 1;
+        const pa = (p / 24) * Math.PI * 2 + Math.sin(t + p) * 0.12;
+        const px = tcX + Math.cos(pa) * (38 * S + pu * viewR * 0.95);
+        const py = tcY + Math.sin(pa) * (38 * S + pu * viewR * 0.95);
+        ctx.fillStyle = p % 2 === 0
+          ? `rgba(110,231,183,${((1 - pu) * 0.85 * tCellAlarm).toFixed(2)})`
+          : `rgba(253,224,71,${((1 - pu) * 0.85 * tCellAlarm).toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(px, py, 3.6 * S, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+
+  // --- D. HUNDREDS (132+) OF GLOWING GOLDEN Y-SHAPED ANTIBODIES LOCKING ONTO EVERY SPIKE! ---
+  if (abSwarm > 0.01) {
+    // 10 antibodies per active virus (110+ locked onto every single spike!)
+    for (let v = 0; v < virusNodes.length; v++) {
+      const vn = virusNodes[v];
+      const spikes = 10;
+      for (let s = 0; s < spikes; s++) {
+        const abDelay = ((v * spikes + s) / 110) * 0.55;
+        const lockU = smooth(lAnt.start + abDelay * 1.4, lAnt.start + 0.55 + abDelay * 1.4, t);
+        if (lockU <= 0.01) continue;
+
+        const spikeAng = vn.rot + (s * Math.PI * 2) / spikes;
+        const targetX = vn.x + Math.cos(spikeAng) * (vn.r * 1.62);
+        const targetY = vn.y + Math.sin(spikeAng) * (vn.r * 1.62);
+
+        const edgeAng = spikeAng + (hash(v * 31 + s * 7) - 0.5) * 0.6;
+        const startX = cx + Math.cos(edgeAng) * (viewR * 1.18);
+        const startY = viewY + Math.sin(edgeAng) * (viewR * 1.18);
+
+        const ax = lerp(startX, targetX, lockU);
+        const ay = lerp(startY, targetY, lockU);
+        // Orient Y-fork directly toward the viral spike
+        const abAng = spikeAng - Math.PI * 0.5;
+        drawAntibodyY(ax, ay, 8.8 * S, abAng, lockU * vn.alpha, S);
+      }
+    }
+
+    // 32 Free-cruising golden Y-antibodies filling the bloodstream swarm
+    for (let k = 0; k < 32; k++) {
+      const ku = smooth(lAnt.start + hash(k * 13) * 0.9, lAnt.start + 0.7 + hash(k * 13) * 0.9, t);
+      if (ku <= 0.01) continue;
+      const a = hash(k * 29) * Math.PI * 2 + t * (0.28 + hash(k * 5) * 0.25);
+      const rad = viewR * (0.22 + 0.72 * hash(k * 17));
+      const fx = cx + Math.cos(a) * rad;
+      const fy = viewY + Math.sin(a) * rad;
+      drawAntibodyY(fx, fy, 7.6 * S, a + Math.PI * 0.5, ku * 0.78, S);
+    }
+  }
+
+  // --- E. IMMUNE MEMORY SHIELD PULSE ON NEUTRALIZATION ---
+  if (shatterU > 0.35) {
+    const memAlpha = smooth(0.35, 0.95, shatterU);
+    ctx.save();
+    ctx.strokeStyle = `rgba(52,211,153,${(0.75 * memAlpha).toFixed(2)})`;
+    ctx.lineWidth = 3.5 * S;
+    ctx.beginPath();
+    ctx.arc(cx, viewY, viewR * (0.45 + 0.35 * memAlpha), 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont('PATHOGEN CLEARED', 24 * S, viewR * 1.55, '900');
+    ctx.fillStyle = `rgba(167,243,208,${memAlpha.toFixed(2)})`;
+    ctx.fillText('PATHOGEN CLEARED', cx, viewY - 12 * S);
+
+    fitFont('IMMUNE MEMORY ACTIVE', 15 * S, viewR * 1.45, '800');
+    ctx.fillStyle = `rgba(253,224,71,${memAlpha.toFixed(2)})`;
+    ctx.fillText('IMMUNE MEMORY ACTIVE', cx, viewY + 18 * S);
+    ctx.restore();
+  }
+
+  ctx.restore(); // end viewport clip
+
+  // === 3. TELEMETRY CARDS (y: H*0.635 to H*0.688) ===
+  const cardY = H * 0.635;
+  const cardH = H * 0.052;
+  const gap = 12 * S;
+  const cardW = (safeW - gap) * 0.5;
+
+  // Compute live Viral Load & Antibodies Locked
+  let viralLoad = Math.round(lerp(42, 1480, smooth(0, lMac.start + 0.4, t)));
+  if (t >= lAnt.start) {
+    viralLoad = Math.round(lerp(1480, 0, clamp(abSwarm * 0.35 + shatterU * 0.75, 0, 1)));
+  }
+  const lockedAbs = Math.round(clamp(abSwarm, 0, 1) * 142);
+
+  function drawCard(x, label, val, accent, valColor) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.9)';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(label, 13 * S, cardW - 18 * S, '800');
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
+
+    fitFont(val, 23 * S, cardW - 18 * S, '900');
+    ctx.fillStyle = valColor;
+    ctx.fillText(val, x + cardW * 0.5, cardY + cardH * 0.70);
+    ctx.restore();
+  }
+
+  const viralText = viralLoad === 0 ? '0 (CLEARED)' : viralLoad.toLocaleString('en-US');
+  const viralColor = viralLoad === 0 ? '#34d399' : '#fb7185';
+  const abText = shatterU > 0.65 ? '100% LOCKED' : `${lockedAbs}`;
+
+  drawCard(safeLeft, 'VIRAL LOAD', viralText, viralLoad === 0 ? 'rgba(52,211,153,0.65)' : 'rgba(244,63,94,0.65)', viralColor);
+  drawCard(safeLeft + cardW + gap, 'ANTIBODIES LOCKED', abText, 'rgba(250,204,21,0.65)', '#fde047');
+
+  // === 4. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  fitFont('BIO MECHANICS • IMMUNE RESPONSE', 22 * S, safeW, '800');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('BIO MECHANICS • IMMUNE RESPONSE', cx, H * 0.155);
+
+  const pillW = Math.min(safeW, 430 * S);
+  const pillH = 54 * S;
+  const pillY = H * 0.715;
+  const pop = 1 + 0.05 * Math.exp(-phaseProg * 14);
+
+  ctx.save();
+  ctx.translate(cx, pillY);
+  ctx.scale(pop, pop);
+  let pillBg = '#06b6d4', pillFg = '#04121c', pillGlow = 'rgba(6,182,212,0.45)';
+  if (phaseIdx === 1) { pillBg = '#f43f5e'; pillFg = '#ffffff'; pillGlow = 'rgba(244,63,94,0.45)'; }
+  else if (phaseIdx === 3) { pillBg = '#10b981'; pillFg = '#022c22'; pillGlow = 'rgba(16,185,129,0.45)'; }
+  else if (phaseIdx === 4) { pillBg = '#facc15'; pillFg = '#0a0a0a'; pillGlow = 'rgba(250,204,21,0.48)'; }
+  else if (phaseIdx === 5) { pillBg = '#34d399'; pillFg = '#022c22'; pillGlow = 'rgba(52,211,153,0.48)'; }
+
+  ctx.shadowColor = pillGlow;
+  ctx.shadowBlur = 20 * S;
+  ctx.fillStyle = pillBg;
+  ctx.beginPath();
+  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  fitFont(activeLine.caption, 28 * S, pillW - 36 * S, '900');
+  ctx.fillStyle = pillFg;
+  ctx.fillText(activeLine.caption, 0, 1 * S);
+  ctx.restore();
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

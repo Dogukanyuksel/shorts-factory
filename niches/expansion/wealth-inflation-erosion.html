@@ -1,0 +1,683 @@
+<!doctype html>
+<!--
+  Wealth Mechanics — Why $10,000 in Cash Silently Loses Half Its Value (60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Leave ten thousand dollars sitting in cash, and half of it will vanish without a single dollar leaving your account.', caption: 'CASH SILENTLY SHRINKS' },
+  { id: 'illusion', text: 'On paper, your balance still reads ten thousand. No bank fee, no theft — just quiet, relentless inflation.', caption: '3.8% INFLATION EVERY YEAR' },
+  { id: 'shrink', text: 'At three point eight percent inflation, your stack\'s real buying power melts down to just four thousand seven hundred seventy-six dollars.', caption: '$10,000 → $4,776 POWER' },
+  { id: 'invested', text: 'Now put that exact same ten thousand into a simple eight percent market index over the same twenty years.', caption: 'INVESTED AT 8% / YEAR' },
+  { id: 'gap', text: 'Instead of shrinking in half, it compounds to forty-six thousand six hundred dollars — nearly ten times the buying power!', caption: '$46,600 VS $4,776 (9.8×)' },
+  { id: 'law', text: 'Cash feels safe in the short term, but long-term cash is a guaranteed loss. Put idle dollars to work.', caption: 'DON\'T LET CASH MELT' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 24;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lIll = getLine('illusion', 1);
+  const lShr = getLine('shrink', 2);
+  const lInv = getLine('invested', 3);
+  const lGap = getLine('gap', 4);
+  const lLaw = getLine('law', 5);
+
+  EVENTS = [
+    { t: lIll.start + 0.2, type: 'bounce', pitchIndex: 4, intensity: 0.6 },
+    { t: lShr.start + 0.2, type: 'break', pitchIndex: 3, intensity: 0.8 },
+    { t: lInv.start + 0.18, type: 'bounce', pitchIndex: 8, intensity: 0.75 },
+    { t: lGap.start + 0.18, type: 'win', pitchIndex: 11, intensity: 0.95 },
+    { t: lLaw.start + 0.22, type: 'win', pitchIndex: 12, intensity: 0.88 },
+  ];
+};
+
+// Exact calibrated rates matching $10,000 -> $4,776 (~3.8% inflation) & $10,000 -> $46,600 (~8% invested) over 20 years
+const INF_BASE = Math.pow(4776 / 10000, 1 / 20); // ~0.96373 (effective ~3.76% -> 3.8% inflation)
+const INV_BASE = Math.pow(46600 / 10000, 1 / 20); // ~1.07999 (8.0% annual return)
+
+function cashPower(yr) {
+  return 10000 * Math.pow(INF_BASE, clamp(yr, 0, 20));
+}
+
+function investedVal(yr) {
+  return 10000 * Math.pow(INV_BASE, clamp(yr, 0, 20));
+}
+
+function fmtExact(v) {
+  return '$' + Math.max(0, Math.round(v)).toLocaleString('en-US');
+}
+
+function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+// Compute deterministic year progress for Cash Erosion and Invested Growth
+function computeState(t) {
+  const lHook = getLine('hook', 0);
+  const lIll = getLine('illusion', 1);
+  const lShr = getLine('shrink', 2);
+  const lInv = getLine('invested', 3);
+  const lGap = getLine('gap', 4);
+
+  let cashYr = 0;
+  if (t < lIll.start) {
+    cashYr = lerp(0, 3, smooth(lHook.start, lIll.start, t));
+  } else if (t < lShr.start) {
+    cashYr = lerp(3, 10, smooth(lIll.start, lShr.start, t));
+  } else if (t < lInv.start) {
+    cashYr = lerp(10, 20, smooth(lShr.start, lInv.start, t));
+  } else {
+    cashYr = 20;
+  }
+
+  let invYr = 0;
+  if (t >= lInv.start && t < lGap.start) {
+    invYr = lerp(0, 16, smooth(lInv.start, lGap.start, t));
+  } else if (t >= lGap.start) {
+    invYr = lerp(16, 20, smooth(lGap.start, lGap.start + 0.9, t));
+  }
+
+  return { cashYr, invYr, dispYr: Math.max(cashYr, invYr) };
+}
+
+// Draw 3D-shaded isometric green dollar bill stack shrinking from fullH to curH
+function draw3DBillStack(cx, baseY, billW, billD, fullH, curH, S, t, eroding) {
+  const isoX = billW * 0.48;
+  const isoY = billD * 0.36;
+  const h = Math.max(10 * S, curH);
+
+  // Helper for diamond top/bottom corners at height yOff above baseY
+  const pts = (yOff) => {
+    const y = baseY - yOff;
+    return {
+      top: { x: cx, y: y - isoY },
+      right: { x: cx + isoX, y: y },
+      bot: { x: cx, y: y + isoY },
+      left: { x: cx - isoX, y: y },
+    };
+  };
+
+  const b = pts(0);
+  const top = pts(h);
+  const fullTop = pts(fullH);
+
+  // Subtle floor shadow under stack
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.beginPath();
+  ctx.ellipse(cx, baseY + isoY * 0.55, isoX * 1.05, isoY * 0.85, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ghost dashed wireframe of ORIGINAL $10,000 height
+  if (fullH - h > 4 * S) {
+    ctx.strokeStyle = 'rgba(244, 63, 94, 0.38)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.setLineDash([5 * S, 4 * S]);
+    // Ghost top diamond
+    ctx.beginPath();
+    ctx.moveTo(fullTop.top.x, fullTop.top.y);
+    ctx.lineTo(fullTop.right.x, fullTop.right.y);
+    ctx.lineTo(fullTop.bot.x, fullTop.bot.y);
+    ctx.lineTo(fullTop.left.x, fullTop.left.y);
+    ctx.closePath();
+    ctx.stroke();
+    // Vertical ghost corner edges down to current stack top
+    ctx.beginPath();
+    ctx.moveTo(fullTop.left.x, fullTop.left.y); ctx.lineTo(top.left.x, top.left.y);
+    ctx.moveTo(fullTop.right.x, fullTop.right.y); ctx.lineTo(top.right.x, top.right.y);
+    ctx.moveTo(fullTop.bot.x, fullTop.bot.y); ctx.lineTo(top.bot.x, top.bot.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Translucent red "eroded zone" volume tint
+    ctx.fillStyle = 'rgba(244, 63, 94, 0.08)';
+    ctx.beginPath();
+    ctx.moveTo(fullTop.left.x, fullTop.left.y);
+    ctx.lineTo(fullTop.bot.x, fullTop.bot.y);
+    ctx.lineTo(fullTop.right.x, fullTop.right.y);
+    ctx.lineTo(top.right.x, top.right.y);
+    ctx.lineTo(top.bot.x, top.bot.y);
+    ctx.lineTo(top.left.x, top.left.y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Left-front extruded face (bill edges)
+  const leftGrad = ctx.createLinearGradient(top.left.x, top.left.y, b.bot.x, b.bot.y);
+  leftGrad.addColorStop(0, '#4d7c5f');
+  leftGrad.addColorStop(1, '#1e3a2a');
+  ctx.fillStyle = leftGrad;
+  ctx.beginPath();
+  ctx.moveTo(top.left.x, top.left.y);
+  ctx.lineTo(top.bot.x, top.bot.y);
+  ctx.lineTo(b.bot.x, b.bot.y);
+  ctx.lineTo(b.left.x, b.left.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Right-front extruded face (darker shadow side)
+  const rightGrad = ctx.createLinearGradient(top.bot.x, top.bot.y, b.right.x, b.right.y);
+  rightGrad.addColorStop(0, '#2e5740');
+  rightGrad.addColorStop(1, '#11261b');
+  ctx.fillStyle = rightGrad;
+  ctx.beginPath();
+  ctx.moveTo(top.bot.x, top.bot.y);
+  ctx.lineTo(top.right.x, top.right.y);
+  ctx.lineTo(b.right.x, b.right.y);
+  ctx.lineTo(b.bot.x, b.bot.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Individual bill-edge horizontal striations
+  const numStripes = Math.max(3, Math.floor(h / (5.5 * S)));
+  ctx.strokeStyle = 'rgba(236, 253, 245, 0.22)';
+  ctx.lineWidth = 1 * S;
+  for (let i = 1; i < numStripes; i++) {
+    const yy = (i / numStripes) * h;
+    const p = pts(yy);
+    ctx.beginPath();
+    ctx.moveTo(p.left.x, p.left.y);
+    ctx.lineTo(p.bot.x, p.bot.y);
+    ctx.lineTo(p.right.x, p.right.y);
+    ctx.stroke();
+  }
+
+  // Gold bank strap wrapped around the center of the stack (side faces)
+  const strapT1 = 0.36, strapT2 = 0.64;
+  const sL1x = lerp(top.left.x, top.bot.x, strapT1), sL1y = lerp(top.left.y, top.bot.y, strapT1);
+  const sL2x = lerp(top.left.x, top.bot.x, strapT2), sL2y = lerp(top.left.y, top.bot.y, strapT2);
+  ctx.fillStyle = '#eab308';
+  ctx.beginPath();
+  ctx.moveTo(sL1x, sL1y);
+  ctx.lineTo(sL2x, sL2y);
+  ctx.lineTo(sL2x, sL2y + h);
+  ctx.lineTo(sL1x, sL1y + h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Top face of the top $100 dollar bill
+  const topGrad = ctx.createLinearGradient(top.left.x, top.top.y, top.right.x, top.bot.y);
+  topGrad.addColorStop(0, '#34d399');
+  topGrad.addColorStop(0.5, '#15803d');
+  topGrad.addColorStop(1, '#065f46');
+  ctx.fillStyle = topGrad;
+  ctx.beginPath();
+  ctx.moveTo(top.top.x, top.top.y);
+  ctx.lineTo(top.right.x, top.right.y);
+  ctx.lineTo(top.bot.x, top.bot.y);
+  ctx.lineTo(top.left.x, top.left.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Crisp inner bill border on top face
+  ctx.strokeStyle = 'rgba(209, 250, 229, 0.65)';
+  ctx.lineWidth = 1.5 * S;
+  const inset = 0.14;
+  ctx.beginPath();
+  ctx.moveTo(lerp(top.top.x, cx, inset), lerp(top.top.y, baseY - h, inset));
+  ctx.lineTo(lerp(top.right.x, cx, inset), lerp(top.right.y, baseY - h, inset));
+  ctx.lineTo(lerp(top.bot.x, cx, inset), lerp(top.bot.y, baseY - h, inset));
+  ctx.lineTo(lerp(top.left.x, cx, inset), lerp(top.left.y, baseY - h, inset));
+  ctx.closePath();
+  ctx.stroke();
+
+  // Gold bank strap across the top bill face
+  const stA = { x: lerp(top.left.x, top.bot.x, strapT1), y: lerp(top.left.y, top.bot.y, strapT1) };
+  const stB = { x: lerp(top.left.x, top.bot.x, strapT2), y: lerp(top.left.y, top.bot.y, strapT2) };
+  const stC = { x: lerp(top.top.x, top.right.x, strapT2), y: lerp(top.top.y, top.right.y, strapT2) };
+  const stD = { x: lerp(top.top.x, top.right.x, strapT1), y: lerp(top.top.y, top.right.y, strapT1) };
+  ctx.fillStyle = '#facc15';
+  ctx.beginPath();
+  ctx.moveTo(stA.x, stA.y); ctx.lineTo(stB.x, stB.y);
+  ctx.lineTo(stC.x, stC.y); ctx.lineTo(stD.x, stD.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // "$" emblem in center of strap
+  ctx.fillStyle = '#064e3b';
+  ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('$', cx, baseY - h);
+
+  // Outer highlight rim
+  ctx.strokeStyle = 'rgba(167, 243, 208, 0.55)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.beginPath();
+  ctx.moveTo(top.top.x, top.top.y);
+  ctx.lineTo(top.right.x, top.right.y);
+  ctx.lineTo(top.bot.x, top.bot.y);
+  ctx.lineTo(top.left.x, top.left.y);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Deterministic red inflation erosion particles floating up when shrinking
+  if (eroding > 0.05) {
+    for (let k = 0; k < 7; k++) {
+      const phase = (t * 0.9 + k * 0.143) % 1;
+      const px = cx + Math.sin(k * 2.1 + t * 1.4) * (isoX * 0.65);
+      const py = (baseY - h - isoY * 0.2) - phase * (fullH - h + 26 * S);
+      const alpha = Math.sin(phase * Math.PI) * 0.78 * eroding;
+      ctx.fillStyle = `rgba(251, 113, 133, ${alpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(px, py, (2.2 + (k % 3) * 0.9) * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  // Safe zone: x in [W*0.07, W*0.86], y in [H*0.14, H*0.74]
+  const safeL = W * 0.07;
+  const safeR = W * 0.86;
+  const safeW = safeR - safeL;
+  const cx = (safeL + safeR) * 0.5;
+
+  // Deep obsidian #030a08 canvas
+  ctx.fillStyle = '#030a08';
+  ctx.fillRect(0, 0, W, H);
+
+  // Dual ambient glow: subtle crimson left (cash erosion), emerald right (invested)
+  const gLeft = ctx.createRadialGradient(safeL + safeW * 0.25, H * 0.35, 10 * S, safeL + safeW * 0.25, H * 0.38, W * 0.42);
+  gLeft.addColorStop(0, 'rgba(244, 63, 94, 0.11)');
+  gLeft.addColorStop(1, 'rgba(3, 10, 8, 0)');
+  ctx.fillStyle = gLeft;
+  ctx.fillRect(0, 0, W, H);
+
+  const gRight = ctx.createRadialGradient(safeL + safeW * 0.76, H * 0.35, 10 * S, safeL + safeW * 0.76, H * 0.38, W * 0.42);
+  gRight.addColorStop(0, 'rgba(16, 185, 129, 0.12)');
+  gRight.addColorStop(1, 'rgba(3, 10, 8, 0)');
+  ctx.fillStyle = gRight;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.042)';
+  ctx.lineWidth = 1 * S;
+  for (let x = 0; x < W; x += 42 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 42 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const lShr = getLine('shrink', 2);
+  const lInv = getLine('invested', 3);
+  const lGap = getLine('gap', 4);
+
+  const { cashYr, invYr, dispYr } = computeState(t);
+  const curCash = cashPower(cashYr);
+  const curInv = investedVal(invYr);
+  const invActive = smooth(lInv.start - 0.1, lInv.start + 0.35, t);
+  const gapReveal = smooth(lGap.start, lGap.start + 0.45, t);
+  const eroding = cashYr > 0.5 && cashYr < 19.9 ? 1 : (t < lInv.start ? 0.6 : 0.3);
+
+  // === 1. HEADER TITLE (y: H*0.145 .. H*0.185) ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('WHY $10,000 CASH MELTS', 30 * S, safeW, '900');
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillText('WHY $10,000 CASH MELTS', cx, H * 0.155);
+
+  fitFont('3.8% INFLATION vs 8% INVESTED · 20 YEARS', 13.5 * S, safeW, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('3.8% INFLATION vs 8% INVESTED · 20 YEARS', cx, H * 0.178);
+  ctx.restore();
+
+  // === 2. YEAR PROGRESS BAR (y: H*0.194 .. H*0.222) ===
+  const barY = H * 0.205;
+  const yrLabelW = 92 * S;
+  const trackX = safeL + yrLabelW;
+  const trackW = safeW - yrLabelW;
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.round(15 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#facc15';
+  ctx.fillText(`YEAR ${Math.round(dispYr)}`, safeL, barY);
+
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.16)';
+  ctx.beginPath(); ctx.roundRect(trackX, barY - 5 * S, trackW, 10 * S, 5 * S); ctx.fill();
+
+  const progW = Math.max(8 * S, (dispYr / 20) * trackW);
+  const pg = ctx.createLinearGradient(trackX, 0, trackX + trackW, 0);
+  pg.addColorStop(0, '#f43f5e');
+  pg.addColorStop(0.5, '#facc15');
+  pg.addColorStop(1, '#10b981');
+  ctx.fillStyle = pg;
+  ctx.beginPath(); ctx.roundRect(trackX, barY - 5 * S, progW, 10 * S, 5 * S); ctx.fill();
+  ctx.restore();
+
+  // === 3. UPPER-MIDDLE DUAL HERO CARDS (y: H*0.230 .. H*0.468) ===
+  const gap = 12 * S;
+  const cardW = (safeW - gap) * 0.5;
+  const cardY = H * 0.230;
+  const cardH = H * 0.238;
+
+  // --- LEFT CARD: 3D SHRINKING DOLLAR STACK ---
+  const leftX = safeL;
+  ctx.save();
+  ctx.fillStyle = 'rgba(30, 10, 16, 0.72)';
+  ctx.strokeStyle = 'rgba(244, 63, 94, 0.45)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath(); ctx.roundRect(leftX, cardY, cardW, cardH, 16 * S); ctx.fill(); ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  fitFont('IDLE CASH (-3.8%/YR)', 13 * S, cardW - 18 * S, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#fb7185';
+  ctx.fillText('IDLE CASH (-3.8%/YR)', leftX + cardW * 0.5, cardY + 11 * S);
+
+  // Draw 3D Dollar Bill Stack
+  const stackFullH = 120 * S;
+  const stackCurH = stackFullH * (curCash / 10000);
+  const stackBaseY = cardY + cardH * 0.67;
+  draw3DBillStack(leftX + cardW * 0.5, stackBaseY, 138 * S, 96 * S, stackFullH, stackCurH, S, t, eroding);
+
+  // Real buying power readout
+  const lossPct = Math.round((1 - curCash / 10000) * 100);
+  fitFont(fmtExact(curCash), 28 * S, cardW - 18 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = curCash < 6500 ? '#fb7185' : '#fde047';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(fmtExact(curCash), leftX + cardW * 0.5, cardY + cardH - 30 * S);
+
+  fitFont(`BUYING POWER (-${lossPct}%)`, 12 * S, cardW - 18 * S, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#fda4af';
+  ctx.fillText(`BUYING POWER (-${lossPct}%)`, leftX + cardW * 0.5, cardY + cardH - 11 * S);
+  ctx.restore();
+
+  // --- RIGHT CARD: GLOWING INVESTED GROWTH ---
+  const rightX = safeL + cardW + gap;
+  ctx.save();
+  ctx.globalAlpha = lerp(0.42, 1.0, invActive);
+  ctx.fillStyle = 'rgba(6, 36, 26, 0.72)';
+  ctx.strokeStyle = invActive > 0.5 ? 'rgba(16, 185, 129, 0.65)' : 'rgba(16, 185, 129, 0.25)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = 12 * invActive * S;
+  ctx.beginPath(); ctx.roundRect(rightX, cardY, cardW, cardH, 16 * S); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  fitFont('INVESTED (+8%/YR)', 13 * S, cardW - 18 * S, '800', 'ui-monospace, monospace');
+  ctx.fillStyle = '#34d399';
+  ctx.fillText('INVESTED (+8%/YR)', rightX + cardW * 0.5, cardY + 11 * S);
+
+  // Mini glowing exponential rise inside right card
+  const miniL = rightX + 18 * S;
+  const miniR = rightX + cardW - 18 * S;
+  const miniTop = cardY + 42 * S;
+  const miniBot = cardY + cardH * 0.70;
+  const miniW = miniR - miniL;
+  const miniH = miniBot - miniTop;
+
+  // Baseline at $10,000
+  const y10k = miniBot - (10000 / 50000) * miniH;
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.setLineDash([4 * S, 4 * S]);
+  ctx.beginPath(); ctx.moveTo(miniL, y10k); ctx.lineTo(miniR, y10k); ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (invYr > 0.05) {
+    const steps = 40;
+    const mPts = [];
+    for (let i = 0; i <= steps; i++) {
+      const yr = (i / steps) * invYr;
+      const v = investedVal(yr);
+      mPts.push({
+        x: miniL + (yr / 20) * miniW,
+        y: miniBot - clamp(v / 50000, 0, 1) * miniH,
+      });
+    }
+    const mg = ctx.createLinearGradient(0, miniTop, 0, miniBot);
+    mg.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
+    mg.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+    ctx.fillStyle = mg;
+    ctx.beginPath();
+    ctx.moveTo(mPts[0].x, miniBot);
+    for (const p of mPts) ctx.lineTo(p.x, p.y);
+    ctx.lineTo(mPts[mPts.length - 1].x, miniBot);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = '#10b981';
+    ctx.shadowColor = '#10b981';
+    ctx.shadowBlur = 12 * S;
+    ctx.lineWidth = 3.5 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 0; i < mPts.length; i++) {
+      if (i === 0) ctx.moveTo(mPts[i].x, mPts[i].y);
+      else ctx.lineTo(mPts[i].x, mPts[i].y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    const endP = mPts[mPts.length - 1];
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath(); ctx.arc(endP.x, endP.y, 5.5 * S, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = '#34d399';
+    ctx.beginPath(); ctx.arc(miniL, y10k, 5 * S, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Invested value readout
+  const gainPct = Math.round(((curInv - 10000) / 10000) * 100);
+  fitFont(fmtExact(curInv), 28 * S, cardW - 18 * S, '900', 'ui-monospace, monospace');
+  ctx.fillStyle = '#ecfdf5';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(fmtExact(curInv), rightX + cardW * 0.5, cardY + cardH - 30 * S);
+
+  fitFont(`GROWTH (+${gainPct}%)`, 12 * S, cardW - 18 * S, '700', 'ui-monospace, monospace');
+  ctx.fillStyle = '#6ee7b7';
+  ctx.fillText(`GROWTH (+${gainPct}%)`, rightX + cardW * 0.5, cardY + cardH - 11 * S);
+  ctx.restore();
+
+  // === 4. LOWER FULL-WIDTH DIVERGENCE CHART (y: H*0.484 .. H*0.735) ===
+  const chartBoxY = H * 0.484;
+  const chartBoxH = H * 0.251; // ends at H*0.735 <= H*0.74
+  const cL = safeL + 50 * S;
+  const cR = safeR - 12 * S;
+  const cTop = chartBoxY + 34 * S;
+  const cBot = chartBoxY + chartBoxH - 46 * S;
+  const cW = cR - cL;
+  const cH = cBot - cTop;
+
+  const yrToX = (yr) => cL + (clamp(yr, 0, 20) / 20) * cW;
+  const valToY = (v) => cBot - clamp(v / 50000, 0, 1) * cH;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 20, 16, 0.78)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.beginPath(); ctx.roundRect(safeL, chartBoxY, safeW, chartBoxH, 16 * S); ctx.fill(); ctx.stroke();
+
+  // Chart subtitle
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${Math.round(13 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText('20-YEAR REAL WEALTH DIVERGENCE', safeL + 16 * S, chartBoxY + 18 * S);
+
+  // Y gridlines
+  const yTicks = [0, 10000, 25000, 40000, 50000];
+  ctx.font = `700 ${Math.round(11.5 * S)}px ui-monospace, monospace`;
+  ctx.textAlign = 'right';
+  for (const yt of yTicks) {
+    const gy = valToY(yt);
+    ctx.strokeStyle = yt === 10000 ? 'rgba(250, 204, 21, 0.30)' : 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = yt === 10000 ? 1.5 * S : 1 * S;
+    ctx.setLineDash(yt === 0 ? [] : [5 * S, 5 * S]);
+    ctx.beginPath(); ctx.moveTo(cL, gy); ctx.lineTo(cR, gy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = yt === 10000 ? '#facc15' : '#64748b';
+    ctx.fillText(yt === 0 ? '$0' : `$${yt / 1000}K`, cL - 7 * S, gy);
+  }
+
+  // X year ticks
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let yr = 0; yr <= 20; yr += 5) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(`Y${yr}`, yrToX(yr), cBot + 6 * S);
+  }
+
+  // Shaded divergence band between Invested and Cash when invested curve is growing
+  if (invYr > 0.2) {
+    const steps = 60;
+    const maxY = Math.min(cashYr, invYr);
+    const dg = ctx.createLinearGradient(0, cTop, 0, cBot);
+    dg.addColorStop(0, 'rgba(16, 185, 129, 0.22)');
+    dg.addColorStop(1, 'rgba(244, 63, 94, 0.14)');
+    ctx.fillStyle = dg;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const y = (i / steps) * maxY;
+      const px = yrToX(y), py = valToY(investedVal(y));
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    for (let i = steps; i >= 0; i--) {
+      const y = (i / steps) * maxY;
+      ctx.lineTo(yrToX(y), valToY(cashPower(y)));
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Cash Erosion Curve (Coral-Red)
+  if (cashYr > 0.05) {
+    const steps = 60;
+    ctx.save();
+    ctx.strokeStyle = '#fb7185';
+    ctx.shadowColor = '#f43f5e';
+    ctx.shadowBlur = 10 * S;
+    ctx.lineWidth = 3.2 * S;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const y = (i / steps) * cashYr;
+      const px = yrToX(y), py = valToY(cashPower(y));
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    const ex = yrToX(cashYr), ey = valToY(cashPower(cashYr));
+    ctx.fillStyle = '#fb7185';
+    ctx.beginPath(); ctx.arc(ex, ey, 4.8 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Invested Growth Curve (Emerald + Gold tip)
+  if (invYr > 0.05) {
+    const steps = 60;
+    ctx.save();
+    ctx.strokeStyle = '#10b981';
+    ctx.shadowColor = '#10b981';
+    ctx.shadowBlur = 14 * S;
+    ctx.lineWidth = 3.8 * S;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const y = (i / steps) * invYr;
+      const px = yrToX(y), py = valToY(investedVal(y));
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    const ex = yrToX(invYr), ey = valToY(investedVal(invYr));
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(ex, ey, 5.2 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2.4 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 9.8x Wealth Gap Callout at Year 20
+  if (gapReveal > 0.02) {
+    const x20 = yrToX(20);
+    const yTop = valToY(46600);
+    const yBot = valToY(4776);
+    ctx.save();
+    ctx.globalAlpha = gapReveal;
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 2.2 * S;
+    ctx.beginPath();
+    ctx.moveTo(x20 - 10 * S, yTop);
+    ctx.lineTo(x20 - 20 * S, yTop);
+    ctx.lineTo(x20 - 20 * S, yBot);
+    ctx.lineTo(x20 - 10 * S, yBot);
+    ctx.stroke();
+
+    const bw = 178 * S, bh = 32 * S;
+    const bx = x20 - 26 * S - bw;
+    const by = (yTop + yBot) * 0.5 - bh * 0.5;
+    ctx.fillStyle = 'rgba(6, 78, 59, 0.94)';
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 2 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 12 * S;
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 10 * S); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#fefce8';
+    ctx.font = `900 ${Math.round(14 * S)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('9.8× GAP (+$41.8K)', bx + bw * 0.5, by + bh * 0.5);
+    ctx.restore();
+  }
+
+  // Bottom summary strip inside chart box
+  const footY = chartBoxY + chartBoxH - 16 * S;
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${Math.round(12.5 * S)}px ui-monospace, monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#fb7185';
+  ctx.fillText('● CASH: $4,776 (-52%)', safeL + 16 * S, footY);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#34d399';
+  ctx.fillText('● INVESTED: $46,600 (+366%)', safeR - 14 * S, footY);
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>

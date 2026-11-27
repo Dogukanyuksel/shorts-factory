@@ -1,0 +1,70 @@
+name: Auto-Publish Wealth Mechanics Shorts (3x Daily US Prime Time)
+
+on:
+  schedule:
+    # 100% ABD Prime Time (UTC 14:17, 19:17, 00:17)
+    - cron: "17 0,14,19 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Sadece render al, YouTube'a yükleme (test)"
+        type: boolean
+        default: false
+      privacy:
+        description: "Video gizlilik durumu"
+        type: choice
+        default: public
+        options:
+          - public
+          - unlisted
+          - private
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-publish-wealth
+  cancel-in-progress: false
+
+jobs:
+  publish-wealth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Bağımlılıkları kur
+        run: npm ci
+
+      - name: Chromium & espeak-ng kur
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng
+          npx playwright-core install chromium
+
+      - name: Wealth Mechanics Short üret ve yayınla
+        env:
+          YOUTUBE_CLIENT_ID_EXPANSION: ${{ secrets.YOUTUBE_CLIENT_ID_EXPANSION }}
+          YOUTUBE_CLIENT_SECRET_EXPANSION: ${{ secrets.YOUTUBE_CLIENT_SECRET_EXPANSION }}
+          YOUTUBE_CLIENT_ID_WEALTH: ${{ secrets.YOUTUBE_CLIENT_ID_WEALTH }}
+          YOUTUBE_CLIENT_SECRET_WEALTH: ${{ secrets.YOUTUBE_CLIENT_SECRET_WEALTH }}
+          YOUTUBE_REFRESH_TOKEN_WEALTH: ${{ secrets.YOUTUBE_REFRESH_TOKEN_WEALTH }}
+          IG_USER_ID_WEALTH: ${{ secrets.IG_USER_ID_WEALTH }}
+          META_ACCESS_TOKEN_WEALTH: ${{ secrets.META_ACCESS_TOKEN_WEALTH }}
+          YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+        run: npx tsx src/publish-expansion.ts --channel wealth
+
+      - name: Yayın durumunu kaydet
+        if: always() && inputs.dry_run != true
+        run: |
+          if [ -f state/published-expansion.json ]; then
+            npx tsx src/safe-git-push.ts state/published-expansion.json "chore(publish): wealth mechanics short yayinlandi"
+          fi

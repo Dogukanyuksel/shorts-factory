@@ -1,0 +1,631 @@
+<!doctype html>
+<!--
+  Bio Mechanics — How Caffeine Tricks Your Brain (And Triggers the Afternoon Crash)
+  60fps, deterministic, audio-synced HTML5 Canvas neural synapse cutaway
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+const SCRIPT = [
+  { id: 'hook', text: 'Caffeine does not actually give you energy. It pulls off a molecular heist inside your brain.', caption: 'THE CAFFEINE HEIST' },
+  { id: 'adenosine', text: 'All day long, your brain builds up adenosine, a chemical messenger that tells neurons to slow down.', caption: '1. ADENOSINE BUILDS' },
+  { id: 'receptors', text: 'Normally, adenosine locks into specialized receptors, flipping your internal sleepiness switch.', caption: '2. SLEEP SIGNAL' },
+  { id: 'block', text: 'Enter caffeine. Its hexagonal shape mimics adenosine and snaps into those exact receptors first!', caption: '3. RECEPTORS BLOCKED' },
+  { id: 'pileup', text: 'Adenosine cannot get in, so you feel wide awake—while millions of sleep molecules pile up behind the barrier.', caption: '4. THE PILE-UP' },
+  { id: 'crash', text: 'Hours later, when caffeine finally clears, that massive wave floods in all at once: the afternoon crash.', caption: '5. AFTERNOON CRASH' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+window.init = (cfg) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lAd = getLine('adenosine', 1);
+  const lRe = getLine('receptors', 2);
+  const lBl = getLine('block', 3);
+  const lPi = getLine('pileup', 4);
+  const lCr = getLine('crash', 5);
+
+  EVENTS = [
+    { t: lAd.start + 0.14, type: 'bounce', pitchIndex: 2, intensity: 0.52 },
+    { t: lRe.start + 0.18, type: 'bounce', pitchIndex: 4, intensity: 0.62 },
+    { t: lBl.start + 0.14, type: 'bounce', pitchIndex: 7, intensity: 0.85 },
+    { t: lBl.start + 0.55, type: 'bounce', pitchIndex: 8, intensity: 0.80 },
+    { t: lPi.start + 0.25, type: 'bounce', pitchIndex: 6, intensity: 0.68 },
+    { t: lCr.start + 0.22, type: 'break', pitchIndex: 1, intensity: 1.0 },
+    { t: Math.min(DUR - 0.25, lCr.start + 1.35), type: 'win', pitchIndex: 9, intensity: 0.90 },
+  ];
+};
+
+function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
+  let px = Math.round(basePx);
+  ctx.font = `${weight} ${px}px ${family}`;
+  const m = ctx.measureText(text).width || 1;
+  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
+  ctx.font = `${weight} ${px}px ${family}`;
+  return px;
+}
+
+function getActivePhase(t) {
+  for (let i = SCRIPT.length - 1; i >= 0; i--) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) return { idx: i, line: ln };
+  }
+  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
+}
+
+// Draw glowing Adenosine molecule (bioluminescent violet-blue purine orb + ring)
+function drawAdenosine(x, y, r, alpha, glowBoost, S) {
+  if (alpha <= 0.01) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+  ctx.translate(x, y);
+
+  // Outer aura
+  const auraR = r * (1.9 + 0.4 * glowBoost);
+  const ag = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, auraR);
+  ag.addColorStop(0, 'rgba(167,139,250,0.65)');
+  ag.addColorStop(0.5, 'rgba(99,102,241,0.28)');
+  ag.addColorStop(1, 'rgba(99,102,241,0)');
+  ctx.fillStyle = ag;
+  ctx.beginPath(); ctx.arc(0, 0, auraR, 0, Math.PI * 2); ctx.fill();
+
+  // 3D sphere body
+  const sg = ctx.createRadialGradient(-r * 0.32, -r * 0.32, r * 0.1, 0, 0, r);
+  sg.addColorStop(0, '#ede9fe');
+  sg.addColorStop(0.42, '#8b5cf6');
+  sg.addColorStop(1, '#312e81');
+  ctx.fillStyle = sg;
+  ctx.strokeStyle = '#c4b5fd';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Subtle side ribose lobe (gives biological specificity)
+  ctx.fillStyle = '#38bdf8';
+  ctx.beginPath(); ctx.arc(r * 0.72, -r * 0.46, r * 0.36, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// Draw razor-sharp glowing golden hexagonal Caffeine molecule
+function drawCaffeineHex(x, y, r, rot, alpha, lockGlow, S) {
+  if (alpha <= 0.01) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  // Golden bioluminescent halo
+  const haloR = r * (2.2 + 0.6 * lockGlow);
+  const hg = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, haloR);
+  hg.addColorStop(0, 'rgba(253,224,71,0.72)');
+  hg.addColorStop(0.5, 'rgba(245,158,11,0.28)');
+  hg.addColorStop(1, 'rgba(245,158,11,0)');
+  ctx.fillStyle = hg;
+  ctx.beginPath(); ctx.arc(0, 0, haloR, 0, Math.PI * 2); ctx.fill();
+
+  // Hexagonal ring fill
+  const fg = ctx.createRadialGradient(-r * 0.25, -r * 0.25, 2 * S, 0, 0, r);
+  fg.addColorStop(0, '#fef9c3');
+  fg.addColorStop(0.45, '#facc15');
+  fg.addColorStop(1, '#b45309');
+  ctx.fillStyle = fg;
+  ctx.strokeStyle = '#fef08a';
+  ctx.lineWidth = 2.4 * S;
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3 - Math.PI / 6;
+    const px = Math.cos(a) * r;
+    const py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Inner hexagon ring detail
+  ctx.strokeStyle = 'rgba(120,53,15,0.65)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3 - Math.PI / 6;
+    const px = Math.cos(a) * r * 0.56;
+    const py = Math.sin(a) * r * 0.56;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  // 3 Methyl group nodes around perimeter
+  ctx.fillStyle = '#fffbeb';
+  for (let m = 0; m < 3; m++) {
+    const a = (m * 2 * Math.PI) / 3 - Math.PI / 6;
+    const mx = Math.cos(a) * r * 1.18;
+    const my = Math.sin(a) * r * 1.18;
+    ctx.beginPath(); ctx.arc(mx, my, r * 0.22, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// Draw sculpted A2A Adenosine Receptor cup embedded in postsynaptic membrane
+function drawReceptor(x, y, state, pulse, S) {
+  // state: 'idle' | 'adenosine' | 'caffeine' | 'overload'
+  ctx.save();
+  ctx.translate(x, y);
+
+  let cTop = '#64748b', cMid = '#334155', cGlow = 'rgba(148,163,184,0.25)';
+  if (state === 'adenosine') {
+    cTop = '#a78bfa'; cMid = '#4c1d95'; cGlow = 'rgba(139,92,246,0.55)';
+  } else if (state === 'caffeine') {
+    cTop = '#fde047'; cMid = '#b45309'; cGlow = 'rgba(250,204,21,0.65)';
+  } else if (state === 'overload') {
+    cTop = '#f43f5e'; cMid = '#6b21a8'; cGlow = 'rgba(244,63,94,0.75)';
+  }
+
+  ctx.shadowColor = cGlow;
+  ctx.shadowBlur = (12 + 12 * pulse) * S;
+
+  // Transmembrane stalk
+  const stalkG = ctx.createLinearGradient(-16 * S, 0, 16 * S, 0);
+  stalkG.addColorStop(0, '#1e293b');
+  stalkG.addColorStop(0.5, cMid);
+  stalkG.addColorStop(1, '#0f172a');
+  ctx.fillStyle = stalkG;
+  ctx.beginPath();
+  ctx.roundRect(-14 * S, 8 * S, 28 * S, 42 * S, 8 * S);
+  ctx.fill();
+
+  // U-shaped docking cradle (perfectly shaped for hexagon/adenosine)
+  const cupG = ctx.createLinearGradient(-32 * S, -22 * S, 32 * S, 18 * S);
+  cupG.addColorStop(0, cTop);
+  cupG.addColorStop(0.5, cMid);
+  cupG.addColorStop(1, cTop);
+  ctx.fillStyle = cupG;
+  ctx.strokeStyle = cTop;
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(-30 * S, -20 * S);
+  ctx.lineTo(-18 * S, -20 * S);
+  ctx.lineTo(-14 * S, 2 * S);
+  ctx.lineTo(14 * S, 2 * S);
+  ctx.lineTo(18 * S, -20 * S);
+  ctx.lineTo(30 * S, -20 * S);
+  ctx.quadraticCurveTo(32 * S, 18 * S, 0, 20 * S);
+  ctx.quadraticCurveTo(-32 * S, 18 * S, -30 * S, -20 * S);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const cx = W * 0.465;
+  const safeLeft = W * 0.08;
+  const safeRight = W * 0.85;
+  const safeW = safeRight - safeLeft;
+
+  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
+  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
+
+  const lAd = getLine('adenosine', 1);
+  const lRe = getLine('receptors', 2);
+  const lBl = getLine('block', 3);
+  const lPi = getLine('pileup', 4);
+  const lCr = getLine('crash', 5);
+
+  // Key timeline envelopes
+  const caffEnter = smooth(lBl.start, lBl.start + 1.1, t);
+  const caffClear = smooth(lCr.start, lCr.start + 0.85, t);
+  const caffBlocked = clamp(caffEnter * (1 - caffClear), 0, 1);
+  const pileUpAmt = smooth(lPi.start, lCr.start, t);
+  const crashFlood = smooth(lCr.start + 0.25, lCr.start + 1.45, t);
+  const crashImpact = Math.exp(-Math.pow((t - (lCr.start + 0.85)) / 0.35, 2));
+
+  // Subtle camera shake when the crash wave hits the receptors
+  const shakeX = crashImpact > 0.05 ? Math.sin(t * 110) * 5 * S * crashImpact : 0;
+  const shakeY = crashImpact > 0.05 ? Math.cos(t * 95) * 4 * S * crashImpact : 0;
+
+  // === 1. DEEP MIDNIGHT #050712 NEURAL BACKGROUND ===
+  ctx.fillStyle = '#050712';
+  ctx.fillRect(0, 0, W, H);
+
+  const bgGlow = ctx.createRadialGradient(cx, H * 0.42, 20 * S, cx, H * 0.42, H * 0.46);
+  if (caffBlocked > 0.35) {
+    bgGlow.addColorStop(0, `rgba(245,158,11,${(0.16 * caffBlocked).toFixed(3)})`);
+  } else if (crashFlood > 0.2) {
+    bgGlow.addColorStop(0, `rgba(139,92,246,${(0.24 * crashFlood).toFixed(3)})`);
+  } else {
+    bgGlow.addColorStop(0, 'rgba(79,70,229,0.16)');
+  }
+  bgGlow.addColorStop(0.55, 'rgba(15,23,42,0.16)');
+  bgGlow.addColorStop(1, 'rgba(5,7,18,0)');
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle synaptic background bokeh
+  for (let b = 0; b < 14; b++) {
+    const bx = safeLeft + hash(b * 13) * safeW;
+    const by = H * 0.18 + hash(b * 29) * H * 0.46 + Math.sin(t * 0.7 + b) * 6 * S;
+    const br = (6 + hash(b * 7) * 18) * S;
+    ctx.fillStyle = b % 2 === 0 ? 'rgba(99,102,241,0.06)' : 'rgba(56,189,248,0.05)';
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // === 2. PRESYNAPTIC AXON TERMINAL (TOP MEMBRANE: y H*0.185 to H*0.295) ===
+  const preBottomY = H * 0.285;
+  ctx.save();
+  const preG = ctx.createLinearGradient(cx, H * 0.175, cx, preBottomY + 14 * S);
+  preG.addColorStop(0, '#1e1b4b');
+  preG.addColorStop(0.55, '#312e81');
+  preG.addColorStop(1, '#4338ca');
+  ctx.fillStyle = preG;
+  ctx.strokeStyle = '#818cf8';
+  ctx.lineWidth = 2.6 * S;
+  ctx.shadowColor = 'rgba(129,140,248,0.35)';
+  ctx.shadowBlur = 18 * S;
+  ctx.beginPath();
+  ctx.moveTo(safeLeft + 18 * S, H * 0.182);
+  ctx.lineTo(safeRight - 18 * S, H * 0.182);
+  ctx.quadraticCurveTo(safeRight + 8 * S, preBottomY - 12 * S, safeRight - 36 * S, preBottomY);
+  ctx.quadraticCurveTo(cx, preBottomY + 26 * S, safeLeft + 36 * S, preBottomY);
+  ctx.quadraticCurveTo(safeLeft - 8 * S, preBottomY - 12 * S, safeLeft + 18 * S, H * 0.182);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Glowing synaptic vesicles inside presynaptic bulb
+  for (let v = 0; v < 5; v++) {
+    const vx = lerp(safeLeft + 80 * S, safeRight - 80 * S, v / 4);
+    const vy = H * 0.232 + Math.sin(t * 2.2 + v * 1.4) * 7 * S;
+    ctx.fillStyle = 'rgba(139,92,246,0.28)';
+    ctx.strokeStyle = 'rgba(196,181,253,0.65)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath(); ctx.arc(vx, vy, 20 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // Mini adenosine dots inside vesicle
+    ctx.fillStyle = '#ddd6fe';
+    ctx.beginPath();
+    ctx.arc(vx - 5 * S, vy - 3 * S, 3.5 * S, 0, Math.PI * 2);
+    ctx.arc(vx + 6 * S, vy + 4 * S, 3.5 * S, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Presynaptic label
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('PRESYNAPTIC NEURON', 14 * S, 240 * S, '800');
+  ctx.fillStyle = 'rgba(224,231,255,0.85)';
+  ctx.fillText('PRESYNAPTIC NEURON', cx, H * 0.200);
+  ctx.restore();
+
+  // === 3. POSTSYNAPTIC DENDRITE (BOTTOM MEMBRANE: y H*0.505 to H*0.618) ===
+  const postTopY = H * 0.520;
+  const postBotY = H * 0.616;
+  ctx.save();
+  const postG = ctx.createLinearGradient(cx, postTopY - 12 * S, cx, postBotY);
+  if (caffBlocked > 0.4) {
+    postG.addColorStop(0, '#78350f');
+    postG.addColorStop(0.45, '#1e293b');
+    postG.addColorStop(1, '#0f172a');
+  } else if (crashFlood > 0.3) {
+    postG.addColorStop(0, '#581c87');
+    postG.addColorStop(0.5, '#3b0764');
+    postG.addColorStop(1, '#1e1b4b');
+  } else {
+    postG.addColorStop(0, '#1e3a5f');
+    postG.addColorStop(0.55, '#0f172a');
+    postG.addColorStop(1, '#080d1a');
+  }
+  ctx.fillStyle = postG;
+  ctx.strokeStyle = caffBlocked > 0.4 ? '#fbbf24' : (crashFlood > 0.3 ? '#c084fc' : '#38bdf8');
+  ctx.lineWidth = 2.6 * S;
+  ctx.beginPath();
+  ctx.moveTo(safeLeft + 26 * S, postTopY);
+  ctx.quadraticCurveTo(cx, postTopY - 26 * S, safeRight - 26 * S, postTopY);
+  ctx.quadraticCurveTo(safeRight + 6 * S, postBotY - 18 * S, safeRight - 20 * S, postBotY);
+  ctx.lineTo(safeLeft + 20 * S, postBotY);
+  ctx.quadraticCurveTo(safeLeft - 6 * S, postBotY - 18 * S, safeLeft + 26 * S, postTopY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Neural firing pulses inside postsynaptic dendrite
+  const pulseSpeed = caffBlocked > 0.4 ? 3.8 : (crashFlood > 0.3 ? 0.55 : 1.3);
+  const pulseColor = caffBlocked > 0.4 ? 'rgba(250,204,21,0.55)' : (crashFlood > 0.3 ? 'rgba(244,63,94,0.45)' : 'rgba(139,92,246,0.4)');
+  for (let p = 0; p < 6; p++) {
+    const u = ((t * pulseSpeed * 0.45 + p / 6) % 1 + 1) % 1;
+    const px = lerp(safeLeft + 70 * S, safeRight - 70 * S, (p + 0.5) / 6);
+    const py = lerp(postTopY + 18 * S, postBotY - 14 * S, u);
+    ctx.fillStyle = pulseColor;
+    ctx.beginPath();
+    ctx.arc(px, py, (4 + 4 * (1 - u)) * S, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont('POSTSYNAPTIC RECEPTORS (A2A)', 14 * S, 300 * S, '800');
+  ctx.fillStyle = 'rgba(226,232,240,0.88)';
+  ctx.fillText('POSTSYNAPTIC RECEPTORS (A2A)', cx, postBotY - 18 * S);
+  ctx.restore();
+
+  // === 4. 4 A2A RECEPTOR DOCKS ALONG POSTSYNAPTIC CREST ===
+  const recCoords = [];
+  for (let r = 0; r < 4; r++) {
+    const frac = (r + 0.5) / 4;
+    const rx = lerp(safeLeft + 54 * S, safeRight - 54 * S, frac);
+    const archOffset = Math.sin(frac * Math.PI) * 13 * S;
+    const ry = postTopY - archOffset;
+    recCoords.push({ x: rx, y: ry });
+
+    let rState = 'idle';
+    if (caffBlocked > 0.45) rState = 'caffeine';
+    else if (crashFlood > 0.35) rState = 'overload';
+    else if (t >= lRe.start + 0.3 && t < lBl.start + 0.35) rState = 'adenosine';
+
+    const rPulse = 0.5 + 0.5 * Math.sin(t * (rState === 'caffeine' ? 9 : 4) + r);
+    drawReceptor(rx, ry, rState, rPulse, S);
+  }
+
+  // Golden barrier arc when caffeine blocks all receptors
+  if (caffBlocked > 0.15) {
+    ctx.save();
+    ctx.strokeStyle = `rgba(250,204,21,${(0.65 * caffBlocked).toFixed(2)})`;
+    ctx.lineWidth = 3 * S;
+    ctx.setLineDash([10 * S, 7 * S]);
+    ctx.lineDashOffset = -t * 36 * S;
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 14 * S;
+    ctx.beginPath();
+    ctx.moveTo(safeLeft + 24 * S, postTopY - 38 * S);
+    ctx.quadraticCurveTo(cx, postTopY - 64 * S, safeRight - 24 * S, postTopY - 38 * S);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // === 5. ADENOSINE MOLECULES (FLOW -> DOCK -> PILE-UP -> CRASH FLOOD!) ===
+  // 4 Hero Adenosine molecules that dock during phase 2 (Receptors), get bounced during Block, then flood during Crash
+  const adDockIn = smooth(lRe.start, lRe.start + 1.1, t);
+  const adEject = smooth(lBl.start, lBl.start + 0.65, t);
+  for (let i = 0; i < 4; i++) {
+    const rec = recCoords[i];
+    const startX = lerp(safeLeft + 70 * S, safeRight - 70 * S, (i + 0.5) / 4);
+    const startY = preBottomY + 28 * S + (i % 2) * 16 * S;
+    const dockY = rec.y - 11 * S;
+    const queueY = rec.y - 72 * S - (i % 2) * 14 * S;
+
+    let ax = startX;
+    let ay = lerp(startY, dockY, adDockIn);
+    if (adEject > 0.01 && crashFlood < 0.01) {
+      ay = lerp(dockY, queueY, adEject) + Math.sin(t * 4.5 + i * 2) * 6 * S;
+      ax = rec.x + Math.cos(t * 3.2 + i) * 10 * S;
+    } else if (crashFlood >= 0.01) {
+      ay = lerp(queueY, dockY, crashFlood);
+      ax = rec.x;
+    } else {
+      ax = lerp(startX, rec.x, adDockIn);
+    }
+    drawAdenosine(ax, ay, 13.5 * S, smooth(0.1, 0.8, t), crashFlood, S);
+  }
+
+  // 40 Background/Pile-Up Adenosine molecules!
+  const swarmCount = 40;
+  for (let i = 0; i < swarmCount; i++) {
+    const appearT = lerp(lAd.start, lPi.end - 0.3, i / swarmCount);
+    const vis = smooth(appearT - 0.35, appearT + 0.35, t);
+    if (vis <= 0.01) continue;
+
+    const targetRec = recCoords[i % 4];
+    const laneX = lerp(safeLeft + 38 * S, safeRight - 38 * S, hash(i * 19 + 3));
+    const driftY = lerp(preBottomY + 18 * S, postTopY - 82 * S, hash(i * 23 + 7));
+
+    // Pile-up position densely packed just above the golden caffeine barrier
+    const row = Math.floor(i / 8);
+    const col = (i % 8) / 7;
+    const pileX = lerp(safeLeft + 44 * S, safeRight - 44 * S, col) + Math.sin(t * 3.6 + i) * 7 * S;
+    const pileY = postTopY - 68 * S - row * 24 * S + Math.cos(t * 4.2 + i * 1.7) * 5 * S;
+
+    // During crash, all 40 molecules rush downward into the receptors & postsynaptic crest!
+    const floodDelay = (i / swarmCount) * 0.35;
+    const localFlood = smooth(lCr.start + 0.18 + floodDelay, lCr.start + 1.05 + floodDelay, t);
+
+    let mx = lerp(laneX, pileX, clamp(pileUpAmt * 1.2 + caffBlocked * 0.6, 0, 1));
+    let my = lerp(driftY + Math.sin(t * 2 + i) * 10 * S, pileY, clamp(pileUpAmt * 1.2 + caffBlocked * 0.6, 0, 1));
+
+    if (localFlood > 0.01) {
+      mx = lerp(mx, targetRec.x + (hash(i * 31) - 0.5) * 34 * S, localFlood);
+      my = lerp(my, targetRec.y - 6 * S + (hash(i * 11) - 0.5) * 26 * S, localFlood);
+    }
+
+    const mr = (8.5 + hash(i * 7) * 3.5) * S;
+    drawAdenosine(mx, my, mr, vis * 0.92, pileUpAmt * 0.5 + localFlood, S);
+  }
+
+  // === 6. GOLDEN HEXAGONAL CAFFEINE MOLECULES (SNAP IN -> BLOCK -> CLEAR) ===
+  if (caffEnter > 0.01 && caffClear < 0.99) {
+    for (let i = 0; i < 4; i++) {
+      const rec = recCoords[i];
+      const stagger = i * 0.12;
+      const enterU = smooth(lBl.start + stagger, lBl.start + 0.55 + stagger, t);
+      const exitU = smooth(lCr.start + stagger * 0.6, lCr.start + 0.65 + stagger * 0.6, t);
+
+      const fromLeft = i < 2;
+      const entryX = fromLeft ? safeLeft - 45 * S : safeRight + 45 * S;
+      const entryY = rec.y - 95 * S;
+      const dockX = rec.x;
+      const dockY = rec.y - 12 * S;
+      const exitX = fromLeft ? safeLeft - 55 * S : safeRight + 55 * S;
+      const exitY = rec.y - 130 * S;
+
+      let kx = lerp(entryX, dockX, enterU);
+      let ky = lerp(entryY, dockY, enterU);
+      if (exitU > 0.01) {
+        kx = lerp(dockX, exitX, exitU);
+        ky = lerp(dockY, exitY, exitU);
+      }
+
+      const rot = (1 - enterU) * 2.4 + exitU * 2.8 + Math.sin(t * 2 + i) * 0.05;
+      const alpha = enterU * (1 - exitU);
+      const snapFlash = Math.exp(-Math.pow((enterU - 0.95) / 0.12, 2)) * (1 - exitU);
+      drawCaffeineHex(kx, ky, 15.5 * S, rot, alpha, snapFlash, S);
+    }
+  }
+
+  // Crash shockwave ring when the adenosine backlog hits!
+  if (crashImpact > 0.04) {
+    ctx.save();
+    const ringR = lerp(30 * S, 240 * S, clamp(crashFlood, 0, 1));
+    ctx.strokeStyle = `rgba(192,132,252,${(0.75 * crashImpact).toFixed(2)})`;
+    ctx.lineWidth = 4.5 * S;
+    ctx.beginPath();
+    ctx.arc(cx, postTopY - 10 * S, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Compact callout badge inside synaptic cleft
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (phaseIdx === 3) {
+    fitFont('CAFFEINE LOCKED', 18 * S, 260 * S, '900');
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('CAFFEINE LOCKED', cx, postTopY - 68 * S);
+  } else if (phaseIdx === 4) {
+    fitFont('ADENOSINE BACKLOG PILING UP!', 17 * S, 360 * S, '900');
+    ctx.fillStyle = '#ddd6fe';
+    ctx.fillText('ADENOSINE BACKLOG PILING UP!', cx, preBottomY + 34 * S);
+  } else if (phaseIdx === 5 && crashFlood > 0.35) {
+    fitFont('SLEEP WAVE OVERLOAD!', 19 * S, 320 * S, '900');
+    ctx.fillStyle = '#fda4af';
+    ctx.fillText('SLEEP WAVE OVERLOAD!', cx, H * 0.405);
+  }
+  ctx.restore();
+
+  ctx.restore(); // end shake
+
+  // === 7. TELEMETRY CARDS (y: H*0.635 to H*0.688) ===
+  const cardY = H * 0.635;
+  const cardH = H * 0.052;
+  const gap = 12 * S;
+  const cardW = (safeW - gap) * 0.5;
+
+  // Compute live alertness % & adenosine queue
+  let alertness = 68;
+  if (t >= lAd.start && t < lBl.start) {
+    alertness = Math.round(lerp(68, 36, smooth(lAd.start, lBl.start, t)));
+  } else if (t >= lBl.start && t < lCr.start) {
+    alertness = Math.round(lerp(36, 98, smooth(lBl.start, lBl.start + 0.9, t)));
+  } else if (t >= lCr.start) {
+    alertness = Math.round(lerp(98, 16, crashFlood));
+  }
+
+  let queueCount = Math.round(lerp(8, 36, smooth(0, lBl.start, t)));
+  if (t >= lBl.start && t < lCr.start) {
+    queueCount = Math.round(lerp(36, 260, smooth(lBl.start, lCr.start, t)));
+  } else if (t >= lCr.start) {
+    queueCount = Math.round(lerp(260, 0, crashFlood));
+  }
+
+  function drawCard(x, label, val, accent, valColor) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.9)';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(label, 13 * S, cardW - 18 * S, '800');
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
+
+    fitFont(val, 23 * S, cardW - 18 * S, '900');
+    ctx.fillStyle = valColor;
+    ctx.fillText(val, x + cardW * 0.5, cardY + cardH * 0.70);
+    ctx.restore();
+  }
+
+  const alertColor = alertness >= 80 ? '#fde047' : (alertness <= 28 ? '#fb7185' : '#e2e8f0');
+  const queueText = crashFlood > 0.55 ? 'FLOODING!' : `${queueCount}+`;
+  const queueColor = crashFlood > 0.55 ? '#fb7185' : '#c4b5fd';
+
+  drawCard(safeLeft, 'BRAIN ALERTNESS', `${alertness}%`, alertness >= 80 ? 'rgba(250,204,21,0.65)' : 'rgba(139,92,246,0.55)', alertColor);
+  drawCard(safeLeft + cardW + gap, 'ADENOSINE QUEUE', queueText, 'rgba(167,139,250,0.65)', queueColor);
+
+  // === 8. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL ===
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  fitFont('BIO MECHANICS • NEURAL SYNAPSE', 22 * S, safeW, '800');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('BIO MECHANICS • NEURAL SYNAPSE', cx, H * 0.155);
+
+  const pillW = Math.min(safeW, 430 * S);
+  const pillH = 54 * S;
+  const pillY = H * 0.715;
+  const pop = 1 + 0.05 * Math.exp(-phaseProg * 14);
+
+  ctx.save();
+  ctx.translate(cx, pillY);
+  ctx.scale(pop, pop);
+  const isGold = phaseIdx === 3 || phaseIdx === 4;
+  ctx.shadowColor = isGold ? 'rgba(250,204,21,0.45)' : 'rgba(139,92,246,0.45)';
+  ctx.shadowBlur = 20 * S;
+  ctx.fillStyle = isGold ? '#facc15' : (phaseIdx === 5 ? '#f43f5e' : '#8b5cf6');
+  ctx.beginPath();
+  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  fitFont(activeLine.caption, 28 * S, pillW - 36 * S, '900');
+  ctx.fillStyle = isGold ? '#0a0a0a' : '#ffffff';
+  ctx.fillText(activeLine.caption, 0, 1 * S);
+  ctx.restore();
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+window.ready = true;
+</script>
