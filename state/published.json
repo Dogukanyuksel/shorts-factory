@@ -264,6 +264,21 @@
       "videoId": "sfWQBPQiDiw",
       "url": "https://www.youtube.com/watch?v=sfWQBPQiDiw",
       "publishedAt": "2026-11-27T06:51:54.384Z"
+    },
+    {
+      "id": "doubling-ladder-seed4",
+      "channel": "physics",
+      "title": "One Bacterium Doubling… When Does It Reach the Sun? #shorts",
+      "videoId": "k0dVVW_hhj0",
+      "url": "https://youtube.com/shorts/k0dVVW_hhj0",
+      "poll": {
+        "optionAKey": "physics-ring",
+        "optionBKey": "gravity-compare",
+        "optionA": "7-Ring Escape",
+        "optionB": "Moon vs Earth vs Jupiter"
+      },
+      "publishedAt": "2026-11-27T11:09:48.218Z",
+      "instagramMediaId": "18198927346397855"
     }
   ],
   "removedVideoIds": [
