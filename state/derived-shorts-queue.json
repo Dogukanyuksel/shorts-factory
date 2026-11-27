@@ -171,6 +171,87 @@
       ],
       "ctaText": "WATCH FULL 4-MIN DEEP DIVE ↓",
       "enqueuedAt": "2026-11-27T17:36:50.491Z"
+    },
+    {
+      "id": "narrative-explainer-gear-ratios-short-1-15625-cranks",
+      "channel": "explainer",
+      "parentEpisodeId": "narrative-explainer-gear-ratios",
+      "parentSlug": "gear-ratios-and-torque-deep-dive",
+      "parentVideoId": "GZnOArlONbU",
+      "parentTitle": "Why Impossible Gears Can Multiply Force by 15,625x (Animated Engineering Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=GZnOArlONbU",
+      "shortIndex": 0,
+      "hook": "15,625 CRANKS FOR 1 TURN",
+      "partLabel": "PART 1 / 3 · FULL 4-MIN VIDEO ↓",
+      "title": "Why 6 Tiny Gears Multiply Your Force 15,625 Times #shorts",
+      "descriptionLead": "Each stage slows down 5x and multiplies torque 5x — watch how 5⁶ creates unstoppable mechanical advantage.",
+      "tags": [
+        "gear ratio",
+        "torque",
+        "mechanics",
+        "shorts"
+      ],
+      "beatIds": [
+        "g1-hook-1",
+        "g1-hook-2",
+        "g2-ratio"
+      ],
+      "ctaText": "PART 2: IMPOSSIBLE GEARS → SUBSCRIBE",
+      "enqueuedAt": "2026-11-27T22:58:40.146Z"
+    },
+    {
+      "id": "narrative-explainer-gear-ratios-short-2-fibonacci-mesh",
+      "channel": "explainer",
+      "parentEpisodeId": "narrative-explainer-gear-ratios",
+      "parentSlug": "gear-ratios-and-torque-deep-dive",
+      "parentVideoId": "GZnOArlONbU",
+      "parentTitle": "Why Impossible Gears Can Multiply Force by 15,625x (Animated Engineering Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=GZnOArlONbU",
+      "shortIndex": 1,
+      "hook": "HOW DO THESE NOT JAM?!",
+      "partLabel": "PART 2 / 3 · FULL 4-MIN VIDEO ↓",
+      "title": "Non-Round Fibonacci Gears Explained in 30 Seconds #shorts",
+      "descriptionLead": "The hidden equation r₁(θ₁) + r₂(θ₂) = D that lets golden-ratio spiral gears spin smoothly without ever locking up.",
+      "tags": [
+        "fibonacci gears",
+        "math",
+        "engineering",
+        "shorts"
+      ],
+      "beatIds": [
+        "g1-hook-3",
+        "g2-fibonacci",
+        "g2-energy"
+      ],
+      "ctaText": "PART 3: WHEN STEEL SNAPS → SUBSCRIBE",
+      "enqueuedAt": "2026-11-27T22:58:40.146Z"
+    },
+    {
+      "id": "narrative-explainer-gear-ratios-short-3-tooth-shear",
+      "channel": "explainer",
+      "parentEpisodeId": "narrative-explainer-gear-ratios",
+      "parentSlug": "gear-ratios-and-torque-deep-dive",
+      "parentVideoId": "GZnOArlONbU",
+      "parentTitle": "Why Impossible Gears Can Multiply Force by 15,625x (Animated Engineering Deep Dive)",
+      "parentUrl": "https://www.youtube.com/watch?v=GZnOArlONbU",
+      "shortIndex": 2,
+      "hook": "WHY GEARS SNAP UNDER LOAD",
+      "partLabel": "PART 3 / 3 · FULL 4-MIN VIDEO ↓",
+      "title": "Why Planetary Gears Beat Standard Gears Every Time #shorts",
+      "descriptionLead": "Root bending stress snaps single-contact spur teeth — see how planetary gearboxes split the load across four gears.",
+      "tags": [
+        "planetary gears",
+        "gear failure",
+        "engineering",
+        "shorts"
+      ],
+      "beatIds": [
+        "g3-bridge",
+        "g3-shear",
+        "g4-compare"
+      ],
+      "ctaText": "WATCH FULL 4-MIN DEEP DIVE ↓",
+      "enqueuedAt": "2026-11-27T22:58:40.146Z"
     }
   ]
 }
