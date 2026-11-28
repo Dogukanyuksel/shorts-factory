@@ -59,6 +59,8 @@ jobs:
           IG_USER_ID_BIO: ${{ secrets.IG_USER_ID_BIO }}
           META_ACCESS_TOKEN_BIO: ${{ secrets.META_ACCESS_TOKEN_BIO || secrets.ETA_ACCESS_TOKEN_BIO || secrets.META_ACCESS_TOKEN_WEALTH }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
+          # Zamanlayıcı + gecikmiş cron aynı slotta 2 short yayınlamasın
+          MIN_PUBLISH_GAP_HOURS: "2"
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
         run: npx tsx src/publish-expansion.ts --channel bio
 

@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
+import { syncPublishedStateFromRemote } from "./state-sync.js";
 import { EXPANSION_CHANNEL_META, type ExpansionChannelId } from "./catalog-expansion.js";
 import { pickNarrativeLongform } from "./longform-narrative.js";
 import { buildYouTubeNetworkFooter } from "./network-links.js";
@@ -80,7 +82,15 @@ async function main() {
     console.log(`🛡️ [longform-expansion] Kanal doğrulandı: "${my.title}" (${my.id})`);
   }
 
+  syncPublishedStateFromRemote(STATE_PATH);
   const published = await loadExpansionState();
+  // Çift uzun video koruması (MIN_PUBLISH_GAP_HOURS, ör. 40 saat)
+  const minGapHours = resolveMinGapHours();
+  const sinceLast = hoursSinceLastPublish(published, channel, "longform");
+  if (!dryRun && minGapHours > 0 && sinceLast < minGapHours) {
+    console.log(`[longform-expansion] "${channel}" son uzun video ${sinceLast.toFixed(1)} saat önce (< ${minGapHours}); atlanıyor.`);
+    return;
+  }
   const publishedIds = new Set(published.map((r) => r.id));
   const spec = pickNarrativeLongform(channel, publishedIds);
   if (!spec) {

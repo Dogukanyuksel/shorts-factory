@@ -1,5 +1,9 @@
 name: Publish Wealth & Bio 16:9 Deep Dive (4,000h YPP Accelerator)
 
+# Zamanlayıcı hangi kanalın koşusu olduğunu bu başlıktan ayırt eder
+run-name: >-
+  Long-Form Expansion ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (github.event.schedule == '30 17 2-30/2 * *' && 'bio' || 'wealth') }}
+
 on:
   schedule:
     # Her 2 günde 1 uzun video / kanal:
@@ -70,6 +74,7 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_WEALTH: ${{ secrets.YOUTUBE_REFRESH_TOKEN_WEALTH }}
           YOUTUBE_REFRESH_TOKEN_BIO: ${{ secrets.YOUTUBE_REFRESH_TOKEN_BIO }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
+          MIN_PUBLISH_GAP_HOURS: "40"
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
         run: npx tsx src/publish-longform-expansion.ts --channel "${CHANNEL_ID}"
 

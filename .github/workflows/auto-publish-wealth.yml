@@ -59,6 +59,8 @@ jobs:
           IG_USER_ID_WEALTH: ${{ secrets.IG_USER_ID_WEALTH }}
           META_ACCESS_TOKEN_WEALTH: ${{ secrets.META_ACCESS_TOKEN_WEALTH }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
+          # Zamanlayıcı + gecikmiş cron aynı slotta 2 short yayınlamasın
+          MIN_PUBLISH_GAP_HOURS: "2"
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
         run: npx tsx src/publish-expansion.ts --channel wealth
 

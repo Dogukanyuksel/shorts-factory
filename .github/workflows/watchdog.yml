@@ -15,6 +15,9 @@ on:
       - "Auto-Publish Daily 16:9 Long-Form (Both Channels)"
       - "Organik Etkileşim — Kendi Videolarımızdaki Yorumlara Yanıt (2 saatte bir)"
       - "Telegram Monitor — YouTube & Instagram Reports (Every 6h)"
+      - "Auto-Publish Wealth Mechanics Shorts (3x Daily US Prime Time)"
+      - "Auto-Publish Bio Mechanics Shorts (3x Daily US Prime Time)"
+      - "Publish Wealth & Bio 16:9 Deep Dive (4,000h YPP Accelerator)"
     types: [completed]
   workflow_dispatch:
     inputs:
