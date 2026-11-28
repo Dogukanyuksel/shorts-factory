@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-28T05:20:28.087Z",
+  "generatedAt": "2026-11-28T07:23:30.833Z",
   "healthy": true,
   "missingSceneFiles": [],
   "channels": {
@@ -8,13 +8,33 @@
       "totalPublished": 20,
       "shortsCount": 14,
       "longformCount": 4,
-      "hoursSinceLastShort": 5.2,
-      "hoursSinceLastLongform": 14,
+      "hoursSinceLastShort": 7.2,
+      "hoursSinceLastLongform": 13.9,
       "pendingDerivedShorts": 1,
       "missingInstagramCount": 0,
-      "totalYtViews": 17111,
+      "totalYtViews": 17342,
       "totalIgViews": 0,
       "topPerformers": [
+        {
+          "id": "pi-collisions-seed113",
+          "channel": "physics",
+          "nicheOrEpisode": "pi-collisions",
+          "title": "These Two Blocks Calculate Pi Just By Colliding #shorts",
+          "url": "https://youtube.com/shorts/LjjKurWMeZk",
+          "publishedAt": "2026-11-26T20:08:25.607Z",
+          "ageHours": 35.3,
+          "ytViews": 1600,
+          "ytLikes": 21,
+          "ytComments": 4,
+          "igViews": 0,
+          "igLikes": 15,
+          "igComments": 1,
+          "igSaves": 0,
+          "igShares": 0,
+          "totalViews": 1600,
+          "viewsPerHour": 45.3,
+          "viralScore": 333.9
+        },
         {
           "id": "narrative-physics-butterfly-effect-short-1-exact-split",
           "channel": "physics",
@@ -22,8 +42,8 @@
           "title": "100 Pendulums Dropped 0.001° Apart: Watch Second 7 #shorts",
           "url": "https://youtube.com/shorts/Hdjj91HUhyg",
           "publishedAt": "2026-11-27T18:29:38.783Z",
-          "ageHours": 10.8,
-          "ytViews": 1232,
+          "ageHours": 12.9,
+          "ytViews": 1270,
           "ytLikes": 4,
           "ytComments": 1,
           "igViews": 0,
@@ -31,9 +51,9 @@
           "igComments": 0,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 1232,
-          "viewsPerHour": 114.1,
-          "viralScore": 350
+          "totalViews": 1270,
+          "viewsPerHour": 98.4,
+          "viralScore": 331
         },
         {
           "id": "spin-illusion-seed1",
@@ -42,7 +62,7 @@
           "title": "Your Mind Can Reverse This Spinning Cylinder #shorts",
           "url": "https://youtube.com/shorts/2Ob4OJPc-wY",
           "publishedAt": "2026-11-26T14:27:12.259Z",
-          "ageHours": 38.9,
+          "ageHours": 40.9,
           "ytViews": 1769,
           "ytLikes": 4,
           "ytComments": 5,
@@ -52,48 +72,8 @@
           "igSaves": 0,
           "igShares": 0,
           "totalViews": 1769,
-          "viewsPerHour": 45.5,
-          "viralScore": 321
-        },
-        {
-          "id": "chladni-sand-seed123",
-          "channel": "physics",
-          "nicheOrEpisode": "chladni-sand",
-          "title": "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts",
-          "url": "https://youtube.com/shorts/H69nPT99Jrk",
-          "publishedAt": "2026-11-27T17:09:43.279Z",
-          "ageHours": 12.2,
-          "ytViews": 1126,
-          "ytLikes": 11,
-          "ytComments": 1,
-          "igViews": 0,
-          "igLikes": 13,
-          "igComments": 0,
-          "igSaves": 0,
-          "igShares": 0,
-          "totalViews": 1126,
-          "viewsPerHour": 92.3,
-          "viralScore": 313.6
-        },
-        {
-          "id": "pi-collisions-seed113",
-          "channel": "physics",
-          "nicheOrEpisode": "pi-collisions",
-          "title": "These Two Blocks Calculate Pi Just By Colliding #shorts",
-          "url": "https://youtube.com/shorts/LjjKurWMeZk",
-          "publishedAt": "2026-11-26T20:08:25.607Z",
-          "ageHours": 33.2,
-          "ytViews": 1465,
-          "ytLikes": 19,
-          "ytComments": 4,
-          "igViews": 0,
-          "igLikes": 15,
-          "igComments": 1,
-          "igSaves": 0,
-          "igShares": 0,
-          "totalViews": 1465,
-          "viewsPerHour": 44.1,
-          "viralScore": 312.9
+          "viewsPerHour": 43.3,
+          "viralScore": 317.7
         },
         {
           "id": "spin-illusion-seed10",
@@ -102,8 +82,8 @@
           "title": "Can You Make This Cone Spin BOTH Ways? #shorts",
           "url": "https://youtube.com/shorts/LRJfPvTilI4",
           "publishedAt": "2026-11-26T23:09:36.873Z",
-          "ageHours": 30.2,
-          "ytViews": 1385,
+          "ageHours": 32.2,
+          "ytViews": 1399,
           "ytLikes": 7,
           "ytComments": 1,
           "igViews": 0,
@@ -111,9 +91,29 @@
           "igComments": 4,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 1385,
-          "viewsPerHour": 45.9,
-          "viralScore": 301.5
+          "totalViews": 1399,
+          "viewsPerHour": 43.4,
+          "viralScore": 299.5
+        },
+        {
+          "id": "chladni-sand-seed123",
+          "channel": "physics",
+          "nicheOrEpisode": "chladni-sand",
+          "title": "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts",
+          "url": "https://youtube.com/shorts/H69nPT99Jrk",
+          "publishedAt": "2026-11-27T17:09:43.279Z",
+          "ageHours": 14.2,
+          "ytViews": 1130,
+          "ytLikes": 11,
+          "ytComments": 1,
+          "igViews": 0,
+          "igLikes": 13,
+          "igComments": 0,
+          "igSaves": 0,
+          "igShares": 0,
+          "totalViews": 1130,
+          "viewsPerHour": 79.6,
+          "viralScore": 295
         }
       ],
       "issues": [],
@@ -124,11 +124,11 @@
       "totalPublished": 17,
       "shortsCount": 10,
       "longformCount": 5,
-      "hoursSinceLastShort": 3.8,
-      "hoursSinceLastLongform": 22.5,
+      "hoursSinceLastShort": 5.9,
+      "hoursSinceLastLongform": 8.4,
       "pendingDerivedShorts": 4,
       "missingInstagramCount": 1,
-      "totalYtViews": 8601,
+      "totalYtViews": 8943,
       "totalIgViews": 0,
       "topPerformers": [
         {
@@ -138,18 +138,18 @@
           "title": "How a 4-Stroke Engine Actually Works (3D Cutaway) #shorts",
           "url": "https://youtube.com/shorts/-D71y8sEf5c",
           "publishedAt": "2026-11-27T14:57:23.745Z",
-          "ageHours": 14.4,
-          "ytViews": 1355,
-          "ytLikes": 19,
+          "ageHours": 16.4,
+          "ytViews": 1362,
+          "ytLikes": 20,
           "ytComments": 1,
           "igViews": 0,
           "igLikes": 1,
           "igComments": 1,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 1355,
-          "viewsPerHour": 94.1,
-          "viralScore": 341.8
+          "totalViews": 1362,
+          "viewsPerHour": 83,
+          "viralScore": 327.4
         },
         {
           "id": "explainer-sun-black-hole",
@@ -158,8 +158,8 @@
           "title": "If the Sun Turned Into a Black Hole, Earth Wouldn't Get Sucked In #shorts",
           "url": "https://youtube.com/shorts/fXhRUADixW8",
           "publishedAt": "2026-11-27T11:39:17.409Z",
-          "ageHours": 17.7,
-          "ytViews": 1381,
+          "ageHours": 19.7,
+          "ytViews": 1384,
           "ytLikes": 22,
           "ytComments": 3,
           "igViews": 0,
@@ -167,9 +167,9 @@
           "igComments": 1,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 1381,
-          "viewsPerHour": 78,
-          "viralScore": 337.7
+          "totalViews": 1384,
+          "viewsPerHour": 70.3,
+          "viralScore": 326.5
         },
         {
           "id": "explainer-key-fob-rolling-code",
@@ -178,8 +178,8 @@
           "title": "Why Thieves Can't Just Record Your Car Key #shorts",
           "url": "https://youtube.com/shorts/6UufvZUWh20",
           "publishedAt": "2026-11-27T06:49:25.843Z",
-          "ageHours": 22.5,
-          "ytViews": 1259,
+          "ageHours": 24.6,
+          "ytViews": 1263,
           "ytLikes": 12,
           "ytComments": 1,
           "igViews": 0,
@@ -187,9 +187,9 @@
           "igComments": 1,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 1259,
-          "viewsPerHour": 56,
-          "viralScore": 280.6
+          "totalViews": 1263,
+          "viewsPerHour": 51.3,
+          "viralScore": 274
         },
         {
           "id": "explainer-earth-to-marble",
@@ -198,8 +198,8 @@
           "title": "What If Earth Were Compressed to the Size of a Marble? #shorts",
           "url": "https://youtube.com/shorts/4hWKnZfXP0I",
           "publishedAt": "2026-11-26T08:34:49.975Z",
-          "ageHours": 44.8,
-          "ytViews": 1328,
+          "ageHours": 46.8,
+          "ytViews": 1330,
           "ytLikes": 24,
           "ytComments": 2,
           "igViews": 0,
@@ -207,9 +207,9 @@
           "igComments": 1,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 1328,
-          "viewsPerHour": 29.6,
-          "viralScore": 256.3
+          "totalViews": 1330,
+          "viewsPerHour": 28.4,
+          "viralScore": 254.7
         },
         {
           "id": "explainer-light-speed-mars",
@@ -218,8 +218,8 @@
           "title": "How Painfully Slow the Speed of Light Looks in Space #shorts",
           "url": "https://youtube.com/shorts/wopJKYHv9oE",
           "publishedAt": "2026-11-27T06:47:08.494Z",
-          "ageHours": 22.6,
-          "ytViews": 1264,
+          "ageHours": 24.6,
+          "ytViews": 1266,
           "ytLikes": 11,
           "ytComments": 1,
           "igViews": 0,
@@ -227,9 +227,9 @@
           "igComments": 0,
           "igSaves": 0,
           "igShares": 0,
-          "totalViews": 1264,
-          "viewsPerHour": 55.9,
-          "viralScore": 256
+          "totalViews": 1266,
+          "viewsPerHour": 51.5,
+          "viralScore": 249.7
         }
       ],
       "issues": [],
@@ -241,37 +241,36 @@
       "channel": "wealth",
       "totalPublished": 3,
       "remainingStock": 7,
-      "totalYtViews": 236,
+      "totalYtViews": 252,
       "totalIgViews": 0,
       "topTitle": "$100/Mo at Age 20 vs $500/Mo at Age 35: Who Wins? #shorts",
-      "topViews": 168
+      "topViews": 184
     },
     "bio": {
       "channel": "bio",
       "totalPublished": 5,
       "remainingStock": 6,
-      "totalYtViews": 161,
+      "totalYtViews": 203,
       "totalIgViews": 0,
       "topTitle": "How Your Heart Pumps 100,000 Times a Day Without Resting #shorts",
-      "topViews": 103
+      "topViews": 132
     }
   },
   "strategy": {
-    "updatedAt": "2026-11-28T05:20:28.087Z",
+    "updatedAt": "2026-11-28T07:23:30.833Z",
     "physics": {
       "boostedNiches": [
-        "spin-illusion",
-        "chladni-sand",
-        "pi-collisions"
+        "pi-collisions",
+        "spin-illusion"
       ],
       "cooledNiches": [
         "giant-vs-swarm",
         "doubling-ladder"
       ],
       "topWinningTitles": [
+        "These Two Blocks Calculate Pi Just By Colliding #shorts",
         "100 Pendulums Dropped 0.001° Apart: Watch Second 7 #shorts",
-        "Your Mind Can Reverse This Spinning Cylinder #shorts",
-        "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts"
+        "Your Mind Can Reverse This Spinning Cylinder #shorts"
       ]
     },
     "explainer": {
