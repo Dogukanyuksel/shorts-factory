@@ -77,3 +77,11 @@ test("release-audit: tum publish workflow'larinda TELEGRAM_BOT_TOKEN ve TELEGRAM
     assert.ok(yml.includes("TELEGRAM_CHAT_ID"), `${wf} icinde TELEGRAM_CHAT_ID eksik`);
   }
 });
+
+test("release-audit: .npmrc onnxruntime CUDA GPU indirmesini atlar (CPU CI 404 korumasi)", () => {
+  const npmrc = readFileSync(resolve(".npmrc"), "utf8");
+  assert.ok(
+    npmrc.includes("onnxruntime-node-install-cuda=skip"),
+    ".npmrc icinde onnxruntime-node-install-cuda=skip zorunlu",
+  );
+});
