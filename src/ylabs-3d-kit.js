@@ -335,8 +335,8 @@ export function drawStudioHud(ctx, {
     }
   }
 
-  // Bottom Safe-Zone Caption Pill (y = 71.5%H — exact Y-LABS OS v2.3 spec)
-  if (caption) {
+  // Bottom Safe-Zone Caption Pill (hidden in final 12% so end-of-video CTA badge never overlaps)
+  if (caption && progress < 0.88) {
     fitFont(ctx, caption, 23 * S, safeW - 26 * S, '900');
     const cw = Math.min(safeW, ctx.measureText(caption).width + 34 * S);
     const ch = 44 * S;

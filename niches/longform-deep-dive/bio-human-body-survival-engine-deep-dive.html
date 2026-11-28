@@ -1930,12 +1930,13 @@
     ctx.fillStyle = '#e2e8f0';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    const subPx = Math.round(18 * S);
-    ctx.font = `500 ${subPx}px Inter, -apple-system, sans-serif`;
-    const lines = wrapLines(beat.text || '', iw - 28 * S, 6);
-    const lh = Math.round(27 * S);
+    const subPx = Math.round(24 * S);
+    ctx.font = `900 ${subPx}px Inter, -apple-system, sans-serif`;
+    const shortTag = (beat.caption || beat.actTitle || 'LIVE TELEMETRY').toUpperCase();
+    const lines = wrapLines(shortTag, iw - 28 * S, 2);
+    const lh = Math.round(32 * S);
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], ix + 14 * S, y + 16 * S + i * lh);
+      ctx.fillText(lines[i], ix + 14 * S, y + 18 * S + i * lh);
     }
 
     y += 224 * S;

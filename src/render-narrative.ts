@@ -10,6 +10,7 @@ import type { DerivedShortQueueItem } from "./derive-shorts.js";
 import type { NarrativeBeat, NarrativeLongformSpec } from "./longform-narrative.js";
 import { synthesizeVoice } from "./voice.js";
 import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
+import { buildWordCaptionCanvasSnippet } from "./word-captions.js";
 
 const require = createRequire(import.meta.url);
 const ffmpegPath: string = require("ffmpeg-static");
@@ -474,6 +475,28 @@ export async function renderDerivedShortVideo(
         },
       },
     );
+
+    const wordCapSnippet = buildWordCaptionCanvasSnippet(timed, spec.accentHex || "#FF9500");
+    await page.addScriptTag({
+      content: `(() => {
+        const fpsVal = ${JSON.stringify(fps)};
+        const durVal = ${JSON.stringify(totalSec)};
+        ${wordCapSnippet}
+        let frameIdx = 0;
+        const orig = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function (...args) {
+          if (this.id === "c") {
+            const tSec = frameIdx / fpsVal;
+            frameIdx++;
+            const ctx = this.getContext("2d");
+            if (ctx && tSec < durVal - 2.4) {
+              drawWordPopCaption(ctx, tSec, this.width, this.height, this.width / 720);
+            }
+          }
+          return orig.apply(this, args);
+        };
+      })();`,
+    });
 
     const totalFrames = Math.ceil(totalSec * fps);
     const rawVid = join(tmpDir, "raw.mp4");
