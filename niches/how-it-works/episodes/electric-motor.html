@@ -1,269 +1,157 @@
 <!doctype html>
-<!-- How It Actually Works — Electric Motor (Rotating Magnetic Field) -->
+<!--
+  Clear Mechanics — 3D PBR: How an Electric Motor Delivers 100% Torque at 0 RPM
+  Y-LABS 3D Cinema Engine (Three.js PBR 3-Phase Copper Stator Coils + Rotating Magnetic Flux + Steel Rotor, 60fps deterministic)
+-->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#141414;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-const lerp = (a, b, u) => a + (b - a) * u;
 
 const SCRIPT = [
-  { id: 'hook', text: 'How does an electric car launch from zero to sixty silently with no explosions at all?', caption: 'SILENT INSTANT POWER?' },
-  { id: 'parts', text: 'Inside an electric motor is a spinning magnet rotor surrounded by copper electromagnet coils.', caption: 'ROTOR & STATOR COILS' },
-  { id: 'poles', text: 'Electric current energizes the coils, turning them into powerful North and South magnets.', caption: 'ELECTROMAGNET POLES' },
-  { id: 'chase', text: 'Opposite poles attract while like poles repel — pulling and pushing the rotor around.', caption: 'PULL & PUSH FORCE' },
-  { id: 'flip', text: 'Thousands of times a minute, the coils flip polarity so the rotor chases a rotating magnetic field!', caption: 'ROTATING MAGNETIC FIELD' },
-  { id: 'outro', text: 'Zero pistons, zero gears — pure magnetic force delivering instant, relentless torque.', caption: 'INSTANT TORQUE!' },
+  { id: 'hook', text: 'Why does an electric car launch violently off the line while gas engines hesitate?', caption: '100% TORQUE AT 0 RPM' },
+  { id: 'stator', text: 'Inside the casing sit six copper stator coils wired to three-phase alternating current.', caption: '3-PHASE COPPER STATOR' },
+  { id: 'flux', text: 'As current pulses around the ring, it creates an invisible rotating magnetic field.', caption: 'ROTATING MAGNETIC FIELD' },
+  { id: 'rotor', text: 'The central magnet rotor locks onto that spinning field with instant electromagnetic force.', caption: 'ZERO GEAR DELAY' },
+  { id: 'eff', text: 'With only one moving part, ninety-two percent of battery energy becomes pure wheel motion.', caption: '92% EFFICIENCY' },
+  { id: 'verdict', text: 'No pistons, no transmission lag — just pure spinning magnetism from zero to redline.', caption: 'PURE MAGNETIC TORQUE' },
 ];
 
-let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+let W = 720, H = 1280, FPS = 60, DUR = 26, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let coils = [], rotorGrp, fluxRing, fluxOrb;
+
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
-window.init = (cfg) => {
-  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
-  cv.width = W; cv.height = H;
-  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+
+function getLine(id, idx) {
+  const f = LINES.find((l) => l.id === id);
+  if (f) return f;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: idx * seg, end: (idx + 1) * seg, caption: SCRIPT[idx].caption };
+}
+
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'explainer', fov: 38, fogDensity: 0.02, floorY: -2.6 });
+  const { scene } = stage;
+  const mats = createMaterials('explainer');
+
+  // Outer translucent stator housing
+  const shellGeo = new THREE.CylinderGeometry(2.35, 2.35, 1.35, 36, 1, true);
+  shellGeo.rotateX(Math.PI / 2);
+  const shell = new THREE.Mesh(shellGeo, mats.glass(0x38bdf8, 0.16));
+  scene.add(shell);
+  scene.add(addXrayEdges(shellGeo, 0x38bdf8, 0.35));
+
+  // 6 Copper Stator Coils
+  const coilGeo = new THREE.BoxGeometry(0.55, 0.65, 0.95);
+  coils = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const mat = mats.copper.clone();
+    const m = new THREE.Mesh(coilGeo, mat);
+    m.position.set(Math.cos(a) * 1.72, Math.sin(a) * 1.72, 0);
+    m.rotation.z = a;
+    scene.add(m);
+    coils.push({ m, mat, angle: a, phase: i % 3 });
+  }
+
+  // Central Rotor + Shaft
+  rotorGrp = new THREE.Group();
+  const rCore = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 1.12, 28), mats.steel);
+  rCore.rotation.x = Math.PI / 2;
+  rotorGrp.add(rCore);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 2.4, 20), mats.darkMetal);
+  shaft.rotation.x = Math.PI / 2;
+  rotorGrp.add(shaft);
+  const northPole = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.98, 1.18), mats.glow(0xff3b30, 0.9));
+  northPole.position.y = 0.45;
+  rotorGrp.add(northPole);
+  const southPole = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.98, 1.18), mats.glow(0x38bdf8, 0.9));
+  southPole.position.y = -0.45;
+  rotorGrp.add(southPole);
+  scene.add(rotorGrp);
+
+  // Rotating Magnetic Flux Halo
+  fluxRing = new THREE.Mesh(new THREE.TorusGeometry(1.32, 0.045, 12, 48), mats.glow(0xff9500, 0.95));
+  scene.add(fluxRing);
+  fluxOrb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), mats.glow(0xff9500, 1.0));
+  scene.add(fluxOrb);
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 26;
+  LINES = Array.isArray(cfg.lines) ? cfg.lines : [];
+  cv.width = W;
+  cv.height = H;
+  buildScene();
+
+  const lFlux = getLine('flux', 2);
+  const lRotor = getLine('rotor', 3);
+  const lEff = getLine('eff', 4);
   EVENTS = [
-    { t: byId('parts').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.55 },
-    { t: byId('poles').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.7 },
-    { t: byId('chase').start + 0.25, type: 'break', pitchIndex: 8, intensity: 0.8 },
-    { t: byId('flip').start + 0.2, type: 'break', pitchIndex: 10, intensity: 0.85 },
-    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.95 },
+    { t: Math.max(0.1, lFlux.start - 0.04), type: 'bounce', intensity: 0.8 },
+    { t: Math.max(0.2, lRotor.start - 0.04), type: 'break', intensity: 1.0 },
+    { t: Math.max(0.3, lEff.start - 0.04), type: 'win', intensity: 0.9 },
   ];
 };
 
-function drawFrame(t) {
-  const S = W / 720;
-  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
-  const tParts = byId('parts').start;
-  const tPoles = byId('poles').start;
-  const tChase = byId('chase').start;
-  const tFlip = byId('flip').start;
-  const tOut = byId('outro').start;
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
 
-  const pParts = smooth(tParts, tParts + 0.6, t);
-  const pPoles = smooth(tPoles, tPoles + 0.6, t);
-  const pChase = smooth(tChase, tChase + 0.6, t);
-  const pFlip = smooth(tFlip, tFlip + 0.7, t);
-  const pOut = smooth(tOut, tOut + 0.6, t);
+  const lFlux = getLine('flux', 2);
+  const boost = smooth(t, lFlux.start, lFlux.end);
+  const fieldAngle = t * (2.6 + boost * 5.2);
 
-  // Blueprint background
-  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.68);
-  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
-  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  rotorGrp.rotation.z = fieldAngle - 0.18;
+  fluxOrb.position.set(Math.cos(fieldAngle) * 1.32, Math.sin(fieldAngle) * 1.32, 0.65);
 
-  // Deterministic rotor angle integration (gentle -> chasing -> high-speed smooth torque)
-  const dt = 0.05;
-  const nSteps = Math.max(1, Math.ceil(t / dt));
-  const h = t / nSteps;
-  let rotorAngle = -Math.PI * 0.25;
-  for (let i = 0; i < nSteps; i++) {
-    const ti = (i + 0.5) * h;
-    const w1 = smooth(tChase, tChase + 0.8, ti);
-    const w2 = smooth(tFlip, tFlip + 1.0, ti);
-    const w3 = smooth(tOut, tOut + 0.8, ti);
-    const omega = 0.35 + w1 * 2.2 + w2 * 5.2 + w3 * 3.5;
-    rotorAngle += omega * h;
-  }
-  const curOmega = 0.35 + pChase * 2.2 + pFlip * 5.2 + pOut * 3.5;
-  // Rotating stator magnetic field stays slightly ahead of rotor (+65 deg) to pull it continuously!
-  const fieldAngle = rotorAngle + 1.15;
+  coils.forEach((c) => {
+    const wave = Math.max(0, Math.cos(fieldAngle - c.angle));
+    c.mat.emissive.setHex(0xff9500);
+    c.mat.emissiveIntensity = 0.12 + wave * 1.1;
+  });
 
-  const cx = W * 0.5, cy = H * 0.48;
-  const zoom = 1 + smooth(0, DUR, t) * 0.05;
-  ctx.save();
-  ctx.translate(cx, cy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+  const camA = lerp(-0.52, 0.52, p);
+  stage.camera.position.set(Math.sin(camA) * 7.8, 0.72, Math.cos(camA) * 7.8);
+  stage.camera.lookAt(0, 0, 0);
 
-  const rHousing = 248 * S;
-  const rStatorIn = 148 * S;
-  const rRotor = 104 * S;
+  stage.renderTo(ctx, W, H);
 
-  // 1) Outer Aluminum Motor Housing Ring
-  ctx.fillStyle = '#1e293b';
-  ctx.strokeStyle = '#64748b';
-  ctx.lineWidth = 6 * S;
-  ctx.beginPath(); ctx.arc(cx, cy, rHousing, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-  // Cooling fins around outer motor casing
-  ctx.strokeStyle = '#475569';
-  ctx.lineWidth = 6 * S;
-  for (let i = 0; i < 24; i++) {
-    const a = (i * Math.PI * 2) / 24;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(a) * rHousing, cy + Math.sin(a) * rHousing);
-    ctx.lineTo(cx + Math.cos(a) * (rHousing + 14 * S), cy + Math.sin(a) * (rHousing + 14 * S));
-    ctx.stroke();
-  }
-
-  // Inner air gap cavity
-  ctx.fillStyle = '#071124';
-  ctx.beginPath(); ctx.arc(cx, cy, rStatorIn + 52 * S, 0, Math.PI * 2); ctx.fill();
-
-  // 2) 6 Stator Electromagnet Copper Coils around the perimeter
-  for (let i = 0; i < 6; i++) {
-    const a = (i * Math.PI * 2) / 6;
-    // Polarity of this coil based on rotating field angle: cos(a - fieldAngle)
-    // Positive => South pole (attracts Rotor North), Negative => North pole (attracts Rotor South)
-    const pol = Math.cos(a - fieldAngle) * pPoles;
-    const absPol = Math.abs(pol);
-    const isNorth = pol < 0;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(a);
-
-    // Magnetic aura glow around energized pole tip
-    if (absPol > 0.12) {
-      const aura = ctx.createRadialGradient(rStatorIn - 4 * S, 0, 4 * S, rStatorIn - 4 * S, 0, 58 * S);
-      aura.addColorStop(0, isNorth ? `rgba(239,68,68,${(0.75 * absPol).toFixed(2)})` : `rgba(56,189,248,${(0.75 * absPol).toFixed(2)})`);
-      aura.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = aura;
-      ctx.beginPath(); ctx.arc(rStatorIn - 4 * S, 0, 58 * S, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // Iron stator tooth pole piece
-    ctx.fillStyle = '#475569';
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 2.5 * S;
-    ctx.beginPath();
-    ctx.roundRect(rStatorIn - 10 * S, -22 * S, 86 * S, 44 * S, 6 * S);
-    ctx.fill(); ctx.stroke();
-
-    // Copper coil windings wrapped around the iron tooth
-    const copG = ctx.createLinearGradient(0, -32 * S, 0, 32 * S);
-    copG.addColorStop(0, '#f97316'); copG.addColorStop(0.5, '#ea580c'); copG.addColorStop(1, '#9a3412');
-    ctx.fillStyle = copG;
-    ctx.strokeStyle = '#fed7aa';
-    ctx.lineWidth = 2 * S;
-    for (let w = 0; w < 4; w++) {
-      ctx.beginPath();
-      ctx.roundRect(rStatorIn + (10 + w * 14) * S, -31 * S, 11 * S, 62 * S, 4 * S);
-      ctx.fill(); ctx.stroke();
-    }
-
-    // Energized Pole Tip Cap (Red = N, Blue = S)
-    ctx.fillStyle = absPol > 0.15 ? (isNorth ? `rgba(239,68,68,${(0.35 + 0.65 * absPol).toFixed(2)})` : `rgba(56,189,248,${(0.35 + 0.65 * absPol).toFixed(2)})`) : '#64748b';
-    ctx.beginPath();
-    ctx.roundRect(rStatorIn - 16 * S, -26 * S, 22 * S, 52 * S, 6 * S);
-    ctx.fill();
-
-    // N / S label on pole
-    if (absPol > 0.25) {
-      ctx.save();
-      ctx.translate(rStatorIn - 5 * S, 0);
-      ctx.rotate(-a);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `900 ${Math.round(18 * S)}px -apple-system, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText(isNorth ? 'N' : 'S', 0, 6 * S);
-      ctx.restore();
-    }
-    ctx.restore();
-  }
-
-  // 3) Magnetic Force Arcs between Rotor & Leading Stator Poles (Pull + Push!)
-  if (pChase > 0.05) {
-    ctx.save();
-    ctx.globalAlpha = pChase * (0.65 + 0.35 * Math.sin(t * 10));
-    ctx.strokeStyle = '#4ade80';
-    ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 12 * S;
-    ctx.lineWidth = 4.5 * S;
-    ctx.setLineDash([10 * S, 8 * S]);
-    // Curved torque pull arrows around air gap
-    for (const offset of [0, Math.PI]) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, (rRotor + rStatorIn) * 0.5 - 4 * S, rotorAngle + offset + 0.15, rotorAngle + offset + 1.05);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
-
-  // 4) Central Permanent-Magnet Rotor (North = Red, South = Blue)
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(rotorAngle);
-
-  // North half (right semicircle)
-  const nG = ctx.createLinearGradient(0, -rRotor, rRotor, rRotor);
-  nG.addColorStop(0, '#f87171'); nG.addColorStop(1, '#b91c1c');
-  ctx.fillStyle = nG;
-  ctx.beginPath(); ctx.arc(0, 0, rRotor, -Math.PI * 0.5, Math.PI * 0.5); ctx.closePath(); ctx.fill();
-
-  // South half (left semicircle)
-  const sG = ctx.createLinearGradient(-rRotor, -rRotor, 0, rRotor);
-  sG.addColorStop(0, '#38bdf8'); sG.addColorStop(1, '#0369a1');
-  ctx.fillStyle = sG;
-  ctx.beginPath(); ctx.arc(0, 0, rRotor, Math.PI * 0.5, Math.PI * 1.5); ctx.closePath(); ctx.fill();
-
-  // Rotor outer ring & center steel shaft
-  ctx.strokeStyle = '#f8fafc';
-  ctx.lineWidth = 4 * S;
-  ctx.beginPath(); ctx.arc(0, 0, rRotor, 0, Math.PI * 2); ctx.stroke();
-
-  ctx.fillStyle = '#cbd5e1';
-  ctx.strokeStyle = '#0f172a';
-  ctx.lineWidth = 4 * S;
-  ctx.beginPath(); ctx.arc(0, 0, 26 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-  // N and S labels on rotor poles
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `900 ${Math.round(34 * S)}px -apple-system, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('N', 58 * S, 12 * S);
-  ctx.fillText('S', -58 * S, 12 * S);
-  ctx.restore();
-
-  // 5) Live RPM & Instant Torque Telemetry Bar
-  if (pParts > 0.05) {
-    ctx.save();
-    ctx.globalAlpha = pParts;
-    const rpm = Math.round(curOmega * 950);
-    const torque = Math.round(lerp(0, 480, clamp(pChase + pFlip * 0.3, 0, 1)));
-    const by = H * 0.735;
-    ctx.fillStyle = 'rgba(15,23,42,0.88)';
-    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 3 * S;
-    ctx.beginPath(); ctx.roundRect(75 * S, by - 28 * S, 268 * S, 58 * S, 12 * S); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.roundRect(377 * S, by - 28 * S, 268 * S, 58 * S, 12 * S); ctx.fill(); ctx.stroke();
-    ctx.textAlign = 'center';
-    ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillText(`SPEED: ${rpm} RPM`, 209 * S, by + 9 * S);
-    ctx.fillStyle = '#4ade80';
-    ctx.fillText(`TORQUE: ${torque} Nm`, 511 * S, by + 9 * S);
-    ctx.restore();
-  }
-
-  ctx.restore();
-
-  // Top Title + Animated Bottom Caption
-  let activeLine = LINES[0];
-  for (const l of LINES) if (t >= l.start) activeLine = l;
-  ctx.save(); ctx.textAlign = 'center';
-  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
-  ctx.fillStyle = '#93c5fd';
-  ctx.fillText('HOW AN ELECTRIC MOTOR WORKS', W * 0.5, H * 0.125);
-  if (activeLine) {
-    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
-    ctx.translate(W * 0.5, H * 0.715); ctx.scale(pop, pop);
-    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
-    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
-    ctx.fillStyle = activeLine.id === 'flip' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
-    ctx.fillText(activeLine.caption, 0, 0);
-  }
-  ctx.restore();
-}
-
-window.renderBatch = (s, c) => {
-  const out = [];
-  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
-  return out;
+  const active = LINES.find((l) => t >= l.start && t <= l.end) || SCRIPT[Math.min(SCRIPT.length - 1, Math.floor(p * SCRIPT.length))];
+  const rpm = Math.round(lerp(400, 16000, p));
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'explainer',
+    title: '3-PHASE ELECTRIC MOTOR',
+    subtitle: 'ROTATING MAGNETIC FLUX',
+    progress: p,
+    caption: active.caption,
+    metrics: [
+      { label: 'RPM', value: `${rpm.toLocaleString()}`, color: '#38BDF8' },
+      { label: 'TORQUE', value: '100%', color: '#FF9500' },
+      { label: 'EFFICIENCY', value: '92%', color: '#30D158' },
+    ],
+  });
 };
-window.ready = true;
 </script>

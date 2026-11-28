@@ -121,14 +121,13 @@ export function buildFunnelMetadata(item: DerivedShortQueueItem): {
   const shortCleanTitle = item.title.replace(/#shorts/gi, "").trim();
   const description =
     `${item.descriptionLead}\n\n` +
-    `🎬 Watch the full 4-minute deep dive: ${item.parentUrl}\n` +
+    `🎬 Watch the full 3D breakdown here: ${item.parentUrl}\n` +
     `(${item.parentTitle})\n\n` +
-    `🔔 Subscribe for the next part in this series!\n` +
+    `🔔 Subscribe to never miss the next deep dive!\n` +
     `#shorts #${item.channel === "explainer" ? "howitworks #engineering" : "physics #simulation"}`;
 
   const pinnedComment =
-    `🎬 Want the full 4-minute breakdown + failure mode? Watch the full video here: ${item.parentUrl}\n` +
-    `👇 Which part surprised you most?`;
+    `Want to see what happens at extreme limits? Watch the full 3D breakdown here 👉 ${item.parentUrl} — Which stage surprised you most?`;
 
   const studioUrl = item.shortVideoId
     ? `https://studio.youtube.com/video/${item.shortVideoId}/edit`
@@ -137,7 +136,7 @@ export function buildFunnelMetadata(item: DerivedShortQueueItem): {
   const studioRelatedVideoAlert =
     `🔗 <b>5 Saniyede Related Video Bağla (${item.channel === "explainer" ? "Clear Mechanics" : "Kinetic Lab"})</b>\n` +
     `• Short: ${shortCleanTitle}\n` +
-    `• Bağlanacak 4-dk Ana Video: <b>${item.parentTitle}</b>\n` +
+    `• Bağlanacak Ana Video: <b>${item.parentTitle}</b>\n` +
     `• Tek Tık Studio: ${studioUrl}`;
 
   return { description, pinnedComment, studioRelatedVideoAlert };

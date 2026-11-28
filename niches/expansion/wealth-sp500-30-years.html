@@ -1,542 +1,169 @@
 <!doctype html>
 <!--
-  Wealth Mechanics — What Happened to $10,000 in the S&P 500 Through Every Crash (60fps deterministic)
+  Wealth Mechanics — 3D PBR: What Happens When You Hold $10K Through Every Crash (30 Years)
+  Y-LABS 3D Cinema Engine (Three.js PBR 3D Market Terrain + Panic Seller vs Diamond Hold Orb, 60fps deterministic)
 -->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#090D16;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  easeOutCubic,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-
 const SCRIPT = [
-  { id: 'hook', text: 'What happened to ten thousand dollars in the S and P five hundred over thirty years — through three brutal crashes?', caption: '$10,000 · 30 YEARS · 3 CRASHES' },
-  { id: 'dotcom', text: 'First came the two thousand Dot-Com crash, wiping out forty-five percent. Panic sellers fled to cash and locked in their loss.', caption: '2000 DOT-COM: -45%' },
-  { id: 'gfc', text: 'Then two thousand eight plunged fifty percent. Headlines screamed the end of capitalism, shaking out anyone left.', caption: '2008 CRISIS: -50%' },
-  { id: 'covid', text: 'Twelve years later, twenty-twenty dropped thirty-four percent in weeks — yet snapped back to new highs in record time.', caption: '2020 CRASH: -34%' },
-  { id: 'result', text: 'The panic seller flatlined near twelve thousand dollars. Staying invested turned ten thousand into over one hundred seventy-four thousand!', caption: '$174.5K VS $12.4K' },
-  { id: 'law', text: 'Every crash looks terrifying up close, and tiny on a thirty-year chart. Time in the market beats timing the market.', caption: 'STAY INVESTED' },
+  { id: 'hook', text: 'What if you invested ten thousand dollars right before three historic market crashes?', caption: '$10,000 VS 3 CRASHES' },
+  { id: 'dotcom', text: 'First, the dot-com bubble cuts your account nearly in half. Panic sellers bail out here.', caption: '2000 CRASH: -49%' },
+  { id: 'gfc', text: 'Then 2008 hits and slashes stocks fifty-six percent. Headlines scream the market is dead.', caption: '2008 CRASH: -56%' },
+  { id: 'covid', text: 'Then 2020 drops thirty-four percent in thirty-three days. Fear peaks again.', caption: '2020 CRASH: -34%' },
+  { id: 'hold', text: 'Yet if you never sold once, your ten thousand quietly grew past one hundred seventy thousand.', caption: '$10K → $174,000' },
+  { id: 'verdict', text: 'Missing just the ten best rebound days cuts your return in half. Time beats timing.', caption: 'TIME BEATS TIMING' },
 ];
 
-let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+let W = 720, H = 1280, FPS = 60, DUR = 26, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let bars = [], holdOrb, panicOrb, crashMarkers = [];
+
+// Normalized 30-year S&P 500 trajectory (with 2000, 2008, 2020 crashes)
+const SERIES = [
+  10, 13, 17, 22, 26, 20, 14, 17, 21, 25,
+  29, 32, 18, 22, 27, 33, 41, 48, 54, 62,
+  74, 83, 96, 108, 78, 114, 132, 145, 161, 174,
+];
 
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
 
-function getLine(id, fallbackIdx) {
-  const found = LINES.find((l) => l.id === id);
-  if (found) return found;
+function getLine(id, idx) {
+  const f = LINES.find((l) => l.id === id);
+  if (f) return f;
   const seg = DUR / SCRIPT.length;
-  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+  return { id, start: idx * seg, end: (idx + 1) * seg, caption: SCRIPT[idx].caption };
 }
 
-window.init = (cfg) => {
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'wealth', fov: 38, fogDensity: 0.02, floorY: -2.5 });
+  const { scene } = stage;
+  const mats = createMaterials('wealth');
+
+  const deckGeo = new THREE.BoxGeometry(6.8, 0.24, 2.2);
+  const deck = new THREE.Mesh(deckGeo, mats.darkMetal);
+  deck.position.set(0, -2.38, 0);
+  scene.add(deck);
+
+  bars = SERIES.map((val, i) => {
+    const x = -2.9 + (i / (SERIES.length - 1)) * 5.8;
+    const isCrash = i === 6 || i === 12 || i === 24;
+    const mat = isCrash ? mats.crimson : (i > 24 ? mats.gold : mats.emerald);
+    const geo = new THREE.BoxGeometry(0.14, 1.0, 0.65);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, -2.26, 0);
+    scene.add(mesh);
+    return { mesh, x, val, isCrash };
+  });
+
+  holdOrb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 24, 24), mats.glow(0xffd60a, 1.0));
+  scene.add(holdOrb);
+
+  panicOrb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 20, 20), mats.glow(0xff3b30, 0.95));
+  scene.add(panicOrb);
+
+  crashMarkers = [6, 12, 24].map((idx) => {
+    const m = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.035, 10, 32), mats.glow(0xff3b30, 0.95));
+    m.position.set(bars[idx].x, -1.5, 0.45);
+    scene.add(m);
+    return { m, idx };
+  });
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
   W = cfg.width || 720;
   H = cfg.height || 1280;
   FPS = cfg.fps || 60;
-  DUR = cfg.duration || 24;
-  LINES = cfg.lines || [];
+  DUR = cfg.duration || 26;
+  LINES = Array.isArray(cfg.lines) ? cfg.lines : [];
   cv.width = W;
   cv.height = H;
+  buildScene();
 
   const lDot = getLine('dotcom', 1);
   const lGfc = getLine('gfc', 2);
   const lCov = getLine('covid', 3);
-  const lRes = getLine('result', 4);
-  const lLaw = getLine('law', 5);
-
+  const lHold = getLine('hold', 4);
   EVENTS = [
-    { t: lDot.start + 0.22, type: 'break', pitchIndex: 2, intensity: 0.82 },
-    { t: lGfc.start + 0.22, type: 'break', pitchIndex: 1, intensity: 0.90 },
-    { t: lCov.start + 0.22, type: 'break', pitchIndex: 3, intensity: 0.80 },
-    { t: lRes.start + 0.18, type: 'win', pitchIndex: 11, intensity: 0.96 },
-    { t: lLaw.start + 0.22, type: 'win', pitchIndex: 12, intensity: 0.88 },
+    { t: Math.max(0.1, lDot.start - 0.04), type: 'break', intensity: 0.8 },
+    { t: Math.max(0.2, lGfc.start - 0.04), type: 'break', intensity: 0.95 },
+    { t: Math.max(0.3, lCov.start - 0.04), type: 'break', intensity: 0.85 },
+    { t: Math.max(0.4, lHold.start - 0.04), type: 'win', intensity: 1.0 },
   ];
 };
 
-// === HISTORICAL 30-YEAR S&P 500 TOTAL RETURN CURVE (1995 -> 2025, $10K -> $174.5K) ===
-const SP_KEYS = [
-  [1995.0, 10000],
-  [1996.5, 14200],
-  [1998.0, 19800],
-  [2000.2, 28500], // Dot-Com Peak
-  [2001.5, 21200],
-  [2002.8, 15700], // Dot-Com Trough (-45%)
-  [2004.5, 22400],
-  [2006.5, 27600],
-  [2007.8, 31800], // Pre-GFC Peak
-  [2008.7, 22100],
-  [2009.2, 15900], // 2008 Crisis Trough (-50%)
-  [2011.0, 26500],
-  [2013.0, 38500],
-  [2015.5, 49500],
-  [2018.0, 66000],
-  [2020.1, 88000], // Pre-COVID Peak
-  [2020.3, 58100], // 2020 Crash Trough (-34%)
-  [2021.8, 124000],
-  [2022.8, 101000],
-  [2024.0, 144000],
-  [2025.0, 174500], // Year 30 Total
-];
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
+  const idxF = p * (SERIES.length - 1);
+  const curIdx = Math.floor(idxF);
+  const frac = idxF - curIdx;
 
-// Panic seller follows until Dot-Com drop, sells low, re-enters late before 2008, sells at 2009 bottom, sits in cash
-const PANIC_KEYS = [
-  [1995.0, 10000],
-  [1996.5, 14200],
-  [1998.0, 19800],
-  [2000.2, 28500],
-  [2002.3, 17800], // Panics & sells to cash
-  [2006.8, 19000], // Slowly earns cash interest, re-enters near top
-  [2007.8, 21400],
-  [2009.1, 11100], // Panics again in 2008/09 crash
-  [2015.0, 11500], // Stays in low-yield cash
-  [2020.3, 11900],
-  [2025.0, 12400], // Flatlined
-];
+  bars.forEach((b, i) => {
+    const rev = clamp((idxF - i + 1.2) / 1.2, 0, 1);
+    const h = Math.max(0.08, (b.val / 174) * 4.4 * easeOutCubic(rev));
+    b.mesh.scale.y = h;
+    b.mesh.position.y = -2.26 + h * 0.5;
+  });
 
-const CRASHES = [
-  { id: 'dotcom', yr: 2002.8, recYr: 2006.7, val: 15700, title: '2000 DOT-COM', drop: '-45%' },
-  { id: 'gfc', yr: 2009.2, recYr: 2012.2, val: 15900, title: '2008 CRISIS', drop: '-50%' },
-  { id: 'covid', yr: 2020.3, recYr: 2020.8, val: 58100, title: '2020 CRASH', drop: '-34%' },
-];
+  const v0 = SERIES[curIdx];
+  const v1 = SERIES[Math.min(SERIES.length - 1, curIdx + 1)];
+  const curVal = lerp(v0, v1, frac);
+  const curX = -2.9 + (idxF / (SERIES.length - 1)) * 5.8;
+  const curY = -2.26 + (curVal / 174) * 4.4 + 0.35;
+  holdOrb.position.set(curX, curY, 0.35);
 
-function evalSeries(keys, yr) {
-  if (yr <= keys[0][0]) return keys[0][1];
-  const last = keys[keys.length - 1];
-  if (yr >= last[0]) return last[1];
-  for (let i = 0; i < keys.length - 1; i++) {
-    const [x0, y0] = keys[i];
-    const [x1, y1] = keys[i + 1];
-    if (yr >= x0 && yr <= x1) {
-      const k = (yr - x0) / Math.max(1e-5, x1 - x0);
-      const s = k * k * (3 - 2 * k);
-      return lerp(y0, y1, s);
-    }
-  }
-  return last[1];
-}
+  // Panic seller exits at 2008 crash (idx 12) and sits flat at $18K
+  const panicVal = idxF < 12 ? curVal : 18 + (idxF - 12) * 0.5;
+  panicOrb.position.set(curX, -2.26 + (panicVal / 174) * 4.4 + 0.22, -0.38);
 
-function fmtExact(v) {
-  return '$' + Math.max(0, Math.round(v)).toLocaleString('en-US');
-}
+  crashMarkers.forEach(({ m, idx }) => {
+    const active = idxF >= idx;
+    m.visible = active;
+    m.rotation.z = t * 2.2;
+    const s = 1 + Math.sin(t * 6) * 0.12;
+    m.scale.setScalar(s);
+  });
 
-function fmtK(v) {
-  const n = Math.max(0, Math.round(v));
-  if (n >= 100000) return '$' + (n / 1000).toFixed(1) + 'K';
-  if (n >= 10000) return '$' + (n / 1000).toFixed(1) + 'K';
-  return '$' + n.toLocaleString('en-US');
-}
+  const camA = lerp(-0.28, 0.28, p);
+  stage.camera.position.set(Math.sin(camA) * 8.6, 0.9 + p * 0.6, Math.cos(camA) * 8.6);
+  stage.camera.lookAt(0, 0.15, 0);
 
-function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
-  let px = Math.round(basePx);
-  ctx.font = `${weight} ${px}px ${family}`;
-  const m = ctx.measureText(text).width || 1;
-  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
-  ctx.font = `${weight} ${px}px ${family}`;
-  return px;
-}
+  stage.renderTo(ctx, W, H);
 
-function computeYear(t) {
-  const lHook = getLine('hook', 0);
-  const lDot = getLine('dotcom', 1);
-  const lGfc = getLine('gfc', 2);
-  const lCov = getLine('covid', 3);
-  const lRes = getLine('result', 4);
-
-  if (t < lDot.start) return lerp(1995.0, 2000.2, smooth(lHook.start, lDot.start, t));
-  if (t < lGfc.start) return lerp(2000.2, 2007.8, smooth(lDot.start, lGfc.start, t));
-  if (t < lCov.start) return lerp(2007.8, 2019.8, smooth(lGfc.start, lCov.start, t));
-  if (t < lRes.start) return lerp(2019.8, 2024.0, smooth(lCov.start, lRes.start, t));
-  return lerp(2024.0, 2025.0, smooth(lRes.start, lRes.start + 1.0, t));
-}
-
-function drawFrame(t) {
-  const S = W / 720;
-  // Safe zone: x in [6.5%W, 84%W], y in [14%H, 74%H]
-  const safeL = W * 0.065;
-  const safeR = W * 0.84;
-  const safeW = safeR - safeL;
-  const cx = (safeL + safeR) * 0.5;
-
-  // Deep obsidian #030a08 background
-  ctx.fillStyle = '#030a08';
-  ctx.fillRect(0, 0, W, H);
-
-  const curYr = computeYear(t);
-  const curSP = evalSeries(SP_KEYS, curYr);
-  const curPanic = evalSeries(PANIC_KEYS, curYr);
-
-  // Determine if we are currently near a crash shockwave
-  let activeCrashGlow = 0;
-  for (const cr of CRASHES) {
-    const d = Math.abs(curYr - cr.yr);
-    if (d < 1.2) activeCrashGlow = Math.max(activeCrashGlow, 1 - d / 1.2);
-  }
-
-  // Dynamic ambient glow (shifts subtle crimson during crashes, emerald otherwise)
-  const amb = ctx.createRadialGradient(cx, H * 0.44, 16 * S, cx, H * 0.45, W * 0.62);
-  if (activeCrashGlow > 0.1) {
-    amb.addColorStop(0, `rgba(239, 68, 68, ${(0.14 * activeCrashGlow).toFixed(3)})`);
-    amb.addColorStop(0.55, 'rgba(16, 185, 129, 0.06)');
-  } else {
-    amb.addColorStop(0, 'rgba(16, 185, 129, 0.12)');
-    amb.addColorStop(0.55, 'rgba(245, 158, 11, 0.035)');
-  }
-  amb.addColorStop(1, 'rgba(3, 10, 8, 0)');
-  ctx.fillStyle = amb;
-  ctx.fillRect(0, 0, W, H);
-
-  // Subtle emerald grid
-  ctx.strokeStyle = 'rgba(16, 185, 129, 0.042)';
-  ctx.lineWidth = 1 * S;
-  for (let x = 0; x < W; x += 42 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 42 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-
-  const lRes = getLine('result', 4);
-  const lLaw = getLine('law', 5);
-  const resReveal = smooth(lRes.start, lRes.start + 0.5, t);
-  const lawFocus = smooth(lLaw.start, lLaw.start + 0.45, t);
-
-  // === 1. HEADER TITLE (y: 0.145H .. 0.186H) ===
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont('$10,000 IN THE S&P 500', 30 * S, safeW, '900');
-  ctx.fillStyle = '#ecfdf5';
-  ctx.fillText('$10,000 IN THE S&P 500', cx, H * 0.155);
-
-  fitFont('1995 – 2025 · THROUGH EVERY MAJOR CRASH', 13.5 * S, safeW, '700', 'ui-monospace, monospace');
-  ctx.fillStyle = '#6ee7b7';
-  ctx.fillText('1995 – 2025 · THROUGH EVERY MAJOR CRASH', cx, H * 0.178);
-  ctx.restore();
-
-  // === 2. LIVE SCOREBOARD CARDS (y: 0.196H .. 0.278H) ===
-  const cardGap = 11 * S;
-  const cardW = (safeW - cardGap) * 0.5;
-  const cardY = H * 0.196;
-  const cardH = H * 0.082;
-
-  // Left Card: STAY INVESTED (Emerald)
-  ctx.save();
-  ctx.fillStyle = 'rgba(6, 56, 40, 0.42)';
-  ctx.strokeStyle = resReveal > 0.25 ? '#34d399' : 'rgba(16, 185, 129, 0.55)';
-  ctx.lineWidth = (1.6 + resReveal * 1.2) * S;
-  ctx.shadowColor = '#10b981';
-  ctx.shadowBlur = (8 + resReveal * 14) * S;
-  ctx.beginPath(); ctx.roundRect(safeL, cardY, cardW, cardH, 14 * S); ctx.fill(); ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  fitFont('STAY INVESTED', 13 * S, cardW - 22 * S, '800', 'ui-monospace, monospace');
-  ctx.fillStyle = '#34d399';
-  ctx.fillText('STAY INVESTED', safeL + 12 * S, cardY + 10 * S);
-
-  fitFont(fmtExact(curSP), 27 * S, cardW - 22 * S, '900', 'ui-monospace, monospace');
-  ctx.fillStyle = '#ecfdf5';
-  ctx.fillText(fmtExact(curSP), safeL + 12 * S, cardY + 30 * S);
-
-  fitFont(`RETURN: ${(curSP / 10000).toFixed(1)}×`, 12 * S, cardW - 22 * S, '700', 'ui-monospace, monospace');
-  ctx.fillStyle = '#6ee7b7';
-  ctx.fillText(`RETURN: ${(curSP / 10000).toFixed(1)}×`, safeL + 12 * S, cardY + cardH - 21 * S);
-  ctx.restore();
-
-  // Right Card: PANIC SELLER (Crimson)
-  const rightX = safeL + cardW + cardGap;
-  ctx.save();
-  ctx.fillStyle = 'rgba(42, 10, 16, 0.56)';
-  ctx.strokeStyle = activeCrashGlow > 0.2 ? '#ef4444' : 'rgba(239, 68, 68, 0.52)';
-  ctx.lineWidth = 1.6 * S;
-  ctx.shadowColor = '#ef4444';
-  ctx.shadowBlur = (6 + activeCrashGlow * 12) * S;
-  ctx.beginPath(); ctx.roundRect(rightX, cardY, cardW, cardH, 14 * S); ctx.fill(); ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  fitFont('PANIC SELLER', 13 * S, cardW - 22 * S, '800', 'ui-monospace, monospace');
-  ctx.fillStyle = '#fb7185';
-  ctx.fillText('PANIC SELLER', rightX + 12 * S, cardY + 10 * S);
-
-  fitFont(fmtExact(curPanic), 27 * S, cardW - 22 * S, '900', 'ui-monospace, monospace');
-  ctx.fillStyle = '#ffe4e6';
-  ctx.fillText(fmtExact(curPanic), rightX + 12 * S, cardY + 30 * S);
-
-  const panicStatus = curYr < 2002.3 ? 'HOLDING...' : 'FLED TO CASH';
-  fitFont(panicStatus, 12 * S, cardW - 22 * S, '700', 'ui-monospace, monospace');
-  ctx.fillStyle = '#fda4af';
-  ctx.fillText(panicStatus, rightX + 12 * S, cardY + cardH - 21 * S);
-  ctx.restore();
-
-  // === 3. HERO 30-YEAR S&P 500 COMPOUND CHART + CRASH SHOCKWAVES (y: 0.292H .. 0.608H) ===
-  const chartBoxY = H * 0.292;
-  const chartBoxH = H * 0.316;
-  const cL = safeL + 50 * S;
-  const cR = safeR - 12 * S;
-  const cTop = chartBoxY + 38 * S;
-  const cBot = chartBoxY + chartBoxH - 34 * S;
-  const cW = cR - cL;
-  const cH = cBot - cTop;
-
-  const yrToX = (yr) => cL + (clamp(yr - 1995, 0, 30) / 30) * cW;
-  const valToY = (v) => cBot - clamp(v / 190000, 0, 1) * cH;
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(5, 20, 16, 0.80)';
-  ctx.strokeStyle = activeCrashGlow > 0.2 ? 'rgba(239, 68, 68, 0.55)' : 'rgba(16, 185, 129, 0.24)';
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath(); ctx.roundRect(safeL, chartBoxY, safeW, chartBoxH, 16 * S); ctx.fill(); ctx.stroke();
-
-  // Live Year Pill top-left of chart
-  const pillW = 86 * S, pillH = 24 * S;
-  ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
-  ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
-  ctx.lineWidth = 1.3 * S;
-  ctx.beginPath(); ctx.roundRect(cL + 6 * S, chartBoxY + 10 * S, pillW, pillH, 12 * S); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#ecfdf5';
-  ctx.font = `900 ${Math.round(13 * S)}px ui-monospace, monospace`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(`${Math.floor(curYr)}`, cL + 6 * S + pillW * 0.5, chartBoxY + 22 * S);
-
-  // Legend top-right
-  ctx.textAlign = 'right';
-  ctx.font = `800 ${Math.round(11 * S)}px ui-monospace, monospace`;
-  ctx.fillStyle = '#34d399';
-  ctx.fillText('● S&P 500', safeR - 110 * S, chartBoxY + 22 * S);
-  ctx.fillStyle = '#fb7185';
-  ctx.fillText('● PANIC', safeR - 16 * S, chartBoxY + 22 * S);
-
-  // Horizontal Y gridlines
-  const yTicks = [0, 50000, 100000, 150000];
-  ctx.font = `700 ${Math.round(11.5 * S)}px ui-monospace, monospace`;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  for (const yt of yTicks) {
-    const gy = valToY(yt);
-    ctx.strokeStyle = yt === 0 ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.12)';
-    ctx.lineWidth = yt === 0 ? 1.5 * S : 1 * S;
-    ctx.setLineDash(yt === 0 ? [] : [4 * S, 4 * S]);
-    ctx.beginPath(); ctx.moveTo(cL, gy); ctx.lineTo(cR, gy); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#64748b';
-    ctx.fillText(yt === 0 ? '$0' : `$${yt / 1000}K`, cL - 6 * S, gy);
-  }
-
-  // X year ticks
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  for (const yr of [1995, 2000, 2008, 2015, 2020, 2025]) {
-    const isCrashYr = yr === 2000 || yr === 2008 || yr === 2020;
-    ctx.fillStyle = isCrashYr ? '#fb7185' : '#94a3b8';
-    ctx.fillText(`'${String(yr).slice(2)}`, yrToX(yr), cBot + 7 * S);
-  }
-
-  // Draw Panic Seller Curve (Crimson)
-  if (curYr > 1995.1) {
-    const steps = 120;
-    ctx.save();
-    ctx.strokeStyle = '#ef4444';
-    ctx.shadowColor = '#ef4444';
-    ctx.shadowBlur = 8 * S;
-    ctx.lineWidth = 2.8 * S;
-    ctx.setLineDash([6 * S, 4 * S]);
-    ctx.beginPath();
-    for (let i = 0; i <= steps; i++) {
-      const y = lerp(1995, curYr, i / steps);
-      const px = yrToX(y);
-      const py = valToY(evalSeries(PANIC_KEYS, y));
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fb7185';
-    ctx.beginPath(); ctx.arc(yrToX(curYr), valToY(curPanic), 4.2 * S, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-  }
-
-  // Draw Stay-Invested S&P 500 Curve (Emerald with Area Fill)
-  if (curYr > 1995.1) {
-    const steps = 150;
-    const pts = [];
-    for (let i = 0; i <= steps; i++) {
-      const y = lerp(1995, curYr, i / steps);
-      pts.push({ x: yrToX(y), y: valToY(evalSeries(SP_KEYS, y)) });
-    }
-
-    const ag = ctx.createLinearGradient(0, cTop, 0, cBot);
-    ag.addColorStop(0, 'rgba(16, 185, 129, 0.30)');
-    ag.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
-    ctx.fillStyle = ag;
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, cBot);
-    for (const p of pts) ctx.lineTo(p.x, p.y);
-    ctx.lineTo(pts[pts.length - 1].x, cBot);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.save();
-    ctx.strokeStyle = '#10b981';
-    ctx.shadowColor = '#10b981';
-    ctx.shadowBlur = 14 * S;
-    ctx.lineWidth = 3.8 * S;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    for (let i = 0; i < pts.length; i++) {
-      if (i === 0) ctx.moveTo(pts[i].x, pts[i].y); else ctx.lineTo(pts[i].x, pts[i].y);
-    }
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    const last = pts[pts.length - 1];
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(last.x, last.y, 5.2 * S, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#10b981';
-    ctx.lineWidth = 2.4 * S;
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // === GLOWING RED CRASH SHOCKWAVES ===
-  for (let i = 0; i < CRASHES.length; i++) {
-    const cr = CRASHES[i];
-    if (curYr >= cr.yr - 0.15) {
-      const cxCrash = yrToX(cr.yr);
-      const cyCrash = valToY(cr.val);
-      const age = curYr - cr.yr;
-
-      ctx.save();
-      // Vertical red danger band
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.09)';
-      ctx.fillRect(cxCrash - 7 * S, cTop, 14 * S, cH);
-
-      // Expanding concentric shockwave rings (deterministic loop)
-      for (let rIdx = 0; rIdx < 2; rIdx++) {
-        const wave = ((t * 0.9 + rIdx * 0.5 + i * 0.23) % 1);
-        const rad = (8 + wave * 34) * S;
-        const alpha = (1 - wave) * (age < 4 ? 0.85 : 0.42);
-        ctx.strokeStyle = `rgba(239, 68, 68, ${alpha.toFixed(3)})`;
-        ctx.lineWidth = 2.2 * S;
-        ctx.beginPath(); ctx.arc(cxCrash, cyCrash, rad, 0, Math.PI * 2); ctx.stroke();
-      }
-
-      // Solid crimson epicenter dot
-      ctx.fillStyle = '#ef4444';
-      ctx.shadowColor = '#ef4444';
-      ctx.shadowBlur = 10 * S;
-      ctx.beginPath(); ctx.arc(cxCrash, cyCrash, 5 * S, 0, Math.PI * 2); ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Drop percentage pill above crash
-      const tagW = 54 * S, tagH = 20 * S;
-      const tagX = clamp(cxCrash - tagW * 0.5, cL + 2 * S, cR - tagW - 2 * S);
-      const tagY = Math.max(cTop + 6 * S, cyCrash - 38 * S);
-      ctx.fillStyle = 'rgba(69, 10, 10, 0.92)';
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 1.4 * S;
-      ctx.beginPath(); ctx.roundRect(tagX, tagY, tagW, tagH, 6 * S); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#fecaca';
-      ctx.font = `900 ${Math.round(11 * S)}px ui-monospace, monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(cr.drop, tagX + tagW * 0.5, tagY + tagH * 0.5);
-      ctx.restore();
-    }
-  }
-
-  // Finale 14.1x Gap Callout at 2025
-  if (resReveal > 0.04) {
-    const xEnd = yrToX(2025);
-    const yTop = valToY(174500);
-    const yBot = valToY(12400);
-    ctx.save();
-    ctx.globalAlpha = resReveal;
-    ctx.strokeStyle = '#facc15';
-    ctx.lineWidth = 2.2 * S;
-    ctx.beginPath();
-    ctx.moveTo(xEnd - 10 * S, yTop);
-    ctx.lineTo(xEnd - 20 * S, yTop);
-    ctx.lineTo(xEnd - 20 * S, yBot);
-    ctx.lineTo(xEnd - 10 * S, yBot);
-    ctx.stroke();
-
-    const bw = 154 * S, bh = 30 * S;
-    const bx = xEnd - 26 * S - bw;
-    const by = (yTop + yBot) * 0.5 - bh * 0.5;
-    ctx.fillStyle = 'rgba(6, 78, 59, 0.94)';
-    ctx.strokeStyle = '#facc15';
-    ctx.lineWidth = 1.8 * S;
-    ctx.shadowColor = '#facc15';
-    ctx.shadowBlur = 12 * S;
-    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 9 * S); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    ctx.fillStyle = '#fefce8';
-    ctx.font = `900 ${Math.round(13 * S)}px ui-monospace, monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('14.1× (+$162K)', bx + bw * 0.5, by + bh * 0.5);
-    ctx.restore();
-  }
-  ctx.restore();
-
-  // === 4. LOWER CRASH SURVIVAL SCORECARD (y: 0.620H .. 0.736H) ===
-  const stripY = H * 0.620;
-  const stripH = H * 0.116; // ends at 0.736H <= 0.74H
-  const subGap = 9 * S;
-  const subW = (safeW - subGap * 2) / 3;
-
-  for (let i = 0; i < CRASHES.length; i++) {
-    const cr = CRASHES[i];
-    const sx = safeL + i * (subW + subGap);
-    const hit = curYr >= cr.yr - 0.1;
-    const recovered = curYr >= cr.recYr;
-
-    ctx.save();
-    ctx.fillStyle = recovered
-      ? 'rgba(6, 46, 34, 0.76)'
-      : (hit ? 'rgba(54, 12, 18, 0.80)' : 'rgba(15, 23, 22, 0.55)');
-    ctx.strokeStyle = recovered
-      ? (lawFocus > 0.3 ? '#34d399' : 'rgba(16, 185, 129, 0.55)')
-      : (hit ? '#ef4444' : 'rgba(148, 163, 184, 0.20)');
-    ctx.lineWidth = 1.5 * S;
-    ctx.beginPath(); ctx.roundRect(sx, stripY, subW, stripH, 13 * S); ctx.fill(); ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    fitFont(cr.title, 12 * S, subW - 14 * S, '800', 'ui-monospace, monospace');
-    ctx.fillStyle = hit ? '#f8fafc' : '#64748b';
-    ctx.fillText(cr.title, sx + subW * 0.5, stripY + 14 * S);
-
-    fitFont(cr.drop, 26 * S, subW - 14 * S, '900', 'ui-monospace, monospace');
-    ctx.fillStyle = hit ? '#fb7185' : '#475569';
-    ctx.fillText(cr.drop, sx + subW * 0.5, stripY + 42 * S);
-
-    // Status pill at bottom of card
-    const statusTxt = recovered ? 'RECOVERED ✓' : (hit ? 'CRASHING!' : 'UPCOMING');
-    const statusCol = recovered ? '#34d399' : (hit ? '#fca5a5' : '#64748b');
-    fitFont(statusTxt, 11.5 * S, subW - 14 * S, '800', 'ui-monospace, monospace');
-    ctx.textBaseline = 'bottom';
-    ctx.fillStyle = statusCol;
-    ctx.fillText(statusTxt, sx + subW * 0.5, stripY + stripH - 14 * S);
-    ctx.restore();
-  }
-}
-
-window.renderFrame = drawFrame;
-window.renderBatch = (startFrame, count) => {
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
-    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
-  }
-  return out;
+  const active = LINES.find((l) => t >= l.start && t <= l.end) || SCRIPT[Math.min(SCRIPT.length - 1, Math.floor(p * SCRIPT.length))];
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'wealth',
+    title: '30 YEARS • 3 CRASHES',
+    subtitle: 'HOLDING VS PANIC SELLING',
+    progress: p,
+    caption: active.caption,
+    metrics: [
+      { label: 'YEAR', value: `${Math.round(1996 + p * 30)}`, color: '#FFFFFF' },
+      { label: 'HELD', value: `$${Math.round(curVal)}K`, color: '#FFD60A' },
+      { label: 'PANIC', value: `$${Math.round(panicVal)}K`, color: '#FF3B30' },
+    ],
+  });
 };
-window.ready = true;
 </script>

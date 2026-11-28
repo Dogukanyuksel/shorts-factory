@@ -1,922 +1,180 @@
 <!doctype html>
 <!--
-  Bio Mechanics — Why Sitting All Day Destroys Your Lower Back (The Psoas Pull)
-  60fps, deterministic, audio-synced HTML5 Canvas biomechanical simulation (30s seamless loop)
+  Bio Mechanics — 3D PBR: What 8 Hours of Sitting Does to Your Spine & Psoas
+  Y-LABS 3D Cinema Engine (Three.js PBR Articulated Spine Vertebrae + Lumbar Disc Compression + Psoas Tension Cables, 60fps deterministic)
 -->
 <meta charset="utf-8">
 <style>html,body{margin:0;background:#0D1117;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  easeOutCubic,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
-
 const SCRIPT = [
-  { id: 'hook', text: "Sitting doesn't just make your back stiff — it physically pulls your spine out of alignment.", caption: 'THE PSOAS PULL' },
-  { id: 'psoas', text: 'Deep inside your core, the Psoas Major muscle anchors your lower five vertebrae directly to your thigh bone.', caption: '1. PSOAS MAJOR ANCHOR' },
-  { id: 'shorten', text: 'Locked at a ninety-degree sitting angle all day, this muscle adapts by shortening up to twenty-five percent.', caption: '2. -25% SHORTENING' },
-  { id: 'stand', text: 'The moment you stand up, that tight cable refuses to stretch — yanking your lumbar spine forward.', caption: '3. HYPERLORDOSIS YANK' },
-  { id: 'pressure', text: 'Watch the L4 to L5 spinal disc: compression pressure spikes from one hundred kilograms to one hundred eighty-five!', caption: '4. L4–L5: 185 KG LOAD' },
-  { id: 'loop', text: "That dull ache when you stand up isn't weakness — it's a tight hip flexor hijacking your spine every time...", caption: 'HIJACKED LUMBAR SPINE' },
+  { id: 'hook', text: 'Sitting feels relaxing, yet it crushes your lower spine harder than standing ever does.', caption: 'SITTING = +40% LOAD' },
+  { id: 'psoas', text: 'After hours in a chair, your deep psoas hip flexors lock short like tight steel cables.', caption: 'PSOAS LOCKS SHORT' },
+  { id: 'disc', text: 'As you slump forward, pressure on your L4 and L5 discs spikes by forty percent.', caption: 'L4–L5 DISC COMPRESSED' },
+  { id: 'nerve', text: 'Fluid squeezes out of the cushion until the bulging disc pinches nearby sciatic nerves.', caption: 'BULGE PINCHES NERVE' },
+  { id: 'reset', text: 'Stand up and extend your hips every thirty minutes — your discs re-hydrate like sponges.', caption: '30-MIN RESET RULE' },
+  { id: 'verdict', text: 'Your spine was engineered for motion, not eight hours locked at ninety degrees.', caption: 'MOVE TO DECOMPRESS' },
 ];
 
-let W = 720, H = 1280, FPS = 60, DUR = 30, LINES = [], EVENTS = [];
+let W = 720, H = 1280, FPS = 60, DUR = 26, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let vertebrae = [], discs = [], psoasLeft, psoasRight, bulgeRing;
 
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
 
-function getLine(id, fallbackIdx) {
-  const found = LINES.find((l) => l.id === id);
-  if (found) return found;
+function getLine(id, idx) {
+  const f = LINES.find((l) => l.id === id);
+  if (f) return f;
   const seg = DUR / SCRIPT.length;
-  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+  return { id, start: idx * seg, end: (idx + 1) * seg, caption: SCRIPT[idx].caption };
 }
 
-window.init = (cfg) => {
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'bio', fov: 38, fogDensity: 0.022, floorY: -2.6 });
+  const { scene } = stage;
+  const mats = createMaterials('bio');
+
+  const vGeo = new THREE.CylinderGeometry(0.68, 0.72, 0.42, 24);
+  const dGeo = new THREE.CylinderGeometry(0.64, 0.64, 0.19, 24);
+
+  vertebrae = [];
+  discs = [];
+  for (let i = 0; i < 6; i++) {
+    const v = new THREE.Group();
+    const body = new THREE.Mesh(vGeo, mats.steel);
+    v.add(body);
+    v.add(addXrayEdges(vGeo, 0x34c759, 0.32));
+    // Posterior spinous process
+    const proc = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.24, 0.65), mats.darkMetal);
+    proc.position.set(0, 0, -0.68);
+    v.add(proc);
+    scene.add(v);
+    vertebrae.push(v);
+
+    if (i < 5) {
+      const dm = new THREE.Mesh(dGeo, mats.bioGreen.clone());
+      scene.add(dm);
+      discs.push(dm);
+    }
+  }
+
+  // Psoas tension cables flanking lumbar spine
+  const cableGeo = new THREE.CylinderGeometry(0.08, 0.08, 3.2, 12);
+  psoasLeft = new THREE.Mesh(cableGeo, mats.crimson.clone());
+  psoasLeft.position.set(-1.05, -0.5, 0.55);
+  psoasLeft.rotation.z = -0.14;
+  scene.add(psoasLeft);
+
+  psoasRight = new THREE.Mesh(cableGeo, mats.crimson.clone());
+  psoasRight.position.set(1.05, -0.5, 0.55);
+  psoasRight.rotation.z = 0.14;
+  scene.add(psoasRight);
+
+  // Sciatic alert halo on L4-L5 disc
+  bulgeRing = new THREE.Mesh(new THREE.TorusGeometry(0.88, 0.045, 12, 36), mats.glow(0xff2d55, 0.95));
+  bulgeRing.rotation.x = Math.PI / 2;
+  scene.add(bulgeRing);
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
   W = cfg.width || 720;
   H = cfg.height || 1280;
   FPS = cfg.fps || 60;
-  DUR = cfg.duration || 30;
-  LINES = cfg.lines || [];
+  DUR = cfg.duration || 26;
+  LINES = Array.isArray(cfg.lines) ? cfg.lines : [];
   cv.width = W;
   cv.height = H;
+  buildScene();
 
-  const lPsoas = getLine('psoas', 1);
-  const lShort = getLine('shorten', 2);
-  const lStand = getLine('stand', 3);
-  const lPress = getLine('pressure', 4);
-  const lLoop = getLine('loop', 5);
-
+  const lDisc = getLine('disc', 2);
+  const lNerve = getLine('nerve', 3);
+  const lReset = getLine('reset', 4);
   EVENTS = [
-    { t: lPsoas.start + 0.14, type: 'bounce', pitchIndex: 2, intensity: 0.55 },
-    { t: lShort.start + 0.18, type: 'bounce', pitchIndex: 4, intensity: 0.68 },
-    { t: lStand.start + 0.12, type: 'break', pitchIndex: 1, intensity: 0.92 },
-    { t: lPress.start + 0.10, type: 'break', pitchIndex: 0, intensity: 1.0 },
-    { t: lPress.start + 1.15, type: 'bounce', pitchIndex: 7, intensity: 0.78 },
-    { t: lLoop.start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.62 },
-    { t: Math.min(DUR - 0.3, lLoop.start + 2.2), type: 'win', pitchIndex: 9, intensity: 0.85 },
+    { t: Math.max(0.1, lDisc.start - 0.04), type: 'break', intensity: 0.85 },
+    { t: Math.max(0.2, lNerve.start - 0.04), type: 'break', intensity: 1.0 },
+    { t: Math.max(0.3, lReset.start - 0.04), type: 'win', intensity: 0.9 },
   ];
 };
 
-function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
-  let px = Math.round(basePx);
-  ctx.font = `${weight} ${px}px ${family}`;
-  const m = ctx.measureText(text).width || 1;
-  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
-  ctx.font = `${weight} ${px}px ${family}`;
-  return px;
-}
-
-function getActivePhase(t) {
-  for (let i = SCRIPT.length - 1; i >= 0; i--) {
-    const ln = getLine(SCRIPT[i].id, i);
-    if (t >= ln.start) return { idx: i, line: ln };
-  }
-  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
-}
-
-function mixRgb(a, b, k) {
-  const c = clamp(k, 0, 1);
-  return [
-    Math.round(lerp(a[0], b[0], c)),
-    Math.round(lerp(a[1], b[1], c)),
-    Math.round(lerp(a[2], b[2], c)),
-  ];
-}
-
-function rgba(rgb, a) {
-  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${clamp(a, 0, 1).toFixed(3)})`;
-}
-
-function quadPoint(p0, p1, p2, u) {
-  const m = 1 - u;
-  return {
-    x: m * m * p0.x + 2 * m * u * p1.x + u * u * p2.x,
-    y: m * m * p0.y + 2 * m * u * p1.y + u * u * p2.y,
-  };
-}
-
-function drawFrame(tInput) {
-  const t = ((tInput % DUR) + DUR) % DUR;
-  const S = W / 720;
-  const safeLeft = W * 0.07;
-  const safeRight = W * 0.835;
-  const safeW = safeRight - safeLeft;
-  const cx = (safeLeft + safeRight) * 0.5;
-
-  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
-  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
 
   const lPsoas = getLine('psoas', 1);
-  const lShort = getLine('shorten', 2);
-  const lStand = getLine('stand', 3);
-  const lPress = getLine('pressure', 4);
-  const lLoop = getLine('loop', 5);
+  const lReset = getLine('reset', 4);
+  // Compression ramps up during sitting, then releases on reset
+  const slumpIn = smooth(t, lPsoas.start, lReset.start - 0.5);
+  const decompress = smooth(t, lReset.start, lReset.end);
+  const strain = clamp(slumpIn * (1 - decompress * 0.9), 0, 1);
 
-  // Seamless-loop periodic clocks (integer cycles over DUR)
-  const loopAngle = (t / DUR) * Math.PI * 2;
-  const breath = Math.sin(loopAngle * 8);
-  const pulse = 0.5 + 0.5 * Math.sin(loopAngle * 20);
-  const flowPhase = ((t / DUR) * 18) % 1;
-
-  // Biomechanical state envelopes (all return cleanly to 0 at t = 0 and t = DUR)
-  const psoasFocus = smooth(lPsoas.start, lPsoas.start + 0.7, t) * (1 - smooth(DUR - 0.8, DUR, t));
-  const shortenIn = smooth(lShort.start + 0.15, lShort.start + Math.max(1.2, (lShort.end - lShort.start) * 0.75), t);
-  const shortenOut = smooth(lLoop.start + (lLoop.end - lLoop.start) * 0.42, DUR - 0.18, t);
-  const shortenAmt = clamp(shortenIn * (1 - shortenOut), 0, 1);
-
-  const standIn = smooth(lStand.start + 0.10, lStand.start + Math.max(1.2, (lStand.end - lStand.start) * 0.62), t);
-  const standOut = smooth(lLoop.start + (lLoop.end - lLoop.start) * 0.28, DUR - 0.12, t);
-  const standAmt = clamp(standIn * (1 - standOut), 0, 1);
-
-  const pressIn = smooth(lPress.start, lPress.start + Math.max(1.0, (lPress.end - lPress.start) * 0.52), t);
-  const pressOut = smooth(lLoop.start + (lLoop.end - lLoop.start) * 0.25, DUR - 0.25, t);
-  const pressBoost = clamp(pressIn * (1 - pressOut), 0, 1);
-
-  // Combined lumbar tension (0 = relaxed seated, 1 = peak standing hyperlordosis + 185 kg load)
-  const tensionAmt = clamp(standAmt * (0.72 + 0.28 * pressBoost), 0, 1);
-  const discLoadKg = Math.round(100 + 85 * tensionAmt);
-  const psoasLenPct = Math.round(100 - 25 * shortenAmt);
-  const hipAngleDeg = Math.round(lerp(90, 176, standAmt));
-
-  // Color palette
-  const colGreen = [52, 199, 89];    // #34C759
-  const colAmber = [255, 149, 0];    // #FF9500
-  const colCrimson = [255, 45, 85];  // #FF2D55
-  const colBone = [56, 189, 248];    // #38bdf8
-
-  const psoasRgb = tensionAmt < 0.5
-    ? mixRgb(colGreen, colAmber, tensionAmt * 2)
-    : mixRgb(colAmber, colCrimson, (tensionAmt - 0.5) * 2);
-
-  // === 1. DARK CARBON #0D1117 STUDIO BACKGROUND ===
-  ctx.fillStyle = '#0D1117';
-  ctx.fillRect(0, 0, W, H);
-
-  // Ambient studio glow shifting from biological green/cyan to crimson tension
-  const glowY = H * 0.375;
-  const bgGlow = ctx.createRadialGradient(cx, glowY, 16 * S, cx, glowY, H * 0.42);
-  bgGlow.addColorStop(0, rgba(mixRgb(colBone, colCrimson, tensionAmt), 0.14 + 0.08 * tensionAmt));
-  bgGlow.addColorStop(0.5, rgba(colGreen, 0.06 * (1 - tensionAmt * 0.7)));
-  bgGlow.addColorStop(1, 'rgba(13,17,23,0)');
-  ctx.fillStyle = bgGlow;
-  ctx.fillRect(0, 0, W, H);
-
-  // Viewport frame & subtle diagnostic grid strictly inside safe zone
-  const vpTop = H * 0.172;
-  const vpBot = H * 0.558;
-  const vpH = vpBot - vpTop;
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(17,24,39,0.52)';
-  ctx.strokeStyle = rgba(mixRgb(colBone, colCrimson, tensionAmt * 0.6), 0.24);
-  ctx.lineWidth = 1.5 * S;
-  ctx.beginPath();
-  ctx.roundRect(safeLeft, vpTop, safeW, vpH, 18 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  // Clip interior grid to viewport
-  ctx.clip();
-  ctx.strokeStyle = 'rgba(56,189,248,0.05)';
-  ctx.lineWidth = 1 * S;
-  for (let gx = safeLeft + 36 * S; gx < safeRight; gx += 42 * S) {
-    ctx.beginPath(); ctx.moveTo(gx, vpTop); ctx.lineTo(gx, vpBot); ctx.stroke();
-  }
-  for (let gy = vpTop + 36 * S; gy < vpBot; gy += 42 * S) {
-    ctx.beginPath(); ctx.moveTo(safeLeft, gy); ctx.lineTo(safeRight, gy); ctx.stroke();
+  const spacing = lerp(0.74, 0.56, strain);
+  for (let i = 0; i < 6; i++) {
+    const idx = i - 2.5;
+    const curveZ = strain * Math.sin((i / 5) * Math.PI) * -0.45;
+    const tiltX = strain * (i - 2.5) * 0.075;
+    vertebrae[i].position.set(0, idx * spacing, curveZ);
+    vertebrae[i].rotation.x = tiltX;
   }
 
-  // === 2. KINEMATIC SKELETON MODEL (SIDE-PROFILE, FACING RIGHT) ===
-  // Hip joint (acetabulum) rises smoothly from seated to standing
-  const hipX = lerp(cx - 56 * S, cx - 18 * S, standAmt);
-  const hipY = lerp(vpTop + vpH * 0.655, vpTop + vpH * 0.552, standAmt) + breath * 1.4 * S;
-
-  // Constant bone lengths
-  const femurLen = 110 * S;
-  const tibiaLen = 96 * S;
-
-  // Femur angle: 0 rad = horizontal right (90 deg hip), +1.50 rad = nearly vertical down (standing)
-  const femurAng = lerp(0.02, 1.51, standAmt);
-  const kneeX = hipX + Math.cos(femurAng) * femurLen;
-  const kneeY = hipY + Math.sin(femurAng) * femurLen;
-
-  // Tibia angle: vertical down (seated) -> slightly angled vertical (standing)
-  const tibiaAng = lerp(1.57, 1.62, standAmt);
-  const ankleX = kneeX + Math.cos(tibiaAng) * tibiaLen;
-  const ankleY = kneeY + Math.sin(tibiaAng) * tibiaLen;
-
-  // Pelvis anterior tilt increases strongly under tight Psoas pull when standing
-  const pelvicTilt = lerp(-0.08, 0.34, tensionAmt) + lerp(0, 0.05, standAmt);
-
-  // Sacrum top (S1 endplate) relative to hip joint
-  const s1BaseX = hipX - 18 * S + Math.sin(pelvicTilt) * 28 * S;
-  const s1BaseY = hipY - 40 * S - Math.cos(pelvicTilt) * 8 * S;
-
-  // Compute L5 -> L1 articulated lumbar vertebrae positions (idx 0 = L5, idx 4 = L1)
-  // Hyperlordosis bows L1–L5 forward (+X) maximally around L3–L4
-  const vertebrae = [];
-  const vertStep = 26.5 * S;
   for (let i = 0; i < 5; i++) {
-    const frac = i / 4; // 0 = L5, 1 = L1
-    const baseCurve = Math.sin(frac * Math.PI) * 5 * S;
-    const lordosisBow = Math.sin((0.18 + frac * 0.78) * Math.PI) * (27 * S * tensionAmt);
-    const seatedSlouch = -Math.sin(frac * Math.PI) * 7 * S * (1 - standAmt);
-    const vx = s1BaseX + baseCurve + lordosisBow + seatedSlouch + i * 1.2 * S * tensionAmt;
-    const vy = s1BaseY - (i + 1) * vertStep + (i === 0 ? 3 * S * tensionAmt : 0);
-    // Vertebral body tilt (L4-L5 wedges posteriorly under hyperlordosis)
-    const tilt = (0.28 - frac * 0.44) * tensionAmt - 0.06 * (1 - standAmt);
-    vertebrae.push({
-      label: `L${5 - i}`,
-      x: vx,
-      y: vy,
-      tilt,
-      antX: vx + 11 * S * Math.cos(tilt),
-      antY: vy + 11 * S * Math.sin(tilt),
-      postX: vx - 14 * S * Math.cos(tilt),
-      postY: vy - 14 * S * Math.sin(tilt),
-    });
+    const y = (vertebrae[i].position.y + vertebrae[i + 1].position.y) * 0.5;
+    const z = (vertebrae[i].position.z + vertebrae[i + 1].position.z) * 0.5;
+    discs[i].position.set(0, y, z);
+    const isTarget = i === 1;
+    const bulge = isTarget ? 1 + strain * 0.34 : 1 + strain * 0.14;
+    discs[i].scale.set(bulge, lerp(1.0, 0.55, strain), bulge);
+    discs[i].material.color.setHex(isTarget && strain > 0.35 ? 0xff2d55 : 0x34c759);
+    discs[i].material.emissive.setHex(isTarget && strain > 0.35 ? 0xff2d55 : 0x10b981);
+    discs[i].material.emissiveIntensity = isTarget ? 0.35 + strain * 0.65 : 0.25;
   }
 
-  // Thoracic spine & ribcage anchor above L1
-  const l1 = vertebrae[4];
-  const thorX = l1.x - 4 * S - 5 * S * tensionAmt;
-  const thorY = l1.y - 54 * S;
-
-  // --- A. HOLOGRAPHIC CHAIR (fades out cleanly as user stands) ---
-  const chairAlpha = clamp(1 - standAmt * 1.35, 0, 1);
-  if (chairAlpha > 0.01) {
-    ctx.save();
-    const seatY = hipY + 26 * S;
-    const seatLeft = hipX - 58 * S;
-    const seatRight = hipX + 104 * S;
-    ctx.strokeStyle = `rgba(56,189,248,${(0.28 * chairAlpha).toFixed(3)})`;
-    ctx.fillStyle = `rgba(56,189,248,${(0.06 * chairAlpha).toFixed(3)})`;
-    ctx.lineWidth = 2.2 * S;
-    // Seat cushion
-    ctx.beginPath();
-    ctx.roundRect(seatLeft, seatY, seatRight - seatLeft, 12 * S, 6 * S);
-    ctx.fill();
-    ctx.stroke();
-    // Backrest
-    ctx.beginPath();
-    ctx.roundRect(seatLeft - 4 * S, seatY - 148 * S, 10 * S, 152 * S, 5 * S);
-    ctx.fill();
-    ctx.stroke();
-    // Legs
-    ctx.beginPath();
-    ctx.moveTo(seatLeft + 14 * S, seatY + 12 * S);
-    ctx.lineTo(seatLeft + 14 * S, vpBot - 12 * S);
-    ctx.moveTo(seatRight - 18 * S, seatY + 12 * S);
-    ctx.lineTo(seatRight - 18 * S, vpBot - 12 * S);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // --- B. SUBTLE TRANSLUCENT ANATOMICAL BODY SILHOUETTE ---
-  ctx.save();
-  ctx.strokeStyle = 'rgba(148,163,184,0.16)';
-  ctx.fillStyle = 'rgba(56,189,248,0.035)';
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  ctx.moveTo(thorX - 38 * S, thorY - 46 * S);
-  ctx.quadraticCurveTo(thorX + 66 * S, thorY - 36 * S, l1.x + 52 * S, l1.y + 42 * S);
-  ctx.quadraticCurveTo(hipX + 46 * S, hipY - 22 * S, kneeX + Math.sin(femurAng) * 26 * S, kneeY - Math.cos(femurAng) * 26 * S);
-  ctx.lineTo(ankleX + 18 * S, ankleY + 8 * S);
-  ctx.lineTo(ankleX - 20 * S, ankleY + 8 * S);
-  ctx.lineTo(kneeX - Math.sin(femurAng) * 28 * S, kneeY + Math.cos(femurAng) * 28 * S);
-  ctx.quadraticCurveTo(hipX - 46 * S, hipY + 34 * S, s1BaseX - 36 * S, s1BaseY - 18 * S);
-  ctx.quadraticCurveTo(thorX - 48 * S, thorY + 26 * S, thorX - 38 * S, thorY - 46 * S);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-
-  // --- C. 90° HIP ANGLE PROTRACTOR ARC ---
-  ctx.save();
-  const arcR = 64 * S;
-  const torsoAxisAng = -Math.PI * 0.5;
-  const arcColor = tensionAmt > 0.4 ? '#FF2D55' : '#38bdf8';
-  ctx.strokeStyle = rgba(tensionAmt > 0.4 ? colCrimson : colBone, 0.25);
-  ctx.lineWidth = 1.4 * S;
-  ctx.setLineDash([4 * S, 4 * S]);
-  ctx.beginPath();
-  ctx.moveTo(hipX, hipY);
-  ctx.lineTo(hipX, hipY - arcR - 18 * S);
-  ctx.moveTo(hipX, hipY);
-  ctx.lineTo(hipX + Math.cos(femurAng) * (arcR + 18 * S), hipY + Math.sin(femurAng) * (arcR + 18 * S));
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Protractor wedge fill & glowing arc
-  ctx.fillStyle = rgba(tensionAmt > 0.4 ? colCrimson : colBone, 0.11);
-  ctx.beginPath();
-  ctx.moveTo(hipX, hipY);
-  ctx.arc(hipX, hipY, arcR, torsoAxisAng, femurAng, false);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.strokeStyle = arcColor;
-  ctx.lineWidth = 2.6 * S;
-  ctx.shadowColor = arcColor;
-  ctx.shadowBlur = 10 * S;
-  ctx.beginPath();
-  ctx.arc(hipX, hipY, arcR, torsoAxisAng, femurAng, false);
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // Angle degree label beside arc
-  const midAng = (torsoAxisAng + femurAng) * 0.5;
-  const degX = hipX + Math.cos(midAng) * (arcR + 24 * S);
-  const degY = hipY + Math.sin(midAng) * (arcR + 22 * S);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont(`${hipAngleDeg}°`, 17 * S, 54 * S, '900');
-  ctx.fillStyle = tensionAmt > 0.4 ? '#fda4af' : '#7dd3fc';
-  ctx.fillText(`${hipAngleDeg}°`, degX, degY);
-  ctx.restore();
-
-  // --- D. RIBCAGE & THORACIC SPINE ---
-  ctx.save();
-  ctx.translate(thorX, thorY);
-  ctx.rotate(lerp(0.05, -0.07, tensionAmt));
-  for (let r = 0; r < 6; r++) {
-    const ry = -36 * S + r * 14 * S;
-    const ribW = (44 + Math.sin((r / 5) * Math.PI) * 18) * S;
-    const ribG = ctx.createLinearGradient(-16 * S, ry, ribW, ry);
-    ribG.addColorStop(0, 'rgba(56,189,248,0.68)');
-    ribG.addColorStop(0.65, 'rgba(186,230,253,0.42)');
-    ribG.addColorStop(1, 'rgba(56,189,248,0.14)');
-    ctx.strokeStyle = ribG;
-    ctx.lineWidth = 5.2 * S;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(-14 * S, ry);
-    ctx.bezierCurveTo(ribW * 0.45, ry - 4 * S, ribW, ry + 8 * S, ribW * 0.82, ry + 20 * S);
-    ctx.stroke();
-  }
-  // Lower thoracic vertebral segments (T10–T12)
-  for (let tv = 0; tv < 3; tv++) {
-    ctx.fillStyle = 'rgba(125,211,252,0.52)';
-    ctx.strokeStyle = 'rgba(224,242,254,0.65)';
-    ctx.lineWidth = 1.4 * S;
-    ctx.beginPath();
-    ctx.roundRect(-22 * S, (-28 + tv * 20) * S, 18 * S, 14 * S, 4 * S);
-    ctx.fill();
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // --- E. CRIMSON LUMBAR TENSION HEATMAP AT L4–L5 (behind discs & vertebrae) ---
-  const vL5 = vertebrae[0];
-  const vL4 = vertebrae[1];
-  const l45X = (vL4.x + vL5.x) * 0.5;
-  const l45Y = (vL4.y + vL5.y) * 0.5;
-
-  if (tensionAmt > 0.04) {
-    ctx.save();
-    const heatR = (54 + 44 * tensionAmt + 10 * pulse * pressBoost) * S;
-    const heatG = ctx.createRadialGradient(l45X, l45Y, 4 * S, l45X, l45Y, heatR);
-    heatG.addColorStop(0, `rgba(255,45,85,${(0.72 * tensionAmt).toFixed(3)})`);
-    heatG.addColorStop(0.42, `rgba(255,69,58,${(0.36 * tensionAmt).toFixed(3)})`);
-    heatG.addColorStop(1, 'rgba(255,45,85,0)');
-    ctx.fillStyle = heatG;
-    ctx.beginPath();
-    ctx.arc(l45X, l45Y, heatR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Concentric biomechanical stress rings
-    for (let ring = 0; ring < 3; ring++) {
-      const rProg = (flowPhase + ring / 3) % 1;
-      const rr = (14 + rProg * 58 * tensionAmt) * S;
-      const ra = (1 - rProg) * 0.65 * tensionAmt;
-      ctx.strokeStyle = `rgba(255,45,85,${ra.toFixed(3)})`;
-      ctx.lineWidth = 2 * S;
-      ctx.beginPath();
-      ctx.arc(l45X - 4 * S, l45Y, rr, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // --- F. INTERVERTEBRAL DISCS (L5-S1, L4-L5, L3-L4, L2-L3, L1-L2) ---
-  for (let i = 0; i < 4; i++) {
-    const lower = vertebrae[i];
-    const upper = vertebrae[i + 1];
-    const dx = (lower.x + upper.x) * 0.5;
-    const dy = (lower.y + upper.y) * 0.5;
-    const isL45 = (i === 0); // between L5 (0) and L4 (1)
-    const pinch = isL45 ? tensionAmt : tensionAmt * 0.35;
-
-    ctx.save();
-    ctx.translate(dx, dy);
-    ctx.rotate((lower.tilt + upper.tilt) * 0.5);
-    const discRgb = isL45 ? mixRgb(colBone, colCrimson, tensionAmt) : mixRgb(colBone, colAmber, tensionAmt * 0.45);
-    ctx.fillStyle = rgba(discRgb, isL45 ? (0.68 + 0.32 * tensionAmt) : 0.55);
-    ctx.strokeStyle = isL45 && tensionAmt > 0.3 ? '#fecdd3' : '#bae6fd';
-    ctx.lineWidth = (isL45 ? 1.8 : 1.2) * S;
-    if (isL45 && tensionAmt > 0.25) {
-      ctx.shadowColor = '#FF2D55';
-      ctx.shadowBlur = (14 + 10 * pulse) * S;
-    }
-    // Posterior wedge compression shape
-    const halfW = (11.5 + (isL45 ? 3.5 * pinch : 0)) * S;
-    const antH = (4.2 + 1.4 * pinch) * S;
-    const postH = Math.max(1.3 * S, (4.2 - 2.6 * pinch) * S);
-    ctx.beginPath();
-    ctx.moveTo(-halfW, -postH);
-    ctx.lineTo(halfW, -antH);
-    ctx.quadraticCurveTo(halfW + 3 * S, 0, halfW, antH);
-    ctx.lineTo(-halfW, postH);
-    ctx.quadraticCurveTo(-halfW - (isL45 ? 5 * pinch : 1.5) * S, 0, -halfW, -postH);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // --- G. ARTICULATED LUMBAR VERTEBRAE (L1–L5) ---
-  for (let i = 0; i < 5; i++) {
-    const v = vertebrae[i];
-    const isStressed = (i === 0 || i === 1) && tensionAmt > 0.25;
-    ctx.save();
-    ctx.translate(v.x, v.y);
-    ctx.rotate(v.tilt);
-
-    // Posterior spinous process (pointing left / posterior)
-    ctx.fillStyle = isStressed ? 'rgba(253,164,175,0.45)' : 'rgba(56,189,248,0.34)';
-    ctx.strokeStyle = isStressed ? '#fda4af' : '#7dd3fc';
-    ctx.lineWidth = 1.6 * S;
-    ctx.beginPath();
-    ctx.moveTo(-11 * S, -5 * S);
-    ctx.lineTo(-24 * S, 1 * S);
-    ctx.lineTo(-22 * S, 7 * S);
-    ctx.lineTo(-11 * S, 5 * S);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // 3D-shaded Vertebral Body
-    const vbG = ctx.createLinearGradient(-12 * S, -9 * S, 12 * S, 9 * S);
-    if (isStressed) {
-      vbG.addColorStop(0, '#ffe4e6');
-      vbG.addColorStop(0.5, '#fb7185');
-      vbG.addColorStop(1, '#9f1239');
-    } else {
-      vbG.addColorStop(0, '#e0f2fe');
-      vbG.addColorStop(0.5, '#38bdf8');
-      vbG.addColorStop(1, '#0369a1');
-    }
-    ctx.fillStyle = vbG;
-    ctx.strokeStyle = isStressed ? '#fecdd3' : '#bae6fd';
-    ctx.lineWidth = 1.8 * S;
-    ctx.shadowColor = isStressed ? '#FF2D55' : '#38bdf8';
-    ctx.shadowBlur = (isStressed ? 12 : 7) * S;
-    ctx.beginPath();
-    ctx.roundRect(-12 * S, -8.5 * S, 24 * S, 17 * S, 4.5 * S);
-    ctx.fill();
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.restore();
-  }
-
-  // --- H. PELVIS (ILIAC WING, SACRUM, ACETABULUM) ---
-  ctx.save();
-  ctx.translate(hipX, hipY);
-  ctx.rotate(pelvicTilt);
-  const pelvG = ctx.createRadialGradient(-8 * S, -20 * S, 6 * S, -4 * S, -10 * S, 56 * S);
-  pelvG.addColorStop(0, 'rgba(186,230,253,0.75)');
-  pelvG.addColorStop(0.55, 'rgba(56,189,248,0.42)');
-  pelvG.addColorStop(1, 'rgba(12,74,110,0.68)');
-  ctx.fillStyle = pelvG;
-  ctx.strokeStyle = '#7dd3fc';
-  ctx.lineWidth = 2.2 * S;
-  ctx.shadowColor = '#38bdf8';
-  ctx.shadowBlur = 10 * S;
-  ctx.beginPath();
-  ctx.moveTo(-24 * S, -44 * S); // posterior superior iliac spine
-  ctx.bezierCurveTo(-4 * S, -58 * S, 30 * S, -44 * S, 26 * S, -16 * S); // iliac crest -> ASIS
-  ctx.bezierCurveTo(22 * S, 6 * S, 16 * S, 22 * S, 0, 26 * S); // pubis / ischium
-  ctx.bezierCurveTo(-24 * S, 26 * S, -34 * S, 2 * S, -28 * S, -22 * S); // greater sciatic notch
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  // Acetabulum (hip socket ring)
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = 'rgba(13,17,23,0.75)';
-  ctx.strokeStyle = '#e0f2fe';
-  ctx.lineWidth = 2.2 * S;
-  ctx.beginPath();
-  ctx.arc(0, 0, 11 * S, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-
-  // --- I. FEMUR (THIGH BONE) + LESSER TROCHANTER + TIBIA (LOWER LEG) ---
-  // Lesser trochanter insertion point on proximal femur
-  const trochDist = 30 * S;
-  const trochX = hipX + Math.cos(femurAng) * trochDist + Math.sin(femurAng) * 8 * S;
-  const trochY = hipY + Math.sin(femurAng) * trochDist - Math.cos(femurAng) * 8 * S;
-
-  // Femur shaft
-  ctx.save();
-  ctx.translate(hipX, hipY);
-  ctx.rotate(femurAng);
-  const femG = ctx.createLinearGradient(0, -10 * S, 0, 10 * S);
-  femG.addColorStop(0, '#e0f2fe');
-  femG.addColorStop(0.5, '#38bdf8');
-  femG.addColorStop(1, '#075985');
-  ctx.fillStyle = femG;
-  ctx.strokeStyle = '#bae6fd';
-  ctx.lineWidth = 2 * S;
-  ctx.shadowColor = '#38bdf8';
-  ctx.shadowBlur = 8 * S;
-
-  // Femoral head
-  ctx.beginPath();
-  ctx.arc(0, 0, 9.5 * S, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // Shaft + condyle
-  ctx.beginPath();
-  ctx.moveTo(8 * S, -6 * S);
-  ctx.lineTo(femurLen - 10 * S, -7.5 * S);
-  ctx.quadraticCurveTo(femurLen + 6 * S, -10 * S, femurLen + 6 * S, 0);
-  ctx.quadraticCurveTo(femurLen + 6 * S, 10 * S, femurLen - 10 * S, 7.5 * S);
-  ctx.lineTo(8 * S, 6 * S);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-  ctx.restore();
-
-  // Tibia + foot silhouette
-  ctx.save();
-  ctx.translate(kneeX, kneeY);
-  ctx.rotate(tibiaAng);
-  ctx.fillStyle = 'rgba(56,189,248,0.45)';
-  ctx.strokeStyle = 'rgba(186,230,253,0.75)';
-  ctx.lineWidth = 1.8 * S;
-  ctx.beginPath();
-  ctx.roundRect(4 * S, -6 * S, tibiaLen - 6 * S, 12 * S, 5 * S);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-
-  // Knee joint glow
-  ctx.fillStyle = '#e0f2fe';
-  ctx.beginPath();
-  ctx.arc(kneeX, kneeY, 6 * S, 0, Math.PI * 2);
-  ctx.fill();
-
-  // --- J. BIOLUMINESCENT PSOAS MAJOR MUSCLE FIBERS (L1–L5 -> LESSER TROCHANTER) ---
-  ctx.save();
-  // Pelvic brim pulley control point (psoas drapes anteriorly over the pelvis)
-  const brimX = hipX + 26 * S * Math.cos(pelvicTilt) + 6 * S * tensionAmt;
-  const brimY = hipY - 22 * S * Math.cos(pelvicTilt) - 6 * S * standAmt;
-
-  // High-tension micro-vibration (100% deterministic)
-  const tautVib = tensionAmt > 0.35 ? Math.sin(loopAngle * 72) * 1.4 * S * tensionAmt : 0;
-
-  // Soft outer biological glow band along the Psoas belly
-  const bellyStart = vertebrae[2];
-  ctx.strokeStyle = rgba(psoasRgb, 0.24 + 0.22 * psoasFocus + 0.18 * tensionAmt);
-  ctx.lineWidth = (24 + 5 * shortenAmt - 6 * tensionAmt) * S;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(bellyStart.antX, bellyStart.antY);
-  ctx.quadraticCurveTo(brimX + tautVib, brimY, trochX, trochY);
-  ctx.stroke();
-
-  // 5 distinct anatomical fascicle slips from L1..L5 to Lesser Trochanter
-  for (let i = 0; i < 5; i++) {
-    const v = vertebrae[i];
-    const startPt = { x: v.antX - 2 * S, y: v.antY };
-    // Shortening bunches fibers slightly thicker while seated; standing pulls them razor-taut
-    const ctrlPt = {
-      x: brimX + (i - 2) * 2.2 * S + tautVib - 8 * S * shortenAmt * (1 - standAmt),
-      y: brimY + (i - 2) * 2.6 * S,
-    };
-    const endPt = { x: trochX, y: trochY };
-
-    ctx.strokeStyle = rgba(psoasRgb, 0.88);
-    ctx.lineWidth = (4.6 + 1.4 * shortenAmt - 1.2 * tensionAmt) * S;
-    ctx.shadowColor = rgba(psoasRgb, 0.9);
-    ctx.shadowBlur = (10 + 10 * tensionAmt + 6 * psoasFocus) * S;
-    ctx.beginPath();
-    ctx.moveTo(startPt.x, startPt.y);
-    ctx.quadraticCurveTo(ctrlPt.x, ctrlPt.y, endPt.x, endPt.y);
-    ctx.stroke();
-
-    // Inner bright myofibril core highlight
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = rgba(mixRgb([220, 252, 231], [255, 228, 230], tensionAmt), 0.72);
-    ctx.lineWidth = 1.4 * S;
-    ctx.stroke();
-
-    // Anchor glow dot on each lumbar vertebra
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(startPt.x, startPt.y, 2.8 * S, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Animated fiber contraction / tension pulses along the muscle
-    for (let p = 0; p < 2; p++) {
-      const baseU = (flowPhase + i * 0.17 + p * 0.5) % 1;
-      const u = tensionAmt > 0.3 ? (1 - baseU) : baseU;
-      const pt = quadPoint(startPt, ctrlPt, endPt, u);
-      ctx.fillStyle = tensionAmt > 0.35 ? 'rgba(255,228,230,0.92)' : 'rgba(187,247,208,0.92)';
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, (2.2 + 1.2 * tensionAmt) * S, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // Lesser Trochanter insertion anchor ring
-  ctx.fillStyle = rgba(psoasRgb, 0.95);
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 1.8 * S;
-  ctx.beginPath();
-  ctx.arc(trochX, trochY, 5.2 * S, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // --- K. FORCE VECTORS: CONTRACTION CHEVRONS (SHORTEN) & FORWARD YANK ARROWS (STAND) ---
-  if (shortenAmt > 0.25 && standAmt < 0.35) {
-    // Inward shortening chevrons along the Psoas while seated
-    const chevAlpha = shortenAmt * (1 - standAmt * 2.5);
-    const midPt = quadPoint(vertebrae[2], { x: brimX, y: brimY }, { x: trochX, y: trochY }, 0.48);
-    ctx.strokeStyle = `rgba(52,199,89,${clamp(chevAlpha, 0, 1).toFixed(3)})`;
-    ctx.lineWidth = 2.6 * S;
-    for (let k = -1; k <= 1; k += 2) {
-      const shift = k * (14 - 5 * pulse) * S;
-      ctx.beginPath();
-      ctx.moveTo(midPt.x + shift - k * 6 * S, midPt.y + shift * 0.7 - 7 * S);
-      ctx.lineTo(midPt.x + shift, midPt.y + shift * 0.7);
-      ctx.lineTo(midPt.x + shift - k * 6 * S, midPt.y + shift * 0.7 + 7 * S);
-      ctx.stroke();
-    }
-  }
-
-  if (tensionAmt > 0.25) {
-    // Glowing crimson yank arrows pulling L2–L4 anteriorly (+X)
-    ctx.strokeStyle = `rgba(255,45,85,${(0.9 * tensionAmt).toFixed(3)})`;
-    ctx.fillStyle = `rgba(255,45,85,${(0.9 * tensionAmt).toFixed(3)})`;
-    ctx.lineWidth = 2.8 * S;
-    for (let ai = 1; ai <= 3; ai++) {
-      const av = vertebrae[ai];
-      const len = (22 + 12 * pulse) * S * tensionAmt;
-      const ax0 = av.antX + 8 * S;
-      const ay0 = av.antY;
-      const ax1 = ax0 + len;
-      ctx.beginPath();
-      ctx.moveTo(ax0, ay0);
-      ctx.lineTo(ax1, ay0);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(ax1 + 6 * S, ay0);
-      ctx.lineTo(ax1 - 3 * S, ay0 - 4.5 * S);
-      ctx.lineTo(ax1 - 3 * S, ay0 + 4.5 * S);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
-  ctx.restore();
-
-  // --- L. CRISP ANATOMICAL CALLOUTS INSIDE VIEWPORT ---
-  ctx.save();
-  // Left callout: L1–L5 spine bracket & L4–L5 Disc marker
-  const labelLeftX = safeLeft + 16 * S;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-
-  // L1–L5 label
-  fitFont('L1–L5 LUMBAR', 13 * S, 128 * S, '800');
-  ctx.fillStyle = '#7dd3fc';
-  ctx.fillText('L1–L5 LUMBAR', labelLeftX, vertebrae[3].y - 14 * S);
-
-  // L4–L5 Disc callout with leader line
-  const discTagY = l45Y + 8 * S;
-  const discTagCol = tensionAmt > 0.35 ? '#FF2D55' : '#38bdf8';
-  ctx.strokeStyle = rgba(tensionAmt > 0.35 ? colCrimson : colBone, 0.72);
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  ctx.moveTo(labelLeftX + 106 * S, discTagY);
-  ctx.lineTo(l45X - 18 * S, l45Y);
-  ctx.stroke();
-
-  ctx.fillStyle = tensionAmt > 0.35 ? 'rgba(255,45,85,0.2)' : 'rgba(56,189,248,0.14)';
-  ctx.strokeStyle = discTagCol;
-  ctx.lineWidth = 1.4 * S;
-  ctx.beginPath();
-  ctx.roundRect(labelLeftX, discTagY - 13 * S, 106 * S, 26 * S, 7 * S);
-  ctx.fill();
-  ctx.stroke();
-  fitFont('L4–L5 DISC', 13 * S, 94 * S, '900');
-  ctx.fillStyle = tensionAmt > 0.35 ? '#ffe4e6' : '#e0f2fe';
-  ctx.textAlign = 'center';
-  ctx.fillText('L4–L5 DISC', labelLeftX + 53 * S, discTagY + 0.5 * S);
-
-  // Right callout: PSOAS MAJOR status badge
-  const rightTagW = 152 * S;
-  const rightTagX = safeRight - rightTagW - 14 * S;
-  const rightTagY = vpTop + 42 * S;
-
-  ctx.fillStyle = rgba(psoasRgb, 0.16);
-  ctx.strokeStyle = rgba(psoasRgb, 0.85);
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  ctx.roundRect(rightTagX, rightTagY - 22 * S, rightTagW, 48 * S, 10 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.textAlign = 'center';
-  fitFont('PSOAS MAJOR', 13 * S, rightTagW - 16 * S, '900');
-  ctx.fillStyle = rgba(psoasRgb, 1);
-  ctx.fillText('PSOAS MAJOR', rightTagX + rightTagW * 0.5, rightTagY - 6 * S);
-
-  const subStatus = tensionAmt > 0.35
-    ? 'TAUT • YANKING'
-    : (shortenAmt > 0.25 ? `-25% LENGTH` : 'HIP FLEXOR');
-  fitFont(subStatus, 13 * S, rightTagW - 16 * S, '800');
-  ctx.fillStyle = '#f8fafc';
-  ctx.fillText(subStatus, rightTagX + rightTagW * 0.5, rightTagY + 13 * S);
-
-  // Leader line from PSOAS MAJOR badge to muscle belly
-  const bellyMid = quadPoint(vertebrae[2], { x: brimX, y: brimY }, { x: trochX, y: trochY }, 0.35);
-  ctx.strokeStyle = rgba(psoasRgb, 0.65);
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  ctx.moveTo(rightTagX, rightTagY + 4 * S);
-  ctx.lineTo(bellyMid.x + 8 * S, bellyMid.y);
-  ctx.stroke();
-
-  // Top-left viewport pose pill
-  const poseText = standAmt > 0.5 ? 'STANDING • HYPERLORDOSIS' : 'SEATED • 90° HIP FLEXION';
-  ctx.fillStyle = 'rgba(13,17,23,0.78)';
-  ctx.strokeStyle = tensionAmt > 0.4 ? 'rgba(255,45,85,0.65)' : 'rgba(56,189,248,0.45)';
-  ctx.lineWidth = 1.3 * S;
-  ctx.beginPath();
-  ctx.roundRect(safeLeft + 12 * S, vpTop + 12 * S, 192 * S, 26 * S, 8 * S);
-  ctx.fill();
-  ctx.stroke();
-  fitFont(poseText, 11.5 * S, 178 * S, '800');
-  ctx.fillStyle = tensionAmt > 0.4 ? '#fda4af' : '#bae6fd';
-  ctx.fillText(poseText, safeLeft + 12 * S + 96 * S, vpTop + 25.5 * S);
-
-  ctx.restore();
-  ctx.restore(); // end viewport clip
-
-  // === 3. LIVE L4–L5 DISC LOAD GAUGE (y: H*0.567 to H*0.628) ===
-  const gX = safeLeft;
-  const gY = H * 0.567;
-  const gW = safeW;
-  const gH = H * 0.061;
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(17,24,39,0.92)';
-  ctx.strokeStyle = tensionAmt > 0.4 ? 'rgba(255,45,85,0.78)' : 'rgba(56,189,248,0.34)';
-  ctx.lineWidth = (tensionAmt > 0.4 ? 2.2 : 1.5) * S;
-  ctx.beginPath();
-  ctx.roundRect(gX, gY, gW, gH, 12 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  // Top row: label left, live KG readout right
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'left';
-  fitFont('L4–L5 DISC LOAD', 14 * S, gW * 0.48, '800');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('L4–L5 DISC LOAD', gX + 16 * S, gY + gH * 0.30);
-
-  ctx.textAlign = 'right';
-  const loadText = `${discLoadKg} KG` + (tensionAmt > 0.45 ? '  (+85%)' : '  (BASE)');
-  fitFont(loadText, 20 * S, gW * 0.48, '900');
-  ctx.fillStyle = tensionAmt > 0.4 ? '#FF2D55' : '#34C759';
-  ctx.fillText(loadText, gX + gW - 16 * S, gY + gH * 0.30);
-
-  // Pressure meter bar
-  const barX = gX + 16 * S;
-  const barY = gY + gH * 0.58;
-  const barW = gW - 32 * S;
-  const barH = 16 * S;
-  const fillFrac = clamp((discLoadKg - 60) / 140, 0.15, 1.0);
-
-  ctx.fillStyle = 'rgba(30,41,59,0.95)';
-  ctx.beginPath();
-  ctx.roundRect(barX, barY, barW, barH, 8 * S);
-  ctx.fill();
-
-  const barG = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-  barG.addColorStop(0, '#34C759');
-  barG.addColorStop(0.55, '#FF9500');
-  barG.addColorStop(1, '#FF2D55');
-  ctx.fillStyle = barG;
-  ctx.shadowColor = tensionAmt > 0.4 ? '#FF2D55' : '#34C759';
-  ctx.shadowBlur = 12 * S;
-  ctx.beginPath();
-  ctx.roundRect(barX, barY, barW * fillFrac, barH, 8 * S);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // Baseline 100 KG reference tick
-  const baseTickX = barX + barW * ((100 - 60) / 140);
-  ctx.strokeStyle = 'rgba(248,250,252,0.75)';
-  ctx.lineWidth = 2 * S;
-  ctx.beginPath();
-  ctx.moveTo(baseTickX, barY - 3 * S);
-  ctx.lineTo(baseTickX, barY + barH + 3 * S);
-  ctx.stroke();
-  ctx.restore();
-
-  // === 4. TWO LIVE TELEMETRY STAT CARDS (y: H*0.637 to H*0.687) ===
-  const cardY = H * 0.637;
-  const cardH = H * 0.050;
-  const gap = 12 * S;
-  const cardW = (safeW - gap) * 0.5;
-
-  function drawStatCard(x, label, valueText, accent, valColor) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(17,24,39,0.90)';
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.6 * S;
-    ctx.beginPath();
-    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    fitFont(label, 12.5 * S, cardW - 18 * S, '800');
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
-
-    fitFont(valueText, 22 * S, cardW - 18 * S, '900');
-    ctx.fillStyle = valColor;
-    ctx.fillText(valueText, x + cardW * 0.5, cardY + cardH * 0.70);
-    ctx.restore();
-  }
-
-  const lenValStr = shortenAmt > 0.05 ? `${psoasLenPct}% (-${100 - psoasLenPct}%)` : '100% NORMAL';
-  const lenCol = tensionAmt > 0.4 ? '#FF2D55' : '#34C759';
-  drawStatCard(safeLeft, 'PSOAS LENGTH', lenValStr, rgba(psoasRgb, 0.7), lenCol);
-
-  const angleValStr = standAmt > 0.5 ? `${hipAngleDeg}° STANDING` : `${hipAngleDeg}° SEATED`;
-  drawStatCard(safeLeft + cardW + gap, 'HIP FLEXION ANGLE', angleValStr, 'rgba(56,189,248,0.68)', '#e0f2fe');
-
-  // === 5. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL ===
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  // Top Header strictly inside y >= H*0.14
-  fitFont('BIO MECHANICS • LUMBAR SPINE', 22 * S, safeW, '800');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('BIO MECHANICS • LUMBAR SPINE', cx, H * 0.155);
-
-  // Bottom Phase Pill strictly inside y <= H*0.74
-  const pillW = Math.min(safeW, 438 * S);
-  const pillH = 52 * S;
-  const pillY = H * 0.716;
-  const pop = 1 + 0.045 * Math.exp(-phaseProg * 14);
-
-  ctx.save();
-  ctx.translate(cx, pillY);
-  ctx.scale(pop, pop);
-  const pillRgb = mixRgb(colGreen, colCrimson, tensionAmt);
-  ctx.shadowColor = rgba(pillRgb, 0.45);
-  ctx.shadowBlur = 18 * S;
-  const pillG = ctx.createLinearGradient(-pillW * 0.5, 0, pillW * 0.5, 0);
-  pillG.addColorStop(0, rgba(mixRgb(pillRgb, [255, 255, 255], 0.14), 1));
-  pillG.addColorStop(1, rgba(pillRgb, 1));
-  ctx.fillStyle = pillG;
-  ctx.beginPath();
-  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  fitFont(activeLine.caption, 26 * S, pillW - 36 * S, '900');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(activeLine.caption, 0, 1 * S);
-  ctx.restore();
-  ctx.restore();
-}
-
-window.renderFrame = (t) => drawFrame(t);
-
-window.renderBatch = (startFrame, count) => {
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
-    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
-  }
-  return out;
+  const tightScale = lerp(1.0, 0.78, strain);
+  psoasLeft.scale.set(1 + strain * 0.3, tightScale, 1 + strain * 0.3);
+  psoasRight.scale.set(1 + strain * 0.3, tightScale, 1 + strain * 0.3);
+
+  bulgeRing.position.copy(discs[1].position);
+  bulgeRing.visible = strain > 0.25;
+  bulgeRing.scale.setScalar(1 + Math.sin(t * 7) * 0.08);
+
+  const camA = lerp(-0.55, 0.55, p);
+  stage.camera.position.set(Math.sin(camA) * 7.2, 0.25, Math.cos(camA) * 7.2);
+  stage.camera.lookAt(0, -0.1, 0);
+
+  stage.renderTo(ctx, W, H);
+
+  const active = LINES.find((l) => t >= l.start && t <= l.end) || SCRIPT[Math.min(SCRIPT.length - 1, Math.floor(p * SCRIPT.length))];
+  const loadPct = Math.round(100 + strain * 40);
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'bio',
+    title: 'SPINE & PSOAS LOAD',
+    subtitle: strain > 0.4 ? 'L4–L5 DISC COMPRESSION' : 'NEUTRAL DECOMPRESSION',
+    progress: p,
+    caption: active.caption,
+    metrics: [
+      { label: 'DISC LOAD', value: `${loadPct}%`, color: strain > 0.4 ? '#FF2D55' : '#34C759' },
+      { label: 'PSOAS', value: strain > 0.4 ? 'LOCKED' : 'FREE', color: strain > 0.4 ? '#FF9500' : '#34C759' },
+      { label: 'HYDRATION', value: `${Math.round(lerp(96, 62, strain))}%`, color: '#38BDF8' },
+    ],
+  });
 };
-window.ready = true;
 </script>

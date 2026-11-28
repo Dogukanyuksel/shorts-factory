@@ -1,84 +1,125 @@
 <!doctype html>
-<!-- Simülasyon #6: Hypnotic 15-Pendulum Wave — Tam 30 sn'de mükemmel hizalanma finali! -->
+<!--
+  Kinetic Lab HQ — 3D PBR: 15-Pendulum Phase Wave (Order → Helix → Chaos → Perfect Re-Sync)
+  Y-LABS 3D Cinema Engine (Three.js PBR 15 Harmonic Metallic Pendulums + Glowing Phase Spine, 60fps deterministic)
+-->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#0B0F19;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  drawStudioHud,
+  clamp,
+  lerp,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-let W = 720, H = 1280, FPS = 60, DUR = 32, HOOK = 'WAIT FOR THE ALIGNMENT...';
+
+let W = 720, H = 1280, FPS = 60, DUR = 26, EVENTS = [];
+let stage = null, built = false;
+let rigs = [], spineLine;
 const COUNT = 15;
-let prevSign = [], events = [], alignedTriggered = false;
 
-window.init = (cfg) => {
-  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.seconds || 32;
-  HOOK = cfg.hook || 'WAIT FOR THE ALIGNMENT...';
-  cv.width = W; cv.height = H;
-  prevSign = Array(COUNT).fill(1);
-  events = []; alignedTriggered = false;
-};
+window.getEvents = () => EVENTS;
 
-function drawFrame(t) {
-  const S = W / 720, cx = W * 0.5, pivotY = H * 0.21;
-  const cycleSec = DUR - 2.2; // 29.8 saniyede tüm 15 sarkaç TEK ÇİZGİDE tam hizalanır!
-  const tEff = Math.min(t, cycleSec);
-  const aligned = t >= cycleSec - 0.15;
-  if (aligned && !alignedTriggered) {
-    alignedTriggered = true;
-    events.push({ t, type: 'win', pitchIndex: 11, intensity: 1.0 });
-  }
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'physics', fov: 40, fogDensity: 0.018, floorY: -2.8 });
+  const { scene } = stage;
+  const mats = createMaterials('physics');
 
-  ctx.fillStyle = '#050712'; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = aligned ? 'rgba(250,204,21,0.55)' : 'rgba(255,255,255,0.12)'; ctx.lineWidth = (aligned ? 4 : 2) * S;
-  ctx.beginPath(); ctx.moveTo(cx, pivotY); ctx.lineTo(cx, H * 0.86); ctx.stroke();
+  // Overhead gantry bar
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 6.2), mats.darkMetal);
+  bar.position.set(0, 2.25, 0);
+  scene.add(bar);
 
-  const pts = [];
+  rigs = [];
   for (let i = 0; i < COUNT; i++) {
-    const freq = (12 + i) * ((Math.PI * 2) / cycleSec);
-    const angle = Math.cos(tEff * freq) * 0.68;
-    const sign = angle >= 0 ? 1 : -1;
-    if (!aligned && t > 0.05 && sign !== prevSign[i]) {
-      prevSign[i] = sign;
-      events.push({ t, type: 'bounce', pitchIndex: i, intensity: 0.38 });
-    }
-    const len = (170 + i * 44) * S;
-    const bx = cx + Math.sin(angle) * len, by = pivotY + Math.cos(angle) * len;
-    const col = aligned ? '#facc15' : `hsl(${((i / COUNT) * 280 + 170) % 360}, 95%, 62%)`;
-    pts.push({ x: bx, y: by, col });
-    ctx.strokeStyle = 'rgba(148,163,184,0.22)'; ctx.lineWidth = 2 * S;
-    ctx.beginPath(); ctx.moveTo(cx, pivotY); ctx.lineTo(bx, by); ctx.stroke();
+    const z = -2.8 + (i / (COUNT - 1)) * 5.6;
+    // Exact integer cycles over DUR so all 15 re-sync perfectly at t = DUR!
+    const cycles = 12 + i;
+    const len = lerp(2.85, 1.95, i / (COUNT - 1));
+    const hueCol = new THREE.Color().setHSL(0.52 + (i / COUNT) * 0.42, 0.92, 0.58).getHex();
+
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, len, 10), mats.steel);
+    const bob = new THREE.Mesh(new THREE.SphereGeometry(0.21, 22, 22), mats.glow(hueCol, 0.95));
+    scene.add(rod, bob);
+    rigs.push({ rod, bob, z, len, cycles });
   }
 
-  ctx.strokeStyle = aligned ? '#fde047' : 'rgba(255,255,255,0.45)'; ctx.lineWidth = (aligned ? 5 : 3) * S;
-  ctx.beginPath();
-  pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-  ctx.stroke();
+  const sGeo = new THREE.BufferGeometry();
+  sGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(COUNT * 3), 3));
+  spineLine = new THREE.Line(sGeo, new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.85 }));
+  scene.add(spineLine);
 
-  for (const p of pts) {
-    ctx.save(); ctx.fillStyle = p.col; ctx.shadowColor = p.col; ctx.shadowBlur = 18 * S;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 15 * S, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(p.x - 4 * S, p.y - 4 * S, 4 * S, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-  }
-
-  ctx.save(); ctx.textAlign = 'center';
-  ctx.font = `900 ${Math.round(40 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#ffffff';
-  ctx.fillText(HOOK, W * 0.5, H * 0.13);
-  if (aligned) {
-    ctx.fillStyle = 'rgba(2,6,18,0.84)';
-    ctx.beginPath(); ctx.roundRect(W * 0.08, H * 0.45, W * 0.84, 120 * S, 26 * S); ctx.fill();
-    ctx.strokeStyle = '#facc15'; ctx.lineWidth = 5 * S; ctx.stroke();
-    ctx.font = `900 ${Math.round(42 * S)}px -apple-system, sans-serif`; ctx.fillStyle = '#fde047';
-    ctx.fillText('PERFECT ALIGNMENT! ✨', W * 0.5, H * 0.512);
-  }
-  ctx.restore();
+  built = true;
 }
 
-window.renderBatch = (startFrame, count) => {
-  const out = [];
-  for (let i = 0; i < count; i++) { drawFrame((startFrame + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
-  return out;
+window.initScene = function (cfg = {}) {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 26;
+  cv.width = W;
+  cv.height = H;
+  buildScene();
+
+  EVENTS = [
+    { t: DUR * 0.25, type: 'bounce', intensity: 0.8 },
+    { t: DUR * 0.5, type: 'break', intensity: 1.0 },
+    { t: DUR * 0.75, type: 'bounce', intensity: 0.85 },
+    { t: DUR * 0.95, type: 'win', intensity: 1.0 },
+  ];
 };
-window.getEvents = () => events;
-window.ready = true;
+
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
+
+  const spineArr = spineLine.geometry.attributes.position.array;
+  rigs.forEach((r, i) => {
+    const theta = 0.72 * Math.cos(2 * Math.PI * r.cycles * p);
+    const bx = r.len * Math.sin(theta);
+    const by = 2.25 - r.len * Math.cos(theta);
+    r.bob.position.set(bx, by, r.z);
+    r.rod.position.set(bx * 0.5, (2.25 + by) * 0.5, r.z);
+    r.rod.rotation.z = theta;
+
+    spineArr[i * 3] = bx;
+    spineArr[i * 3 + 1] = by;
+    spineArr[i * 3 + 2] = r.z;
+  });
+  spineLine.geometry.attributes.position.needsUpdate = true;
+
+  const camA = lerp(-0.42, 0.42, p) + Math.sin(t * 0.35) * 0.12;
+  stage.camera.position.set(Math.sin(camA) * 8.2, 0.95, Math.cos(camA) * 8.2);
+  stage.camera.lookAt(0, -0.1, 0);
+
+  stage.renderTo(ctx, W, H);
+
+  const phaseLabel =
+    p < 0.22 ? 'TRAVELING SINE WAVE' :
+    p < 0.46 ? '3-STRAND DNA HELIX' :
+    p < 0.56 ? 'PERFECT 2-WAVE SPLIT' :
+    p < 0.86 ? 'APPARENT CHAOS PHASE' :
+    '100% HARMONIC RE-SYNC';
+
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'physics',
+    title: '15-PENDULUM WAVE',
+    subtitle: 'HARMONIC PHASE INTERFERENCE',
+    progress: p,
+    caption: phaseLabel,
+    metrics: [
+      { label: 'PENDULUMS', value: '15', color: '#00F0FF' },
+      { label: 'CYCLE', value: `${Math.round(p * 100)}%`, color: '#FFFFFF' },
+      { label: 'PATTERN', value: p > 0.86 ? 'SYNC!' : p > 0.46 && p < 0.56 ? '2-WAVE' : 'HELIX', color: '#FF3B30' },
+    ],
+  });
+};
 </script>

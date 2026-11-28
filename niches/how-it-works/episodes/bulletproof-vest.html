@@ -1,117 +1,170 @@
 <!doctype html>
-<!-- How It Actually Works — Bölüm #10: Bulletproof Vest (Kevlar Fiber Net) -->
+<!--
+  Clear Mechanics — 3D PBR: How Kevlar Stops a 9mm Bullet Without Steel
+  Y-LABS 3D Cinema Engine (Three.js PBR Multi-Layer Woven Kevlar Mesh + 9mm Projectile Deformation + Shockwave Ripple, 60fps deterministic)
+-->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#141414;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  microShake,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
 
 const SCRIPT = [
-  { id: 'hook', text: 'How does woven fabric thinner than a notebook stop a speeding bullet?', caption: 'FABRIC STOPS BULLETS?' },
-  { id: 'kevlar', text: 'Bulletproof vests use dozens of tightly woven Kevlar layers — five times stronger than steel by weight.', caption: '5X STRONGER THAN STEEL' },
-  { id: 'impact', text: 'The instant a bullet strikes, it catches in the net like a soccer ball hitting a goal.', caption: 'CAUGHT IN THE NET' },
-  { id: 'spread', text: 'Instead of piercing one spot, the woven fibers spread the impact energy across the entire vest.', caption: 'ENERGY SPREAD OUT' },
-  { id: 'stop', text: 'The bullet flattens into a harmless disc and drops to a complete stop in microseconds.', caption: 'BULLET STOPPED!' },
+  { id: 'hook', text: 'How does soft woven fabric stop a nine-millimeter bullet traveling faster than sound?', caption: 'FABRIC VS 9MM BULLET' },
+  { id: 'weave', text: 'Kevlar fibers are five times stronger than steel by weight, woven into a tight net.', caption: '5× STRONGER THAN STEEL' },
+  { id: 'impact', text: 'The moment the bullet strikes, it twists into the weave instead of slicing through.', caption: '0.1 MS IMPACT CATCH' },
+  { id: 'spread', text: 'Thirty stacked layers stretch like a soccer net, spreading kinetic energy across the entire chest.', caption: '30 LAYERS SPREAD FORCE' },
+  { id: 'flatten', text: 'The lead core flattens into a mushroom shape, bleeding off all forward momentum.', caption: 'BULLET FLATTENS FLAT' },
+  { id: 'verdict', text: 'It does not block the bullet like a wall — it catches and spreads the shockwave.', caption: 'ENERGY DISPERSED' },
 ];
 
-let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+let W = 720, H = 1280, FPS = 60, DUR = 26, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let layers = [], bulletGrp, shockRing;
+
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
-window.init = (cfg) => {
-  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 23; LINES = cfg.lines || [];
-  cv.width = W; cv.height = H;
-  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+
+function getLine(id, idx) {
+  const f = LINES.find((l) => l.id === id);
+  if (f) return f;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: idx * seg, end: (idx + 1) * seg, caption: SCRIPT[idx].caption };
+}
+
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'explainer', fov: 38, fogDensity: 0.02, floorY: -2.6 });
+  const { scene } = stage;
+  const mats = createMaterials('explainer');
+
+  // 6 visual Kevlar weave planes (representing 30 stacked layers)
+  layers = [];
+  for (let i = 0; i < 6; i++) {
+    const geo = new THREE.PlaneGeometry(3.4, 3.4, 18, 18);
+    const mat = new THREE.MeshStandardMaterial({
+      color: i === 0 ? 0xff9500 : 0xf59e0b,
+      emissive: 0xff9500,
+      emissiveIntensity: 0.12,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.72 - i * 0.07,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.z = -0.35 - i * 0.28;
+    const baseZ = new Float32Array(geo.attributes.position.count);
+    scene.add(mesh);
+    layers.push({ mesh, geo, baseZ, idx: i });
+  }
+
+  // 9mm Copper-Jacketed Bullet
+  bulletGrp = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.65, 24), mats.copper);
+  body.rotation.x = Math.PI / 2;
+  bulletGrp.add(body);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.24, 24, 16), mats.copper);
+  tip.position.z = -0.32;
+  bulletGrp.add(tip);
+  bulletGrp.position.set(0, 0, 2.8);
+  scene.add(bulletGrp);
+
+  // Impact Shockwave Ring
+  shockRing = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.04, 12, 48), mats.glow(0x38bdf8, 1.0));
+  shockRing.position.z = -0.25;
+  scene.add(shockRing);
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 26;
+  LINES = Array.isArray(cfg.lines) ? cfg.lines : [];
+  cv.width = W;
+  cv.height = H;
+  buildScene();
+
+  const lImp = getLine('impact', 2);
+  const lSpr = getLine('spread', 3);
+  const lFlat = getLine('flatten', 4);
   EVENTS = [
-    { t: byId('impact').start + 0.35, type: 'break', pitchIndex: 2, intensity: 1.0 },
-    { t: byId('spread').start + 0.25, type: 'bounce', pitchIndex: 7, intensity: 0.75 },
-    { t: byId('stop').start + 0.25, type: 'win', pitchIndex: 11, intensity: 0.9 },
+    { t: Math.max(0.1, lImp.start - 0.04), type: 'break', intensity: 1.0 },
+    { t: Math.max(0.2, lSpr.start - 0.04), type: 'bounce', intensity: 0.9 },
+    { t: Math.max(0.3, lFlat.start - 0.04), type: 'win', intensity: 0.85 },
   ];
 };
 
-function drawFrame(t) {
-  const S = W / 720;
-  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
-  const imp = smooth(byId('impact').start, byId('impact').start + 0.55, t);
-  const spr = smooth(byId('spread').start, byId('stop').start + 0.5, t);
-  const stop = smooth(byId('stop').start, byId('stop').start + 0.6, t);
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
 
-  const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 40 * S, W * 0.5, H * 0.5, H * 0.65);
-  bg.addColorStop(0, '#1e1b10'); bg.addColorStop(0.6, '#0d0c08'); bg.addColorStop(1, '#050503');
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const lImp = getLine('impact', 2);
+  const lFlat = getLine('flatten', 4);
+  const approach = smooth(t, 0, lImp.start);
+  const catchP = smooth(t, lImp.start, lFlat.end);
+  const deform = Math.sin(catchP * Math.PI * 0.72);
 
-  const netX = W * 0.56, cy = H * 0.50;
-  const indent = imp * 72 * S * (1 - stop * 0.25);
+  // Bullet travels in along -Z, embeds and flattens into mushroom shape
+  const bz = lerp(2.85, -0.25, approach) - deform * 0.72;
+  bulletGrp.position.set(0, 0, bz);
+  bulletGrp.rotation.z = t * (14 * (1 - catchP * 0.92));
+  bulletGrp.scale.set(1 + catchP * 0.55, 1 + catchP * 0.55, lerp(1.0, 0.42, catchP));
 
-  // Kevlar dokuma katmanları (çarpışmada ağ gibi esner + enerji dalgası yayılır!)
-  for (let layer = 0; layer < 5; layer++) {
-    const lx = netX + layer * 20 * S;
-    ctx.strokeStyle = spr > 0.1 ? (layer === 0 ? '#facc15' : '#fb923c') : '#eab308';
-    ctx.lineWidth = (5 - layer * 0.5) * S;
-    ctx.beginPath();
-    for (let y = H * 0.26; y <= H * 0.74; y += 8 * S) {
-      const dy = (y - cy) / (110 * S);
-      const bend = Math.exp(-dy * dy * 1.6) * indent * (1 - layer * 0.14);
-      const x = lx + bend;
-      if (y === H * 0.26) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  // Deform Kevlar mesh layers into parabolic net + radial shock ripple
+  layers.forEach(({ geo, idx }) => {
+    const pos = geo.attributes.position;
+    const layerFactor = Math.max(0.15, 1 - idx * 0.14);
+    for (let i = 0; i < pos.count; i++) {
+      const vx = pos.getX(i);
+      const vy = pos.getY(i);
+      const dist = Math.hypot(vx, vy);
+      const cone = -deform * 1.15 * layerFactor * Math.exp(-dist * dist * 0.85);
+      const ripple = catchP > 0.02 ? Math.sin(dist * 7 - catchP * 14) * 0.08 * deform * Math.exp(-dist * 0.5) : 0;
+      pos.setZ(i, cone + ripple);
     }
-    ctx.stroke();
-  }
+    pos.needsUpdate = true;
+  });
 
-  // Enerji dağılım şok dalgaları (lifler boyunca yukarı-aşağı yayılır)
-  if (imp > 0.4) {
-    const waveD = (imp * 160 + spr * 190) * S;
-    ctx.save();
-    ctx.strokeStyle = '#38bdf8'; ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 16 * S; ctx.lineWidth = 4 * S;
-    ctx.globalAlpha = clamp(1 - spr * 0.5, 0.2, 0.9);
-    ctx.beginPath(); ctx.arc(netX + indent, cy, waveD * 0.55, -Math.PI * 0.45, Math.PI * 0.45); ctx.stroke();
-    ctx.restore();
-  }
+  shockRing.visible = catchP > 0.02;
+  shockRing.scale.setScalar(0.5 + catchP * 3.4);
+  shockRing.material.opacity = clamp(1 - catchP * 0.85, 0.1, 1);
 
-  // Mermi (çarptıkça yassılaşır ve durur!)
-  const bx = lerp(60 * S, netX + indent - 24 * S, imp);
-  const flatScaleX = 1 - stop * 0.52;
-  const flatScaleY = 1 + stop * 0.58;
-  ctx.save();
-  ctx.translate(bx, cy);
-  ctx.scale(flatScaleX, flatScaleY);
-  const bgBullet = ctx.createLinearGradient(-34 * S, -14 * S, 30 * S, 14 * S);
-  bgBullet.addColorStop(0, '#b45309'); bgBullet.addColorStop(0.5, '#fde047'); bgBullet.addColorStop(1, '#d97706');
-  ctx.fillStyle = bgBullet;
-  ctx.beginPath();
-  ctx.moveTo(-36 * S, -14 * S); ctx.lineTo(12 * S, -14 * S);
-  ctx.quadraticCurveTo(38 * S, 0, 12 * S, 14 * S);
-  ctx.lineTo(-36 * S, 14 * S); ctx.closePath(); ctx.fill();
-  ctx.restore();
+  const shake = microShake(t, lImp.start, 0.45, 0.16);
+  const camA = lerp(-0.72, 0.62, p);
+  stage.camera.position.set(Math.sin(camA) * 7.4 + shake.x, 0.55 + shake.y, Math.cos(camA) * 7.4);
+  stage.camera.lookAt(0, 0, -0.5);
 
-  ctx.fillStyle = stop > 0.4 ? '#4ade80' : '#facc15';
-  ctx.font = `800 ${Math.round(22 * S)}px -apple-system, sans-serif`; ctx.textAlign = 'center';
-  ctx.fillText(stop > 0.4 ? '✓ KINETIC ENERGY ABSORBED' : 'KEVLAR WOVEN FIBERS', W * 0.5, H * 0.77);
+  stage.renderTo(ctx, W, H);
 
-  let activeLine = LINES[0];
-  for (const l of LINES) if (t >= l.start) activeLine = l;
-  ctx.save(); ctx.textAlign = 'center';
-  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
-  ctx.fillStyle = '#fde047';
-  ctx.fillText('HOW A BULLETPROOF VEST WORKS', W * 0.5, H * 0.125);
-  if (activeLine) {
-    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
-    ctx.translate(W * 0.5, H * 0.715); ctx.scale(pop, pop);
-    ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
-    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
-    ctx.fillStyle = activeLine.id === 'stop' ? '#4ade80' : '#facc15';
-    ctx.fillText(activeLine.caption, 0, 0);
-  }
-  ctx.restore();
-}
-
-window.renderBatch = (s, c) => {
-  const out = [];
-  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
-  return out;
+  const active = LINES.find((l) => t >= l.start && t <= l.end) || SCRIPT[Math.min(SCRIPT.length - 1, Math.floor(p * SCRIPT.length))];
+  const speedMs = Math.round(lerp(360, 0, catchP));
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'explainer',
+    title: 'KEVLAR BALLISTIC WEAVE',
+    subtitle: '30-LAYER ENERGY DISPERSION',
+    progress: p,
+    caption: active.caption,
+    metrics: [
+      { label: 'VELOCITY', value: `${speedMs} M/S`, color: speedMs > 100 ? '#FF3B30' : '#30D158' },
+      { label: 'LAYERS', value: '30× KEVLAR', color: '#FF9500' },
+      { label: 'ENERGY', value: '510 J', color: '#38BDF8' },
+    ],
+  });
 };
-window.ready = true;
 </script>

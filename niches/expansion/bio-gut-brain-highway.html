@@ -1,639 +1,158 @@
 <!doctype html>
 <!--
-  Bio Mechanics — Why Your Gut Is Literally Called Your Second Brain
-  60fps, deterministic, audio-synced HTML5 Canvas vagus nerve & enteric cutaway
+  Bio Mechanics — 3D PBR: Your Second Brain (500M Gut Neurons & Vagus Nerve Highway)
+  Y-LABS 3D Cinema Engine (Three.js PBR Bioluminescent Vagus Nerve Conduit + Serotonin Pulse Orbs, 60fps deterministic)
 -->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#0D1117;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  easeOutCubic,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
-
 const SCRIPT = [
-  { id: 'hook', text: 'Your gut is not just digesting food. It is wired like a living second brain.', caption: 'THE SECOND BRAIN' },
-  { id: 'enteric', text: 'Lining your intestinal tract are over five hundred million enteric neurons—more than your entire spinal cord.', caption: '1. 500M NEURONS' },
-  { id: 'microbiome', text: 'Inside, trillions of bioluminescent microbes break down nutrients and talk directly to those nerve endings.', caption: '2. MICROBIOME CELLS' },
-  { id: 'serotonin', text: 'In fact, roughly ninety percent of your body serotonin—the mood molecule—is synthesized right here in your gut.', caption: '3. 90% SEROTONIN' },
-  { id: 'vagus', text: 'Your vagus nerve acts as a glowing fiber-optic superhighway, firing constant status signals straight up to your brain.', caption: '4. VAGUS HIGHWAY' },
-  { id: 'mood', text: 'Nearly eighty percent of that traffic travels upward—meaning your gut literally shapes your focus, stress, and mood.', caption: '5. UPWARD CONTROL' },
+  { id: 'hook', text: 'You think your skull runs the show. Yet five hundred million neurons live in your gut.', caption: '500M GUT NEURONS' },
+  { id: 'serotonin', text: 'Ninety percent of your serotonin — your mood chemical — is manufactured right inside your intestines.', caption: '90% OF SEROTONIN' },
+  { id: 'vagus', text: 'Your Vagus nerve is a bioluminescent superhighway wiring your gut straight up to your brain.', caption: 'VAGUS NERVE HIGHWAY' },
+  { id: 'direction', text: 'Shockingly, eighty percent of those signals travel upward — your gut talks, your brain listens.', caption: '80% SIGNALS GO UP' },
+  { id: 'stress', text: 'Inflame your gut with junk food and distress pulses fire straight into your anxiety center.', caption: 'GUT STRESS = ANXIETY' },
+  { id: 'verdict', text: 'Fix your gut microbiome and you literally upgrade your mood, focus, and stress resilience.', caption: 'FEED YOUR 2ND BRAIN' },
 ];
 
-let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+let W = 720, H = 1280, FPS = 60, DUR = 26, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let brainCore, gutCore, vagusCurve, pulses = [], gutNodes = [];
 
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
 
-function getLine(id, fallbackIdx) {
-  const found = LINES.find((l) => l.id === id);
-  if (found) return found;
+function getLine(id, idx) {
+  const f = LINES.find((l) => l.id === id);
+  if (f) return f;
   const seg = DUR / SCRIPT.length;
-  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+  return { id, start: idx * seg, end: (idx + 1) * seg, caption: SCRIPT[idx].caption };
 }
 
-window.init = (cfg = {}) => {
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'bio', fov: 38, fogDensity: 0.024, floorY: -2.9 });
+  const { scene } = stage;
+  const mats = createMaterials('bio');
+
+  // Top: 3D Brain Hemisphere Lattice
+  brainCore = new THREE.Group();
+  brainCore.position.set(0, 1.85, 0);
+  const bGeo = new THREE.IcosahedronGeometry(0.92, 2);
+  const bMesh = new THREE.Mesh(bGeo, mats.glass(0x34c759, 0.28));
+  brainCore.add(bMesh);
+  brainCore.add(addXrayEdges(bGeo, 0x34c759, 0.72));
+  const bInner = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 20), mats.glow(0x34c759, 0.95));
+  brainCore.add(bInner);
+  scene.add(brainCore);
+
+  // Bottom: 3D Enteric Gut Cluster
+  gutCore = new THREE.Group();
+  gutCore.position.set(0, -1.75, 0);
+  const gGeo = new THREE.TorusKnotGeometry(0.76, 0.22, 84, 14, 2, 3);
+  const gMesh = new THREE.Mesh(gGeo, mats.bioGreen);
+  gutCore.add(gMesh);
+  gutCore.add(addXrayEdges(gGeo, 0x34c759, 0.4));
+  scene.add(gutCore);
+
+  // Vagus Nerve Conduit (smooth S-curve from gut to brain)
+  vagusCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, -1.65, 0),
+    new THREE.Vector3(-0.48, -0.6, 0.35),
+    new THREE.Vector3(0.45, 0.45, -0.25),
+    new THREE.Vector3(0, 1.65, 0),
+  ]);
+  const tubeGeo = new THREE.TubeGeometry(vagusCurve, 64, 0.11, 14, false);
+  const tube = new THREE.Mesh(tubeGeo, mats.glass(0x34c759, 0.32));
+  scene.add(tube);
+  scene.add(addXrayEdges(tubeGeo, 0x34c759, 0.45));
+
+  // Bioluminescent signal pulses (80% upward emerald, 20% downward rose)
+  const pGeo = new THREE.SphereGeometry(0.11, 14, 14);
+  for (let i = 0; i < 20; i++) {
+    const upward = i < 16;
+    const m = new THREE.Mesh(pGeo, mats.glow(upward ? 0x34c759 : 0xff2d55, 1.0));
+    m.userData = { upward, offset: i / 20, speed: upward ? 0.42 : 0.35 };
+    scene.add(m);
+    pulses.push(m);
+  }
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
   W = cfg.width || 720;
   H = cfg.height || 1280;
   FPS = cfg.fps || 60;
-  DUR = cfg.duration || 22;
-  LINES = cfg.lines || [];
+  DUR = cfg.duration || 26;
+  LINES = Array.isArray(cfg.lines) ? cfg.lines : [];
   cv.width = W;
   cv.height = H;
+  buildScene();
 
-  const lEn = getLine('enteric', 1);
-  const lMi = getLine('microbiome', 2);
-  const lSe = getLine('serotonin', 3);
-  const lVa = getLine('vagus', 4);
-  const lMo = getLine('mood', 5);
-
+  const lSero = getLine('serotonin', 1);
+  const lDir = getLine('direction', 3);
+  const lStress = getLine('stress', 4);
   EVENTS = [
-    { t: lEn.start + 0.14, type: 'bounce', pitchIndex: 2, intensity: 0.58 },
-    { t: lMi.start + 0.16, type: 'bounce', pitchIndex: 4, intensity: 0.65 },
-    { t: lSe.start + 0.18, type: 'bounce', pitchIndex: 7, intensity: 0.86 },
-    { t: lSe.start + 0.90, type: 'bounce', pitchIndex: 8, intensity: 0.78 },
-    { t: lVa.start + 0.14, type: 'break', pitchIndex: 6, intensity: 0.92 },
-    { t: lMo.start + 0.22, type: 'bounce', pitchIndex: 9, intensity: 0.84 },
-    { t: Math.min(DUR - 0.25, lMo.start + 1.35), type: 'win', pitchIndex: 10, intensity: 0.96 },
+    { t: Math.max(0.1, lSero.start - 0.04), type: 'bounce', intensity: 0.75 },
+    { t: Math.max(0.2, lDir.start - 0.04), type: 'break', intensity: 0.9 },
+    { t: Math.max(0.3, lStress.start - 0.04), type: 'break', intensity: 1.0 },
   ];
 };
 
-function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
-  let px = Math.round(basePx);
-  ctx.font = `${weight} ${px}px ${family}`;
-  const m = ctx.measureText(text).width || 1;
-  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
-  ctx.font = `${weight} ${px}px ${family}`;
-  return px;
-}
-
-function getActivePhase(t) {
-  for (let i = SCRIPT.length - 1; i >= 0; i--) {
-    const ln = getLine(SCRIPT[i].id, i);
-    if (t >= ln.start) return { idx: i, line: ln };
-  }
-  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
-}
-
-function bezier(p0, p1, p2, p3, u) {
-  const m = 1 - u;
-  const mm = m * m;
-  const uu = u * u;
-  return {
-    x: mm * m * p0.x + 3 * mm * u * p1.x + 3 * m * uu * p2.x + uu * u * p3.x,
-    y: mm * m * p0.y + 3 * mm * u * p1.y + 3 * m * uu * p2.y + uu * u * p3.y,
-  };
-}
-
-// Draw glowing golden Serotonin (5-HT) molecule (bioluminescent indole ring + halo)
-function drawSerotonin(x, y, r, alpha, S) {
-  if (alpha <= 0.01) return;
-  ctx.save();
-  ctx.globalAlpha = clamp(alpha, 0, 1);
-  ctx.translate(x, y);
-
-  const auraR = r * 2.4;
-  const ag = ctx.createRadialGradient(0, 0, r * 0.15, 0, 0, auraR);
-  ag.addColorStop(0, 'rgba(253,224,71,0.82)');
-  ag.addColorStop(0.5, 'rgba(251,191,36,0.32)');
-  ag.addColorStop(1, 'rgba(251,191,36,0)');
-  ctx.fillStyle = ag;
-  ctx.beginPath();
-  ctx.arc(0, 0, auraR, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Golden hexagonal ring
-  ctx.fillStyle = '#fbbf24';
-  ctx.strokeStyle = '#fef08a';
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const a = (i * Math.PI) / 3;
-    const px = Math.cos(a) * r;
-    const py = Math.sin(a) * r;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  // Side amine tail node
-  ctx.fillStyle = '#fffbeb';
-  ctx.beginPath();
-  ctx.arc(r * 1.12, -r * 0.35, r * 0.32, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-// Draw bioluminescent probiotic microbiome cell (rod or coccus)
-function drawMicrobe(x, y, len, rad, rot, isEmerald, alpha, S) {
-  if (alpha <= 0.01) return;
-  ctx.save();
-  ctx.globalAlpha = clamp(alpha, 0, 1);
-  ctx.translate(x, y);
-  ctx.rotate(rot);
-
-  const cCore = isEmerald ? '#34d399' : '#38bdf8';
-  const cGlow = isEmerald ? 'rgba(52,211,153,0.45)' : 'rgba(56,189,248,0.45)';
-  ctx.shadowColor = cGlow;
-  ctx.shadowBlur = 10 * S;
-  ctx.fillStyle = cCore;
-  ctx.strokeStyle = isEmerald ? '#a7f3d0' : '#bae6fd';
-  ctx.lineWidth = 1.4 * S;
-
-  ctx.beginPath();
-  ctx.roundRect(-len * 0.5, -rad, len, rad * 2, rad);
-  ctx.fill();
-  ctx.stroke();
-
-  // Inner bioluminescent speck
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#ecfeff';
-  ctx.beginPath();
-  ctx.arc(-len * 0.16, 0, rad * 0.36, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawFrame(t) {
-  const S = W / 720;
-  const safeLeft = W * 0.075;
-  const safeRight = W * 0.835;
-  const safeW = safeRight - safeLeft;
-  const cx = (safeLeft + safeRight) * 0.5;
-
-  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
-  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
-
-  const lEn = getLine('enteric', 1);
-  const lMi = getLine('microbiome', 2);
-  const lSe = getLine('serotonin', 3);
-  const lVa = getLine('vagus', 4);
-  const lMo = getLine('mood', 5);
-
-  // Key animation envelopes
-  const entericGlow = smooth(lEn.start, lEn.start + 0.9, t);
-  const microbeActive = smooth(lMi.start, lMi.start + 0.9, t);
-  const serotoninRise = smooth(lSe.start, lSe.start + 1.25, t);
-  const vagusSurge = smooth(lVa.start, lVa.start + 1.0, t);
-  const brainSync = smooth(lMo.start, lMo.start + 1.1, t);
-
-  // Main axis x shifted slightly left to leave room for the 90% Serotonin Meter on the right
-  const axisX = safeLeft + safeW * 0.415;
-
-  // === 1. DEEP MIDNIGHT #050712 MEDICAL STUDIO BACKGROUND ===
-  ctx.fillStyle = '#050712';
-  ctx.fillRect(0, 0, W, H);
-
-  const bgGlow = ctx.createRadialGradient(axisX, H * 0.42, 20 * S, axisX, H * 0.42, H * 0.48);
-  if (brainSync > 0.25 || vagusSurge > 0.25) {
-    bgGlow.addColorStop(0, `rgba(56,189,248,${(0.16 + 0.08 * vagusSurge).toFixed(3)})`);
-  } else if (serotoninRise > 0.25) {
-    bgGlow.addColorStop(0, `rgba(251,191,36,${(0.18 * serotoninRise).toFixed(3)})`);
-  } else {
-    bgGlow.addColorStop(0, 'rgba(52,211,153,0.16)');
-  }
-  bgGlow.addColorStop(0.55, 'rgba(15,23,42,0.16)');
-  bgGlow.addColorStop(1, 'rgba(5,7,18,0)');
-  ctx.fillStyle = bgGlow;
-  ctx.fillRect(0, 0, W, H);
-
-  // Subtle diagnostic grid
-  ctx.strokeStyle = 'rgba(56,189,248,0.042)';
-  ctx.lineWidth = 1 * S;
-  for (let x = safeLeft; x <= safeRight; x += 42 * S) {
-    ctx.beginPath(); ctx.moveTo(x, H * 0.14); ctx.lineTo(x, H * 0.74); ctx.stroke();
-  }
-  for (let y = H * 0.14; y <= H * 0.74; y += 42 * S) {
-    ctx.beginPath(); ctx.moveTo(safeLeft, y); ctx.lineTo(safeRight, y); ctx.stroke();
-  }
-
-  // === 2. TOP: GLOWING BRAIN CUTAWAY (y: H*0.200 to H*0.305) ===
-  const brainY = H * 0.246;
-  ctx.save();
-  ctx.translate(axisX, brainY);
-
-  // Brain aura intensifies when upward vagus signals arrive
-  const brainGlowAmt = clamp(0.25 + 0.45 * vagusSurge + 0.45 * brainSync, 0, 1);
-  const brHalo = ctx.createRadialGradient(0, 0, 12 * S, 0, 0, 108 * S);
-  brHalo.addColorStop(0, `rgba(56,189,248,${(0.32 * brainGlowAmt).toFixed(3)})`);
-  brHalo.addColorStop(0.55, `rgba(251,191,36,${(0.18 * brainSync).toFixed(3)})`);
-  brHalo.addColorStop(1, 'rgba(56,189,248,0)');
-  ctx.fillStyle = brHalo;
-  ctx.beginPath();
-  ctx.arc(0, 0, 108 * S, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Brainstem base
-  ctx.fillStyle = '#1e293b';
-  ctx.strokeStyle = '#38bdf8';
-  ctx.lineWidth = 2 * S;
-  ctx.beginPath();
-  ctx.roundRect(-14 * S, 24 * S, 28 * S, 36 * S, 10 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  // Sculpted Dual-Lobe Cerebrum
-  const brG = ctx.createRadialGradient(-18 * S, -14 * S, 6 * S, 0, 0, 82 * S);
-  brG.addColorStop(0, brainSync > 0.3 ? '#38bdf8' : '#1e3a5f');
-  brG.addColorStop(0.55, '#0f172a');
-  brG.addColorStop(1, '#080d1a');
-  ctx.fillStyle = brG;
-  ctx.strokeStyle = brainSync > 0.3 ? '#fbbf24' : '#38bdf8';
-  ctx.lineWidth = 2.6 * S;
-  ctx.beginPath();
-  ctx.moveTo(0, -44 * S);
-  ctx.bezierCurveTo(68 * S, -48 * S, 86 * S, 4 * S, 58 * S, 30 * S);
-  ctx.bezierCurveTo(36 * S, 44 * S, 12 * S, 34 * S, 0, 26 * S);
-  ctx.bezierCurveTo(-12 * S, 34 * S, -36 * S, 44 * S, -58 * S, 30 * S);
-  ctx.bezierCurveTo(-86 * S, 4 * S, -68 * S, -48 * S, 0, -44 * S);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  // Glowing cortical neural folds + firing mood nodes
-  ctx.strokeStyle = `rgba(125,211,252,${(0.45 + 0.4 * brainSync).toFixed(2)})`;
-  ctx.lineWidth = 1.8 * S;
-  const folds = [
-    [-46, -12, -24, -26, -8, -8],
-    [46, -12, 24, -26, 8, -8],
-    [-52, 8, -28, 2, -12, 16],
-    [52, 8, 28, 2, 12, 16],
-  ];
-  for (let f = 0; f < folds.length; f++) {
-    const fl = folds[f];
-    ctx.beginPath();
-    ctx.moveTo(fl[0] * S, fl[1] * S);
-    ctx.quadraticCurveTo(fl[2] * S, fl[3] * S, fl[4] * S, fl[5] * S);
-    ctx.stroke();
-  }
-
-  // Neural firing nodes inside brain
-  for (let n = 0; n < 8; n++) {
-    const nx = (hash(n * 19 + 2) - 0.5) * 96 * S;
-    const ny = (hash(n * 31 + 5) - 0.5) * 52 * S;
-    const pulse = 0.5 + 0.5 * Math.sin(t * (3.5 + 4 * brainSync) + n * 1.3);
-    ctx.fillStyle = brainSync > 0.35 && n % 2 === 0 ? '#fde047' : '#7dd3fc';
-    ctx.beginPath();
-    ctx.arc(nx, ny, (2.6 + 2.4 * pulse * brainGlowAmt) * S, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont('BRAIN (MOOD & FOCUS)', 13 * S, 190 * S, '800');
-  ctx.fillStyle = brainSync > 0.3 ? '#fde68a' : '#bae6fd';
-  ctx.fillText('BRAIN (MOOD & FOCUS)', 0, -58 * S);
-  ctx.restore();
-
-  // === 3. MIDDLE: VAGUS NERVE FIBER-OPTIC SUPERHIGHWAY (y: H*0.292 to H*0.445) ===
-  const vagusTopY = H * 0.292;
-  const vagusBotY = H * 0.445;
-
-  ctx.save();
-  // 5 Braided glowing optical fiber strands
-  const strandOffsets = [-16, -8, 0, 8, 16];
-  for (let s = 0; s < strandOffsets.length; s++) {
-    const ox = strandOffsets[s] * S;
-    const p0 = { x: axisX + ox * 0.45, y: vagusBotY };
-    const p1 = { x: axisX + ox * 1.4 + Math.sin(s * 1.4) * 10 * S, y: lerp(vagusBotY, vagusTopY, 0.35) };
-    const p2 = { x: axisX + ox * 1.1 - Math.sin(s * 1.4) * 10 * S, y: lerp(vagusBotY, vagusTopY, 0.70) };
-    const p3 = { x: axisX + ox * 0.4, y: vagusTopY };
-
-    const isDown = s === 4; // 1 of 5 fibers = 20% downward, 4 of 5 = 80% upward!
-    ctx.strokeStyle = isDown
-      ? 'rgba(251,113,133,0.42)'
-      : `rgba(56,189,248,${(0.32 + 0.48 * vagusSurge).toFixed(2)})`;
-    ctx.lineWidth = (2.0 + 1.4 * vagusSurge) * S;
-    ctx.beginPath();
-    ctx.moveTo(p0.x, p0.y);
-    ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-    ctx.stroke();
-
-    // Flowing light pulses along each fiber
-    const pulseCount = isDown ? 2 : 4;
-    const speed = isDown ? 0.55 : lerp(0.65, 1.85, vagusSurge);
-    for (let k = 0; k < pulseCount; k++) {
-      const rawU = ((t * speed + k / pulseCount + s * 0.19) % 1 + 1) % 1;
-      const u = isDown ? (1 - rawU) : rawU; // Upward = 0->1 (gut to brain)
-      const pt = bezier(p0, p1, p2, p3, u);
-      const tailU = clamp(isDown ? u + 0.08 : u - 0.08, 0, 1);
-      const tail = bezier(p0, p1, p2, p3, tailU);
-
-      const pCol = isDown ? '#fb7185' : (s % 2 === 0 && serotoninRise > 0.25 ? '#fbbf24' : '#38bdf8');
-      ctx.strokeStyle = pCol;
-      ctx.lineWidth = (3.4 + 1.4 * vagusSurge) * S;
-      ctx.lineCap = 'round';
-      ctx.shadowColor = pCol;
-      ctx.shadowBlur = 12 * S;
-      ctx.beginPath();
-      ctx.moveTo(tail.x, tail.y);
-      ctx.lineTo(pt.x, pt.y);
-      ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, (2.6 + 1.0 * vagusSurge) * S, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-  }
-
-  // Vagus Highway side labels (80% UPWARD vs 20% DOWN)
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  fitFont('VAGUS NERVE', 14 * S, 118 * S, '900');
-  ctx.fillStyle = vagusSurge > 0.2 ? '#7dd3fc' : '#94a3b8';
-  ctx.fillText('VAGUS NERVE', axisX - 30 * S, H * 0.358);
-
-  fitFont('▲ 80% UPWARD', 13 * S, 118 * S, '900');
-  ctx.fillStyle = brainSync > 0.2 || vagusSurge > 0.2 ? '#fde047' : '#38bdf8';
-  ctx.fillText('▲ 80% UPWARD', axisX - 30 * S, H * 0.382);
-
-  fitFont('▼ 20% DOWN', 12 * S, 118 * S, '800');
-  ctx.fillStyle = '#fb7185';
-  ctx.fillText('▼ 20% DOWN', axisX - 30 * S, H * 0.402);
-  ctx.restore();
-
-  // === 4. BOTTOM: INTESTINAL TRACT + 500M ENTERIC NEURONS + MICROBIOME LUMEN (y: H*0.440 to H*0.614) ===
-  const gutCy = H * 0.528;
-  const gutW = 296 * S;
-  const gutH = 196 * S;
-
-  ctx.save();
-  // Outer sculpted coiled intestinal frame
-  const gutG = ctx.createRadialGradient(axisX, gutCy, 14 * S, axisX, gutCy, gutW * 0.62);
-  gutG.addColorStop(0, '#0f292b');
-  gutG.addColorStop(0.55, '#0b1929');
-  gutG.addColorStop(1, '#050b16');
-  ctx.fillStyle = gutG;
-  ctx.strokeStyle = entericGlow > 0.25 ? '#34d399' : '#1e3a5f';
-  ctx.lineWidth = 3.2 * S;
-  ctx.shadowColor = entericGlow > 0.25 ? 'rgba(52,211,153,0.45)' : 'rgba(56,189,248,0.2)';
-  ctx.shadowBlur = 18 * S;
-  ctx.beginPath();
-  ctx.roundRect(axisX - gutW * 0.5, gutCy - gutH * 0.5, gutW, gutH, 42 * S);
-  ctx.fill();
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // Inner cutaway lumen cavity
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(axisX - gutW * 0.44, gutCy - gutH * 0.41, gutW * 0.88, gutH * 0.82, 32 * S);
-  ctx.fillStyle = '#040914';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(52,211,153,0.35)';
-  ctx.lineWidth = 1.6 * S;
-  ctx.stroke();
-  ctx.clip();
-
-  // Subtle villi wave along top & bottom lumen walls
-  ctx.strokeStyle = 'rgba(52,211,153,0.26)';
-  ctx.lineWidth = 2 * S;
-  for (let side of [-1, 1]) {
-    ctx.beginPath();
-    const baseY = gutCy + side * (gutH * 0.36);
-    for (let x = axisX - gutW * 0.44; x <= axisX + gutW * 0.44; x += 8 * S) {
-      const wave = Math.sin(x * 0.08 + t * 1.4) * 6 * S;
-      if (x === axisX - gutW * 0.44) ctx.moveTo(x, baseY + wave);
-      else ctx.lineTo(x, baseY + wave);
-    }
-    ctx.stroke();
-  }
-
-  // Bioluminescent Microbiome Cells swimming inside the intestinal lumen
-  const mCount = 16;
-  for (let m = 0; m < mCount; m++) {
-    const mx = axisX + (hash(m * 17 + 3) - 0.5) * (gutW * 0.72) + Math.sin(t * 1.4 + m) * 10 * S;
-    const my = gutCy + (hash(m * 29 + 7) - 0.5) * (gutH * 0.56) + Math.cos(t * 1.6 + m * 1.3) * 7 * S;
-    const len = (14 + hash(m * 11) * 12) * S;
-    const rad = (4.2 + hash(m * 5) * 1.8) * S;
-    const rot = hash(m * 23) * Math.PI + Math.sin(t * 0.9 + m) * 0.25;
-    const mAlpha = lerp(0.35, 0.98, microbeActive);
-    drawMicrobe(mx, my, len, rad, rot, m % 2 === 0, mAlpha, S);
-  }
-
-  // Golden Serotonin Molecules synthesized by microbiome & rising toward vagus nerve!
-  if (serotoninRise > 0.02) {
-    const sCount = 14;
-    for (let s = 0; s < sCount; s++) {
-      const cycle = ((t * 0.55 + hash(s * 13)) % 1 + 1) % 1;
-      const sx = axisX + (hash(s * 37 + 1) - 0.5) * (gutW * 0.64) * (1 - cycle * 0.45);
-      const sy = lerp(gutCy + gutH * 0.22, gutCy - gutH * 0.40, cycle);
-      const sAlpha = Math.sin(cycle * Math.PI) * serotoninRise;
-      drawSerotonin(sx, sy, (6.5 + hash(s * 7) * 2.5) * S, sAlpha, S);
-    }
-  }
-  ctx.restore(); // end lumen clip
-
-  // Enteric Nervous System (500M neurons) glowing synaptic web around intestinal wall
-  const eNodes = [];
-  const eCount = 16;
-  for (let i = 0; i < eCount; i++) {
-    const ang = (i / eCount) * Math.PI * 2;
-    const ex = axisX + Math.cos(ang) * (gutW * 0.47);
-    const ey = gutCy + Math.sin(ang) * (gutH * 0.45);
-    eNodes.push({ x: ex, y: ey });
-  }
-
-  // Connect adjacent enteric nodes with glowing cyan-emerald axons
-  ctx.strokeStyle = `rgba(52,211,153,${(0.25 + 0.55 * entericGlow).toFixed(2)})`;
-  ctx.lineWidth = 1.6 * S;
-  for (let i = 0; i < eNodes.length; i++) {
-    const a = eNodes[i];
-    const b = eNodes[(i + 1) % eNodes.length];
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-  }
-  for (let i = 0; i < eNodes.length; i++) {
-    const nd = eNodes[i];
-    const np = 0.5 + 0.5 * Math.sin(t * 5 + i * 0.9);
-    ctx.fillStyle = i % 3 === 0 && serotoninRise > 0.3 ? '#fde047' : '#34d399';
-    ctx.beginPath();
-    ctx.arc(nd.x, nd.y, (3.2 + 2.2 * np * entericGlow) * S, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont('ENTERIC NERVOUS SYSTEM (500M)', 13 * S, gutW - 12 * S, '800');
-  ctx.fillStyle = '#a7f3d0';
-  ctx.fillText('ENTERIC NERVOUS SYSTEM (500M)', axisX, gutCy + gutH * 0.5 + 16 * S);
-  ctx.restore();
-
-  // === 5. RIGHT-SIDE VERTICAL 90% SEROTONIN METER (strictly inside safeRight) ===
-  const meterW = 86 * S;
-  const meterX = safeRight - meterW;
-  const meterY = H * 0.218;
-  const meterH = H * 0.378;
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(15,23,42,0.88)';
-  ctx.strokeStyle = serotoninRise > 0.2 ? 'rgba(251,191,36,0.78)' : 'rgba(148,163,184,0.35)';
-  ctx.lineWidth = 1.8 * S;
-  ctx.beginPath();
-  ctx.roundRect(meterX, meterY, meterW, meterH, 16 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont('SEROTONIN', 12 * S, meterW - 10 * S, '900');
-  ctx.fillStyle = '#fde68a';
-  ctx.fillText('SEROTONIN', meterX + meterW * 0.5, meterY + 20 * S);
-
-  // Inner glass tube
-  const tubeX = meterX + meterW * 0.5 - 16 * S;
-  const tubeY = meterY + 42 * S;
-  const tubeW = 32 * S;
-  const tubeH = meterH - 94 * S;
-
-  ctx.fillStyle = 'rgba(2,6,23,0.92)';
-  ctx.strokeStyle = 'rgba(148,163,184,0.35)';
-  ctx.lineWidth = 1.4 * S;
-  ctx.beginPath();
-  ctx.roundRect(tubeX, tubeY, tubeW, tubeH, 12 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  // 10% Brain cap (cyan) at top + 90% Gut fill (golden amber) rising from bottom
-  const gutFillFrac = lerp(0.12, 0.90, serotoninRise);
-  const fillH = tubeH * gutFillFrac;
-  const fillY = tubeY + tubeH - fillH;
-
-  const barG = ctx.createLinearGradient(0, fillY, 0, tubeY + tubeH);
-  barG.addColorStop(0, '#fef08a');
-  barG.addColorStop(0.35, '#fbbf24');
-  barG.addColorStop(1, '#b45309');
-  ctx.fillStyle = barG;
-  ctx.shadowColor = 'rgba(251,191,36,0.6)';
-  ctx.shadowBlur = 12 * S * serotoninRise;
-  ctx.beginPath();
-  ctx.roundRect(tubeX + 2 * S, fillY, tubeW - 4 * S, fillH - 2 * S, 10 * S);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // Top 10% brain slice
-  if (serotoninRise > 0.35) {
-    ctx.fillStyle = 'rgba(56,189,248,0.75)';
-    ctx.beginPath();
-    ctx.roundRect(tubeX + 2 * S, tubeY + 2 * S, tubeW - 4 * S, tubeH * 0.08, 6 * S);
-    ctx.fill();
-  }
-
-  // Percentage readout at bottom of meter
-  const serPct = Math.round(lerp(12, 90, serotoninRise));
-  fitFont(`${serPct}%`, 22 * S, meterW - 10 * S, '900');
-  ctx.fillStyle = '#fbbf24';
-  ctx.fillText(`${serPct}%`, meterX + meterW * 0.5, meterY + meterH - 32 * S);
-
-  fitFont('IN GUT', 11 * S, meterW - 10 * S, '800');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('IN GUT', meterX + meterW * 0.5, meterY + meterH - 14 * S);
-  ctx.restore();
-
-  // === 6. TELEMETRY CARDS (y: H*0.630 to H*0.682) ===
-  const cardY = H * 0.630;
-  const cardH = H * 0.052;
-  const gap = 12 * S;
-  const cardW = (safeW - gap) * 0.5;
-
-  function drawCard(x, label, val, accent, valColor) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(15,23,42,0.9)';
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.6 * S;
-    ctx.beginPath();
-    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    fitFont(label, 13 * S, cardW - 18 * S, '800');
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
-
-    fitFont(val, 22 * S, cardW - 18 * S, '900');
-    ctx.fillStyle = valColor;
-    ctx.fillText(val, x + cardW * 0.5, cardY + cardH * 0.70);
-    ctx.restore();
-  }
-
-  const neuronCount = Math.round(lerp(100, 500, entericGlow));
-  drawCard(
-    safeLeft,
-    'ENTERIC NEURONS',
-    `${neuronCount}M+`,
-    'rgba(52,211,153,0.68)',
-    '#34d399'
-  );
-  drawCard(
-    safeLeft + cardW + gap,
-    'GUT SEROTONIN',
-    `${serPct}% OF BODY`,
-    serotoninRise > 0.3 ? 'rgba(251,191,36,0.75)' : 'rgba(56,189,248,0.55)',
-    serotoninRise > 0.3 ? '#fbbf24' : '#38bdf8'
-  );
-
-  // === 7. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL ===
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  fitFont('BIO MECHANICS • GUT-BRAIN AXIS', 21 * S, safeW, '800');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('BIO MECHANICS • GUT-BRAIN AXIS', cx, H * 0.155);
-
-  const pillW = Math.min(safeW, 430 * S);
-  const pillH = 52 * S;
-  const pillY = H * 0.715;
-  const pop = 1 + 0.05 * Math.exp(-phaseProg * 14);
-
-  ctx.save();
-  ctx.translate(cx, pillY);
-  ctx.scale(pop, pop);
-
-  let pillFill = '#34d399';
-  let pillShadow = 'rgba(52,211,153,0.45)';
-  let pillText = '#050712';
-  if (phaseIdx === 3) {
-    pillFill = '#fbbf24'; pillShadow = 'rgba(251,191,36,0.45)';
-  } else if (phaseIdx === 4 || phaseIdx === 5) {
-    pillFill = '#38bdf8'; pillShadow = 'rgba(56,189,248,0.45)';
-  }
-
-  ctx.shadowColor = pillShadow;
-  ctx.shadowBlur = 20 * S;
-  ctx.fillStyle = pillFill;
-  ctx.beginPath();
-  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  fitFont(activeLine.caption, 26 * S, pillW - 34 * S, '900');
-  ctx.fillStyle = pillText;
-  ctx.fillText(activeLine.caption, 0, 1 * S);
-  ctx.restore();
-  ctx.restore();
-}
-
-window.renderFrame = (t) => drawFrame(t);
-window.renderBatch = (startFrame, count) => {
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
-    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
-  }
-  return out;
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
+  const lStress = getLine('stress', 4);
+  const isStress = t >= lStress.start && t <= lStress.end;
+
+  brainCore.rotation.y = t * 0.55;
+  brainCore.scale.setScalar(1 + Math.sin(t * 4.5) * 0.04);
+  gutCore.rotation.y = -t * 0.45;
+  gutCore.rotation.z = Math.sin(t * 1.3) * 0.12;
+
+  pulses.forEach((m) => {
+    let u = (m.userData.offset + t * m.userData.speed) % 1;
+    if (!m.userData.upward) u = 1 - u;
+    const pos = vagusCurve.getPoint(u);
+    m.position.copy(pos);
+    m.material.color.setHex(isStress ? 0xff2d55 : (m.userData.upward ? 0x34c759 : 0x38bdf8));
+  });
+
+  const camA = lerp(-0.38, 0.38, p);
+  stage.camera.position.set(Math.sin(camA) * 7.6, 0.15, Math.cos(camA) * 7.6);
+  stage.camera.lookAt(0, 0.05, 0);
+
+  stage.renderTo(ctx, W, H);
+
+  const active = LINES.find((l) => t >= l.start && t <= l.end) || SCRIPT[Math.min(SCRIPT.length - 1, Math.floor(p * SCRIPT.length))];
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'bio',
+    title: 'GUT-BRAIN HIGHWAY',
+    subtitle: isStress ? 'STRESS SIGNAL SURGE' : 'VAGUS NERVE TELEMETRY',
+    progress: p,
+    caption: active.caption,
+    metrics: [
+      { label: 'GUT NEURONS', value: '500M', color: '#34C759' },
+      { label: 'SEROTONIN', value: '90%', color: '#FFD60A' },
+      { label: 'UPWARD FLOW', value: '80%', color: isStress ? '#FF2D55' : '#38BDF8' },
+    ],
+  });
 };
-window.ready = true;
 </script>

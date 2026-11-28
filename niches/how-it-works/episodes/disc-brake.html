@@ -1,278 +1,184 @@
 <!doctype html>
-<!-- How It Actually Works — Disc Brakes (Hydraulic Friction & Heat) -->
+<!--
+  Clear Mechanics — 3D PBR: How Disc Brakes Stop 2 Tons at 600°C Without Melting
+  Y-LABS 3D Cinema Engine (Three.js PBR Vented Brake Rotor + Hydraulic Caliper Pistons + Thermal Glow, 60fps deterministic)
+-->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#070d1a;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#141414;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  microShake,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-const lerp = (a, b, u) => a + (b - a) * u;
 
 const SCRIPT = [
-  { id: 'hook', text: 'How do two small brake pads stop a two-ton car hurtling down the highway?', caption: 'STOPPING 2 TONS?' },
-  { id: 'rotor', text: 'Bolted straight to your wheel is a heavy ventilated steel disc spinning at over 1,000 RPM.', caption: 'SPINNING STEEL ROTOR' },
-  { id: 'hydraulic', text: 'Press the brake pedal, and incompressible hydraulic fluid blasts pressure into the brake caliper.', caption: 'HYDRAULIC PRESSURE' },
-  { id: 'clamp', text: 'A steel piston slams two high-friction pads onto both sides of the spinning rotor like a vise.', caption: 'CALIPER CLAMPS DOWN' },
-  { id: 'heat', text: 'Massive friction converts all that forward kinetic energy into searing red heat — up to 600 degrees!', caption: 'ENERGY → RED HEAT!' },
-  { id: 'outro', text: 'Internal cooling vents dump the heat into the air, bringing two tons of metal safely to zero.', caption: 'SAFE DEAD STOP!' },
+  { id: 'hook', text: 'Your foot presses gently on one pedal — yet it stops two tons of spinning steel dead.', caption: '2 TONS → 0 KM/H' },
+  { id: 'hydro', text: 'Brake fluid multiplies your foot pressure forty times using Pascal’s hydraulic law.', caption: '40× HYDRAULIC FORCE' },
+  { id: 'clamp', text: 'Twin pistons slam high-friction pads onto a cast-iron rotor spinning at highway speed.', caption: 'CALIPER CLAMPING' },
+  { id: 'heat', text: 'All that kinetic energy converts into pure heat — glowing cherry-red past six hundred degrees.', caption: '600°C THERMAL GLOW' },
+  { id: 'vents', text: 'Internal cooling vanes spin like a turbine, pumping cold air out to prevent brake fade.', caption: 'INTERNAL COOLING VANES' },
+  { id: 'verdict', text: 'Every hard stop turns motion into heat — and those hidden vents keep your brakes alive.', caption: 'MOTION → HEAT → STOP' },
 ];
 
-let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+let W = 720, H = 1280, FPS = 60, DUR = 26, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let rotorGrp, rotorMat, padFront, padBack, caliperGrp, sparks = [];
+
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
-window.init = (cfg) => {
-  W = cfg.width || 720; H = cfg.height || 1280; FPS = cfg.fps || 60; DUR = cfg.duration || 24; LINES = cfg.lines || [];
-  cv.width = W; cv.height = H;
-  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
+
+function getLine(id, idx) {
+  const f = LINES.find((l) => l.id === id);
+  if (f) return f;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: idx * seg, end: (idx + 1) * seg, caption: SCRIPT[idx].caption };
+}
+
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'explainer', fov: 38, fogDensity: 0.02, floorY: -2.6 });
+  const { scene } = stage;
+  const mats = createMaterials('explainer');
+
+  // Spinning Vented Rotor
+  rotorGrp = new THREE.Group();
+  rotorMat = new THREE.MeshStandardMaterial({
+    color: 0x94a3b8,
+    emissive: 0xff3b00,
+    emissiveIntensity: 0.0,
+    metalness: 0.88,
+    roughness: 0.24,
+  });
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.95, 1.95, 0.22, 48), rotorMat);
+  disc.rotation.x = Math.PI / 2;
+  rotorGrp.add(disc);
+
+  const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.76, 0.82, 0.48, 24), mats.darkMetal);
+  hat.rotation.x = Math.PI / 2;
+  rotorGrp.add(hat);
+
+  // Drilled cooling slots on rotor face
+  const holeGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.26, 10);
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const r = i % 2 === 0 ? 1.28 : 1.62;
+    const h = new THREE.Mesh(holeGeo, mats.darkMetal);
+    h.rotation.x = Math.PI / 2;
+    h.position.set(Math.cos(a) * r, Math.sin(a) * r, 0);
+    rotorGrp.add(h);
+  }
+  scene.add(rotorGrp);
+
+  // Hydraulic Caliper Housing (Orange Performance Finish)
+  caliperGrp = new THREE.Group();
+  caliperGrp.position.set(1.55, 0.25, 0);
+  const bodyGeo = new THREE.BoxGeometry(0.95, 1.65, 0.88);
+  const body = new THREE.Mesh(bodyGeo, mats.glass(0xff9500, 0.34));
+  caliperGrp.add(body);
+  caliperGrp.add(addXrayEdges(bodyGeo, 0xff9500, 0.82));
+
+  padFront = new THREE.Mesh(new THREE.BoxGeometry(0.65, 1.15, 0.14), mats.copper);
+  padFront.position.set(-0.08, 0, 0.32);
+  caliperGrp.add(padFront);
+
+  padBack = new THREE.Mesh(new THREE.BoxGeometry(0.65, 1.15, 0.14), mats.copper);
+  padBack.position.set(-0.08, 0, -0.32);
+  caliperGrp.add(padBack);
+  scene.add(caliperGrp);
+
+  // Friction heat sparks
+  const spGeo = new THREE.SphereGeometry(0.055, 8, 8);
+  for (let i = 0; i < 20; i++) {
+    const s = new THREE.Mesh(spGeo, mats.glow(0xff9500, 1.0));
+    s.userData = { seed: i * 1.37 };
+    scene.add(s);
+    sparks.push(s);
+  }
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 26;
+  LINES = Array.isArray(cfg.lines) ? cfg.lines : [];
+  cv.width = W;
+  cv.height = H;
+  buildScene();
+
+  const lClamp = getLine('clamp', 2);
+  const lHeat = getLine('heat', 3);
+  const lVents = getLine('vents', 4);
   EVENTS = [
-    { t: byId('rotor').start + 0.25, type: 'bounce', pitchIndex: 3, intensity: 0.55 },
-    { t: byId('hydraulic').start + 0.25, type: 'bounce', pitchIndex: 5, intensity: 0.7 },
-    { t: byId('clamp').start + 0.2, type: 'break', pitchIndex: 8, intensity: 0.85 },
-    { t: byId('heat').start + 0.2, type: 'break', pitchIndex: 10, intensity: 0.9 },
-    { t: byId('outro').start + 0.2, type: 'win', pitchIndex: 11, intensity: 0.9 },
+    { t: Math.max(0.1, lClamp.start - 0.04), type: 'break', intensity: 0.9 },
+    { t: Math.max(0.2, lHeat.start - 0.04), type: 'break', intensity: 1.0 },
+    { t: Math.max(0.3, lVents.start - 0.04), type: 'win', intensity: 0.85 },
   ];
 };
 
-function drawFrame(t) {
-  const S = W / 720;
-  const byId = (id) => LINES.find((l) => l.id === id) || { start: 0, end: 3 };
-  const tHyd = byId('hydraulic').start;
-  const tClamp = byId('clamp').start;
-  const tHeat = byId('heat').start;
-  const tOut = byId('outro').start;
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
 
-  const pHyd = smooth(tHyd, tHyd + 0.6, t);
-  const pClamp = smooth(tClamp, tClamp + 0.45, t);
-  const pHeat = smooth(tHeat, tHeat + 1.0, t);
-  const pStop = smooth(tClamp + 0.3, tOut + 1.4, t);
+  const lClamp = getLine('clamp', 2);
+  const lHeat = getLine('heat', 3);
+  const lVents = getLine('vents', 4);
 
-  // Blueprint background
-  const bg = ctx.createRadialGradient(W * 0.5, H * 0.48, 40 * S, W * 0.5, H * 0.48, H * 0.68);
-  bg.addColorStop(0, '#0d2240'); bg.addColorStop(0.6, '#071124'); bg.addColorStop(1, '#040812');
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(56,189,248,0.06)'; ctx.lineWidth = 1.2 * S;
-  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  const clampP = smooth(t, lClamp.start, lClamp.start + 0.9);
+  const heatP = smooth(t, lHeat.start, lHeat.end) * (1 - smooth(t, lVents.start, lVents.end) * 0.45);
+  const spinRate = lerp(9.5, 1.4, smooth(t, lClamp.start, DUR));
 
-  // Deterministic wheel angle integration (fast spin -> smooth deceleration to 0)
-  const dt = 0.05;
-  const nSteps = Math.max(1, Math.ceil(t / dt));
-  const h = t / nSteps;
-  let rotorAngle = 0;
-  for (let i = 0; i < nSteps; i++) {
-    const ti = (i + 0.5) * h;
-    const decel = smooth(tClamp + 0.2, tOut + 1.4, ti);
-    const omega = lerp(11.5, 0.0, decel);
-    rotorAngle += omega * h;
-  }
-  const curOmega = lerp(11.5, 0.0, pStop);
-  const heatIntensity = clamp(pHeat * (1 - smooth(tOut + 1.2, DUR, t) * 0.45), 0, 1);
+  rotorGrp.rotation.z -= spinRate * 0.025 + t * 0.0;
+  rotorGrp.rotation.z = -(t * 6.5 - clampP * Math.max(0, t - lClamp.start) * 4.2);
 
-  const cx = W * 0.44, cy = H * 0.48;
-  const zoom = 1 + smooth(0, DUR, t) * 0.05;
-  ctx.save();
-  ctx.translate(W * 0.5, H * 0.5); ctx.scale(zoom, zoom); ctx.translate(-W * 0.5, -H * 0.5);
+  const padZ = lerp(0.34, 0.18, clampP);
+  padFront.position.z = padZ;
+  padBack.position.z = -padZ;
 
-  const rOuter = 205 * S;
-  const rInner = 98 * S;
+  rotorMat.emissiveIntensity = heatP * 1.35;
 
-  // 1) Thermal glow halo behind rotor when heating up
-  if (heatIntensity > 0.05) {
-    const glow = ctx.createRadialGradient(cx, cy, rInner, cx, cy, rOuter + 65 * S);
-    glow.addColorStop(0, 'rgba(239,68,68,0)');
-    glow.addColorStop(0.55, `rgba(249,115,22,${(0.55 * heatIntensity).toFixed(2)})`);
-    glow.addColorStop(0.8, `rgba(239,68,68,${(0.45 * heatIntensity).toFixed(2)})`);
-    glow.addColorStop(1, 'rgba(239,68,68,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(cx, cy, rOuter + 65 * S, 0, Math.PI * 2); ctx.fill();
-  }
+  sparks.forEach((s, i) => {
+    const phase = (t * 2.8 + s.userData.seed) % 1;
+    s.visible = clampP > 0.3 && heatP > 0.15;
+    s.position.set(1.45 + phase * 1.4, -0.35 - phase * 1.6 + Math.sin(i) * 0.25, Math.cos(i * 3) * 0.35);
+    s.scale.setScalar(1 - phase * 0.8);
+  });
 
-  // 2) Ventilated Cross-Drilled Steel Brake Rotor
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(rotorAngle);
+  const shake = microShake(t, lClamp.start, 0.5, 0.1);
+  const camA = lerp(-0.55, 0.48, p);
+  stage.camera.position.set(Math.sin(camA) * 7.6 + shake.x, 0.65 + shake.y, Math.cos(camA) * 7.6);
+  stage.camera.lookAt(0.25, 0, 0);
 
-  // Main disc body transitioning from brushed steel to glowing cherry-orange hot!
-  const discG = ctx.createRadialGradient(0, 0, rInner, 0, 0, rOuter);
-  const rCol1 = Math.round(lerp(148, 251, heatIntensity));
-  const gCol1 = Math.round(lerp(163, 146, heatIntensity));
-  const bCol1 = Math.round(lerp(184, 60, heatIntensity));
-  const rCol2 = Math.round(lerp(203, 239, heatIntensity));
-  const gCol2 = Math.round(lerp(213, 68, heatIntensity));
-  const bCol2 = Math.round(lerp(225, 38, heatIntensity));
-  discG.addColorStop(0, '#475569');
-  discG.addColorStop(0.42, `rgb(${rCol1},${gCol1},${bCol1})`);
-  discG.addColorStop(0.85, `rgb(${rCol2},${gCol2},${bCol2})`);
-  discG.addColorStop(1, '#334155');
-  ctx.fillStyle = discG;
-  ctx.beginPath(); ctx.arc(0, 0, rOuter, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = heatIntensity > 0.3 ? '#fed7aa' : '#e2e8f0';
-  ctx.lineWidth = 4 * S;
-  ctx.stroke();
+  stage.renderTo(ctx, W, H);
 
-  // Concentric brushed machining rings
-  ctx.strokeStyle = 'rgba(15,23,42,0.28)';
-  ctx.lineWidth = 2 * S;
-  for (let rr = rInner + 20 * S; rr < rOuter - 12 * S; rr += 18 * S) {
-    ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.stroke();
-  }
-
-  // Radial cooling slots & cross-drilled ventilation holes (makes spin super visible!)
-  for (let i = 0; i < 8; i++) {
-    const a = (i * Math.PI * 2) / 8;
-    // Curved slot
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 6 * S;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * (rInner + 18 * S), Math.sin(a) * (rInner + 18 * S));
-    ctx.lineTo(Math.cos(a + 0.14) * (rOuter - 18 * S), Math.sin(a + 0.14) * (rOuter - 18 * S));
-    ctx.stroke();
-
-    // 3 drilled cooling holes between slots
-    const ah = a + Math.PI / 8;
-    ctx.fillStyle = '#071124';
-    for (let j = 0; j < 3; j++) {
-      const hr = rInner + (26 + j * 28) * S;
-      ctx.beginPath();
-      ctx.arc(Math.cos(ah + j * 0.04) * hr, Math.sin(ah + j * 0.04) * hr, 5.5 * S, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // Center wheel hub + 5 lug bolts
-  ctx.fillStyle = '#1e293b';
-  ctx.strokeStyle = '#94a3b8';
-  ctx.lineWidth = 4 * S;
-  ctx.beginPath(); ctx.arc(0, 0, rInner, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  for (let b = 0; b < 5; b++) {
-    const ab = (b * Math.PI * 2) / 5;
-    ctx.fillStyle = '#cbd5e1';
-    ctx.beginPath(); ctx.arc(Math.cos(ab) * 62 * S, Math.sin(ab) * 62 * S, 11 * S, 0, Math.PI * 2); ctx.fill();
-  }
-  ctx.fillStyle = '#071124';
-  ctx.beginPath(); ctx.arc(0, 0, 32 * S, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-
-  // 3) Hydraulic Brake Caliper straddling the right side of the rotor
-  const calX = cx + rOuter - 48 * S;
-  const calY = cy;
-  const clampShift = pClamp * 12 * S; // caliper piston pushes pad tightly inward
-
-  // Hydraulic brake fluid line feeding from top-right into caliper
-  ctx.save();
-  ctx.strokeStyle = pHyd > 0.1 ? '#38bdf8' : '#64748b';
-  ctx.shadowColor = pHyd > 0.1 ? '#38bdf8' : 'transparent';
-  ctx.shadowBlur = pHyd * 16 * S;
-  ctx.lineWidth = 14 * S;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(W - 45 * S, H * 0.24);
-  ctx.lineTo(calX + 95 * S, H * 0.24);
-  ctx.lineTo(calX + 95 * S, calY);
-  ctx.stroke();
-  // Pulsing hydraulic pressure dots traveling down the line
-  if (pHyd > 0.05) {
-    ctx.fillStyle = '#e0f2fe';
-    for (let i = 0; i < 5; i++) {
-      const u = (t * 1.4 + i * 0.2) % 1;
-      const py = lerp(H * 0.24, calY, u);
-      ctx.beginPath(); ctx.arc(calX + 95 * S, py, 4.5 * S, 0, Math.PI * 2); ctx.fill();
-    }
-  }
-  ctx.restore();
-
-  // High-friction Brake Pad (clamps onto rotor surface)
-  ctx.fillStyle = heatIntensity > 0.3 ? '#f97316' : '#facc15';
-  ctx.strokeStyle = '#fef08a';
-  ctx.lineWidth = 3 * S;
-  ctx.beginPath();
-  ctx.roundRect(calX - 16 * S - clampShift, calY - 76 * S, 36 * S, 152 * S, 8 * S);
-  ctx.fill(); ctx.stroke();
-
-  // Red Performance Caliper Housing Body
-  const calG = ctx.createLinearGradient(calX + 10 * S, calY - 95 * S, calX + 125 * S, calY + 95 * S);
-  calG.addColorStop(0, '#ef4444'); calG.addColorStop(0.5, '#dc2626'); calG.addColorStop(1, '#991b1b');
-  ctx.fillStyle = calG;
-  ctx.strokeStyle = '#fca5a5';
-  ctx.lineWidth = 4 * S;
-  ctx.beginPath();
-  ctx.roundRect(calX + 12 * S, calY - 96 * S, 110 * S, 192 * S, 24 * S);
-  ctx.fill(); ctx.stroke();
-
-  // Caliper hydraulic piston window cutaway
-  ctx.fillStyle = '#0f172a';
-  ctx.beginPath(); ctx.roundRect(calX + 26 * S, calY - 42 * S, 78 * S, 84 * S, 10 * S); ctx.fill();
-  // Pressurized blue hydraulic fluid chamber behind piston
-  ctx.fillStyle = pHyd > 0.1 ? '#38bdf8' : '#1e3a8a';
-  ctx.fillRect(calX + 60 * S - clampShift, calY - 34 * S, 40 * S + clampShift, 68 * S);
-  // Steel piston head pushing left onto pad
-  ctx.fillStyle = '#cbd5e1';
-  ctx.fillRect(calX + 28 * S - clampShift, calY - 34 * S, 32 * S, 68 * S);
-
-  // 4) Friction Sparks flying tangentially downward when pad clamps spinning rotor!
-  const sparkFactor = pClamp * clamp(curOmega / 8, 0, 1);
-  if (sparkFactor > 0.05) {
-    ctx.save();
-    for (let i = 0; i < 18; i++) {
-      const seed = (i * 0.7548776) % 1;
-      const life = (t * 2.8 + seed) % 1;
-      const sx = calX - 8 * S + (seed - 0.5) * 28 * S + life * (35 + (i % 5) * 18) * S;
-      const sy = calY + 70 * S + life * (140 + (i % 4) * 35) * S;
-      ctx.strokeStyle = i % 2 === 0 ? `rgba(254,240,138,${((1 - life) * sparkFactor).toFixed(2)})` : `rgba(251,146,60,${((1 - life) * sparkFactor).toFixed(2)})`;
-      ctx.lineWidth = 3.5 * S;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx - 8 * S, sy - 18 * S);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // 5) Live Speed & Rotor Temperature Telemetry
-  const speedKmh = Math.round(lerp(120, 0, pStop));
-  const rotorTemp = Math.round(lerp(45, 580, heatIntensity));
-  const ty = H * 0.725;
-  ctx.fillStyle = 'rgba(15,23,42,0.88)';
-  ctx.strokeStyle = heatIntensity > 0.3 ? '#fb923c' : '#38bdf8';
-  ctx.lineWidth = 3 * S;
-  ctx.beginPath(); ctx.roundRect(75 * S, ty - 28 * S, 268 * S, 58 * S, 12 * S); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.roundRect(377 * S, ty - 28 * S, 268 * S, 58 * S, 12 * S); ctx.fill(); ctx.stroke();
-  ctx.textAlign = 'center';
-  ctx.font = `900 ${Math.round(22 * S)}px -apple-system, sans-serif`;
-  ctx.fillStyle = speedKmh === 0 ? '#4ade80' : '#38bdf8';
-  ctx.fillText(`SPEED: ${speedKmh} KM/H`, 209 * S, ty + 9 * S);
-  ctx.fillStyle = rotorTemp > 250 ? '#fb923c' : '#e2e8f0';
-  ctx.fillText(`ROTOR: ${rotorTemp}°C`, 511 * S, ty + 9 * S);
-
-  ctx.restore();
-
-  // Top Title + Animated Bottom Caption
-  let activeLine = LINES[0];
-  for (const l of LINES) if (t >= l.start) activeLine = l;
-  ctx.save(); ctx.textAlign = 'center';
-  ctx.font = `900 ${Math.round(32 * S)}px -apple-system, sans-serif`;
-  ctx.fillStyle = '#93c5fd';
-  ctx.fillText('HOW DISC BRAKES STOP A CAR', W * 0.5, H * 0.125);
-  if (activeLine) {
-    const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
-    ctx.translate(W * 0.5, H * 0.715); ctx.scale(pop, pop);
-    ctx.font = `900 ${Math.round(44 * S)}px -apple-system, sans-serif`;
-    ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
-    ctx.fillStyle = activeLine.id === 'heat' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';
-    ctx.fillText(activeLine.caption, 0, 0);
-  }
-  ctx.restore();
-}
-
-window.renderBatch = (s, c) => {
-  const out = [];
-  for (let i = 0; i < c; i++) { drawFrame((s + i) / FPS); out.push(cv.toDataURL('image/jpeg', 0.92).slice(23)); }
-  return out;
+  const active = LINES.find((l) => t >= l.start && t <= l.end) || SCRIPT[Math.min(SCRIPT.length - 1, Math.floor(p * SCRIPT.length))];
+  const tempC = Math.round(90 + heatP * 540);
+  const kmh = Math.round(lerp(140, 0, smooth(t, lClamp.start, lVents.end)));
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'explainer',
+    title: 'HYDRAULIC DISC BRAKE',
+    subtitle: '600°C THERMAL CONVERSION',
+    progress: p,
+    caption: active.caption,
+    metrics: [
+      { label: 'SPEED', value: `${kmh} KM/H`, color: '#38BDF8' },
+      { label: 'ROTOR TEMP', value: `${tempC}°C`, color: tempC > 350 ? '#FF3B30' : '#FF9500' },
+      { label: 'FORCE', value: `${Math.round(clampP * 40)}×`, color: '#FFFFFF' },
+    ],
+  });
 };
-window.ready = true;
 </script>

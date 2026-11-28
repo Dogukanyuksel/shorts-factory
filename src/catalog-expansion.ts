@@ -236,6 +236,26 @@ export const EXPANSION_JOBS: ExpansionJob[] = [
     tags: ["psoas muscle", "lower back pain", "sitting posture", "biomechanics", "shorts"],
     categoryId: "28",
   },
+  {
+    id: "bio-cold-plunge-shock",
+    channel: "bio",
+    episode: "bio-cold-plunge-shock",
+    title: "What 60 Seconds of Freezing Water Does to Your Brain #shorts",
+    description:
+      "The instant 4°C water hits your skin, blood vessels clamp shut, norepinephrine spikes 500%, and dopamine climbs 250% for up to 3 hours without a stimulant crash.\n\n#shorts #coldplunge #dopamine #neuroscience",
+    tags: ["cold plunge", "dopamine", "norepinephrine", "brain science", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "bio-dehydration-2-percent",
+    channel: "bio",
+    episode: "bio-dehydration-2-percent",
+    title: "Why Losing Just 2% Water Shrinks Your Brain Power by 20% #shorts",
+    description:
+      "By the time you feel thirsty, mild 2% dehydration already shrinks brain volume, thickens blood, spikes cortisol, and cuts working memory by 20% — until 500 ml restores it in 20 minutes.\n\n#shorts #hydration #brainfog #biology",
+    tags: ["dehydration", "brain fog", "water", "human body", "shorts"],
+    categoryId: "28",
+  },
 ];
 
 export function pickNextExpansionJob(

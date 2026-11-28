@@ -1,0 +1,2249 @@
+<!doctype html>
+<!--
+  Bio Mechanics — Deep Dive #1: Inside the Human Body: 4 Microscopic Systems Keeping You Alive
+  Native Dual-Aspect (16:9 Documentary + 9:16 Vertical Safe-Zone), 60fps, Deterministic
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // --- Deterministic Math Utilities (Zero Math.random, Zero NaN) ---
+  const TAU = Math.PI * 2;
+  const clamp = (v, lo, hi) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo);
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = (a, b, t) => {
+    const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1);
+    return x * x * (3 - 2 * x);
+  };
+  const hash = (n) => {
+    const x = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+    return x - Math.floor(x);
+  };
+  const safeR = (r) => Math.max(0.5, Number.isFinite(r) ? r : 0.5);
+
+  // --- Bio Mechanics Palette ---
+  const PAL = {
+    bg0: '#050712',
+    bg1: '#080e20',
+    bg2: '#04060e',
+    crimson: '#fb7185',
+    crimsonDeep: '#be123c',
+    cyan: '#38bdf8',
+    cyanDeep: '#0284c7',
+    emerald: '#34d399',
+    emeraldDeep: '#059669',
+    amber: '#fbbf24',
+    amberDeep: '#d97706',
+    slate: '#94a3b8',
+    white: '#f8fafc',
+  };
+
+  // --- State ---
+  let W = 1920, H = 1080, FPS = 60, DUR = 240;
+  let ASPECT = '16:9';
+  let TITLE = 'Inside the Human Body: 4 Microscopic Systems Keeping You Alive';
+  let BRAND = 'BIO MECHANICS';
+  let ACCENT = PAL.crimson;
+  let SHORT_META = null;
+  let BEATS = [];
+  let EVENTS = [];
+
+  const DEFAULT_BEATS = [
+    // Act 1 (hook) — 1. The 100,000-Beat Engine
+    { id: 'a1-heart-1', actIndex: 0, actKind: 'hook', actTitle: '1. The 100,000-Beat Engine', visualPhase: 'heart-cutaway-live', caption: '100,000 BEATS EVERY DAY', text: 'Right now, four pressurized chambers inside your chest are pumping 7,200 liters of blood every single day.' },
+    { id: 'a1-heart-2', actIndex: 0, actKind: 'hook', actTitle: '1. The 100,000-Beat Engine', visualPhase: 'heart-cutaway-live', caption: 'LIVE P-QRS-T ELECTRICAL PULSE', text: 'Every contraction starts with a razor-sharp electrical spike that sweeps across the myocardium in milliseconds.' },
+    { id: 'a1-alveoli', actIndex: 0, actKind: 'hook', actTitle: '1. The 100,000-Beat Engine', visualPhase: 'alveoli-gas-exchange', caption: '480 MILLION ALVEOLI SACS', text: 'Your lungs fold 480 million microscopic air sacs across a 0.5-micron barrier to swap oxygen for carbon dioxide.' },
+    { id: 'a1-sync', actIndex: 0, actKind: 'hook', actTitle: '1. The 100,000-Beat Engine', visualPhase: 'circulatory-sync', caption: 'HEART + LUNGS PERFECT SYNC', text: 'Heart and lungs lock into a closed-loop hydraulic circuit supplying 37 trillion cells without ever pausing.' },
+
+    // Act 2 (mechanism) — 2. The 0.2-Second Alarm System
+    { id: 'a2-bridge', actIndex: 1, actKind: 'mechanism', actTitle: '2. The 0.2-Second Alarm System', visualPhase: 'amygdala-adrenaline-surge', caption: '0.05-SECOND AMYGDALA FLASH', isBridge: true, text: 'Before you even consciously recognize danger, your brain trips a 0.2-second survival alarm.' },
+    { id: 'a2-adrenaline', actIndex: 1, actKind: 'mechanism', actTitle: '2. The 0.2-Second Alarm System', visualPhase: 'amygdala-adrenaline-surge', caption: '152 BPM + PUPIL DILATION', text: 'Spinal lightning fires adrenaline into the bloodstream, spiking heart rate to 152 BPM and widening your pupils.' },
+    { id: 'a2-caffeine', actIndex: 1, actKind: 'mechanism', actTitle: '2. The 0.2-Second Alarm System', visualPhase: 'caffeine-adenosine-block', caption: 'CAFFEINE BLOCKS ADENOSINE', text: 'Caffeine does not create energy — it plugs sleep receptors while adenosine quietly piles up behind the gate.' },
+    { id: 'a2-sugar', actIndex: 1, actKind: 'mechanism', actTitle: '2. The 0.2-Second Alarm System', visualPhase: 'sugar-insulin-wave', caption: '39g GLUCOSE → INSULIN WAVE', text: 'A 39-gram sugar spike floods your vessels, triggering an emerald wave of pancreatic insulin to clear the surge.' },
+    { id: 'a2-crash', actIndex: 1, actKind: 'mechanism', actTitle: '2. The 0.2-Second Alarm System', visualPhase: 'sugar-insulin-wave', caption: 'MINUTE-55 REBOUND CRASH', text: 'When insulin overshoots the spike, blood glucose plunges below baseline around minute fifty-five.' },
+
+    // Act 3 (failure) — 3. Microscopic Defense & Rebuild
+    { id: 'a3-bridge', actIndex: 2, actKind: 'failure', actTitle: '3. Microscopic Defense & Rebuild', visualPhase: 'immune-antibody-hunt', caption: 'MICROSCOPIC IMMUNE WARFARE', isBridge: true, text: 'Every hour, billions of microscopic defenders patrol your tissues for invading pathogens and damaged cells.' },
+    { id: 'a3-immune', actIndex: 2, actKind: 'failure', actTitle: '3. Microscopic Defense & Rebuild', visualPhase: 'immune-antibody-hunt', caption: 'Y-SHAPED ANTIBODY LOCK', text: 'Macrophages and T-cells unleash custom Y-shaped antibodies that clamp onto viral spikes and neutralize threats.' },
+    { id: 'a3-muscle', actIndex: 2, actKind: 'failure', actTitle: '3. Microscopic Defense & Rebuild', visualPhase: 'muscle-microtear-repair', caption: 'Z-DISC MICRO-TEARS → STEM FUSION', text: 'Heavy strain creates microscopic Z-disc tears; satellite stem cells fuse in and weave a thicker, stronger fiber.' },
+    { id: 'a3-resilience', actIndex: 2, actKind: 'failure', actTitle: '3. Microscopic Defense & Rebuild', visualPhase: 'cellular-resilience', caption: '330 BILLION CELLS REBUILT DAILY', text: 'Live cellular repair constantly outpaces oxidative stress, replacing 330 billion cells every single day.' },
+
+    // Act 4 (comparison) — 4. The Nightly Reset & Second Brain
+    { id: 'a4-bridge', actIndex: 3, actKind: 'comparison', actTitle: '4. The Nightly Reset & Second Brain', visualPhase: 'glymphatic-brain-wash', caption: '60% NEURON SHRINK · NIGHT WASH', isBridge: true, text: 'During deep sleep, brain cells shrink by 60 percent so cerebrospinal fluid can flush out toxic plaques.' },
+    { id: 'a4-gut', actIndex: 3, actKind: 'comparison', actTitle: '4. The Nightly Reset & Second Brain', visualPhase: 'gut-brain-vagus-highway', caption: '500M GUT NEURONS · 90% SEROTONIN', text: 'Your gut houses 500 million neurons, makes 90 percent of your serotonin, and sends 80 percent of vagus signals upward.' },
+    { id: 'a4-outro', actIndex: 3, actKind: 'comparison', actTitle: '4. The Nightly Reset & Second Brain', visualPhase: 'series-outro', caption: 'SUBSCRIBE TO BIO MECHANICS', text: 'Subscribe to Bio Mechanics — next up: inside the 100-billion-neuron human brain.' },
+  ];
+
+  // --- Drawing Helpers ---
+  function roundRect(x, y, w, h, r) {
+    const rr = Math.min(Math.max(0, r), Math.abs(w) * 0.5, Math.abs(h) * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  function fitFont(text, basePx, maxW, weight = '800', family = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif') {
+    let px = Math.max(10, Math.round(basePx));
+    ctx.font = `${weight} ${px}px ${family}`;
+    const mw = ctx.measureText(String(text || '')).width || 1;
+    if (mw > maxW && maxW > 10) {
+      px = Math.max(10, Math.floor(px * (maxW / mw)));
+      ctx.font = `${weight} ${px}px ${family}`;
+    }
+    return px;
+  }
+
+  function wrapLines(text, maxW, maxLines) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (let i = 0; i < words.length; i++) {
+      const test = cur ? cur + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width <= maxW || !cur) {
+        cur = test;
+      } else {
+        lines.push(cur);
+        cur = words[i];
+        if (lines.length >= maxLines - 1) {
+          cur = words.slice(i).join(' ');
+          break;
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    if (lines.length > maxLines) lines.length = maxLines;
+    if (lines.length > 0) {
+      let last = lines[lines.length - 1];
+      while (last.length > 4 && ctx.measureText(last).width > maxW) {
+        last = last.slice(0, -4).trimEnd() + '…';
+      }
+      lines[lines.length - 1] = last;
+    }
+    return lines;
+  }
+
+  function drawCalloutPill(cx, y, text, col, bg, S, maxW) {
+    ctx.save();
+    const bw = Math.min(maxW || 340 * S, Math.max(220 * S, text.length * 10.2 * S + 36 * S));
+    const bh = 34 * S;
+    ctx.fillStyle = bg || 'rgba(8, 14, 32, 0.90)';
+    ctx.strokeStyle = col;
+    ctx.lineWidth = Math.max(1.2, 2 * S);
+    roundRect(cx - bw * 0.5, y - bh * 0.5, bw, bh, 999);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(text, 14 * S, bw - 22 * S, '800');
+    ctx.fillText(text, cx, y);
+    ctx.restore();
+  }
+
+  function drawRBC(x, y, r, angle, oxygenFrac) {
+    // Biconcave red blood cell transitioning venous blue-violet -> bright arterial crimson
+    const rr = Math.round(lerp(56, 251, oxygenFrac));
+    const gg = Math.round(lerp(130, 82, oxygenFrac));
+    const bb = Math.round(lerp(220, 118, oxygenFrac));
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.scale(1, 0.68);
+    const g = ctx.createRadialGradient(-r * 0.2, -r * 0.2, r * 0.1, 0, 0, safeR(r));
+    g.addColorStop(0, `rgba(${Math.min(255, rr + 45)}, ${Math.min(255, gg + 45)}, ${Math.min(255, bb + 45)}, 0.96)`);
+    g.addColorStop(0.55, `rgb(${rr}, ${gg}, ${bb})`);
+    g.addColorStop(1, `rgb(${Math.round(rr * 0.48)}, ${Math.round(gg * 0.35)}, ${Math.round(bb * 0.45)})`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, safeR(r), 0, TAU);
+    ctx.fill();
+    // Biconcave dimple
+    ctx.fillStyle = `rgba(10, 14, 32, ${0.32 + 0.1 * (1 - oxygenFrac)})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, safeR(r * 0.42), 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Realistic P-QRS-T ECG wave function for phase u in [0, 1)
+  function ecgSample(u) {
+    const x = ((u % 1) + 1) % 1;
+    const gauss = (mu, sig, amp) => amp * Math.exp(-0.5 * Math.pow((x - mu) / sig, 2));
+    return (
+      gauss(0.16, 0.028, 0.18) +   // P wave
+      gauss(0.28, 0.011, -0.16) +  // Q dip
+      gauss(0.31, 0.013, 1.00) +   // R spike
+      gauss(0.34, 0.012, -0.28) +  // S dip
+      gauss(0.52, 0.048, 0.32)     // T wave
+    );
+  }
+
+  // --- Bioluminescent Medical Studio Background ---
+  function drawBioStudioBg(t, actIndex) {
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, PAL.bg0);
+    bg.addColorStop(0.52, PAL.bg1);
+    bg.addColorStop(1, PAL.bg2);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Fine medical calibration grid
+    const step = Math.max(36, Math.round(Math.min(W, H) * 0.046));
+    const ox = (t * 4.5) % step;
+    const oy = (t * 2.5) % step;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.038)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = -step + ox; x < W + step; x += step) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = -step + oy; y < H + step; y += step) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+
+    // Major crosshairs
+    ctx.strokeStyle = 'rgba(251, 113, 133, 0.048)';
+    ctx.beginPath();
+    for (let x = -step * 4 + ox; x < W + step * 4; x += step * 4) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = -step * 4 + oy; y < H + step * 4; y += step * 4) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+
+    // Act-tinted bioluminescent spotlight behind stage
+    const spotCols = [
+      'rgba(251, 113, 133, 0.11)', // Act 1 crimson
+      'rgba(251, 191, 36, 0.10)',  // Act 2 amber
+      'rgba(52, 211, 153, 0.10)',  // Act 3 emerald
+      'rgba(56, 189, 248, 0.12)',  // Act 4 cyan
+    ];
+    const sx = ASPECT === '16:9' ? W * 0.35 : W * 0.5;
+    const sy = ASPECT === '16:9' ? H * 0.5 : H * 0.46;
+    const sr = Math.min(W, H) * 0.56;
+    const rad = ctx.createRadialGradient(sx, sy, 10, sx, sy, safeR(sr));
+    rad.addColorStop(0, spotCols[clamp(actIndex, 0, 3)]);
+    rad.addColorStop(0.55, 'rgba(56, 189, 248, 0.03)');
+    rad.addColorStop(1, 'rgba(5, 7, 18, 0)');
+    ctx.fillStyle = rad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Deterministic ambient bioluminescent micro-particles
+    const pCount = 26;
+    for (let i = 0; i < pCount; i++) {
+      const px = ((hash(i * 17.3 + 1.1) * W) + t * (6 + hash(i * 5.7) * 10)) % W;
+      const py = ((hash(i * 31.7 + 2.3) * H) - t * (4 + hash(i * 9.3) * 8) + H * 100) % H;
+      const pr = safeR(1.2 + hash(i * 11.9) * 2.4);
+      const alpha = 0.14 + 0.14 * Math.sin(t * 2.2 + i * 1.7);
+      ctx.fillStyle = i % 3 === 0
+        ? `rgba(56, 189, 248, ${alpha})`
+        : i % 3 === 1
+        ? `rgba(251, 113, 133, ${alpha})`
+        : `rgba(52, 211, 153, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(px, py, pr, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 1: THE 100,000-BEAT ENGINE
+  // =========================================================================
+
+  // --- Phase 1: 4-Chamber Heart Cutaway + Live P-QRS-T ECG ---
+  function drawHeartCutaway(cx, cy, S, t) {
+    const bpm = 72;
+    const beatFreq = bpm / 60; // 1.2 Hz
+    const cyc = (t * beatFreq) % 1;
+    // Systolic contraction pulse right after R-peak (cyc ~ 0.31)
+    const systole = Math.exp(-Math.pow((cyc - 0.36) / 0.10, 2));
+    const atrialPulse = Math.exp(-Math.pow((cyc - 0.18) / 0.08, 2));
+    const scaleX = 1 - systole * 0.065;
+    const scaleY = 1 - systole * 0.045;
+
+    const hCy = cy - 52 * S;
+    ctx.save();
+
+    // Ambient cardiac glow
+    const glow = ctx.createRadialGradient(cx, hCy, 10 * S, cx, hCy, safeR(230 * S));
+    glow.addColorStop(0, `rgba(251, 113, 133, ${0.18 + systole * 0.16})`);
+    glow.addColorStop(1, 'rgba(5, 7, 18, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, hCy, safeR(230 * S), 0, TAU);
+    ctx.fill();
+
+    ctx.save();
+    ctx.translate(cx, hCy);
+    ctx.scale(scaleX, scaleY);
+
+    // Great Vessels at top: Superior Vena Cava (left), Aortic Arch (center-right), Pulmonary Artery
+    // Superior Vena Cava (venous cyan-blue)
+    ctx.fillStyle = '#0c4a6e';
+    ctx.strokeStyle = PAL.cyan;
+    ctx.lineWidth = Math.max(1.5, 2.4 * S);
+    roundRect(-96 * S, -175 * S, 36 * S, 90 * S, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Aortic Arch (arterial crimson)
+    ctx.strokeStyle = '#9f1239';
+    ctx.lineWidth = Math.max(12, 34 * S);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(14 * S, -64 * S);
+    ctx.bezierCurveTo(14 * S, -172 * S, 102 * S, -178 * S, 108 * S, -88 * S);
+    ctx.stroke();
+    ctx.strokeStyle = PAL.crimson;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    ctx.moveTo(14 * S, -64 * S);
+    ctx.bezierCurveTo(14 * S, -172 * S, 102 * S, -178 * S, 108 * S, -88 * S);
+    ctx.stroke();
+
+    // Pulmonary Artery (crossing T-branch)
+    ctx.strokeStyle = '#0369a1';
+    ctx.lineWidth = Math.max(10, 24 * S);
+    ctx.beginPath();
+    ctx.moveTo(-24 * S, -58 * S);
+    ctx.quadraticCurveTo(-24 * S, -126 * S, 64 * S, -126 * S);
+    ctx.stroke();
+
+    // Outer Myocardium Silhouette (Anatomical tilted heart wall)
+    const wallG = ctx.createLinearGradient(-150 * S, -110 * S, 150 * S, 150 * S);
+    wallG.addColorStop(0, '#4c0519');
+    wallG.addColorStop(0.45, '#881337');
+    wallG.addColorStop(1, '#3b0718');
+    ctx.fillStyle = wallG;
+    ctx.strokeStyle = PAL.crimson;
+    ctx.lineWidth = Math.max(2, 3.2 * S);
+    ctx.beginPath();
+    ctx.moveTo(-12 * S, -96 * S);
+    ctx.bezierCurveTo(-132 * S, -122 * S, -166 * S, 12 * S, -92 * S, 96 * S);
+    ctx.bezierCurveTo(-48 * S, 146 * S, 6 * S, 166 * S, 24 * S, 162 * S);
+    ctx.bezierCurveTo(96 * S, 148 * S, 166 * S, 36 * S, 134 * S, -64 * S);
+    ctx.bezierCurveTo(114 * S, -120 * S, 36 * S, -112 * S, -12 * S, -96 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 4 Chambers Cutaway:
+    // Right Atrium (viewer's top-left, deoxygenated)
+    const raG = ctx.createRadialGradient(-68 * S, -42 * S, 4 * S, -68 * S, -42 * S, safeR(54 * S));
+    raG.addColorStop(0, `rgba(56, 189, 248, ${0.55 + atrialPulse * 0.25})`);
+    raG.addColorStop(1, 'rgba(12, 74, 110, 0.92)');
+    ctx.fillStyle = raG;
+    ctx.beginPath();
+    ctx.ellipse(-68 * S, -42 * S, 44 * S, 38 * S, -0.2, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+    ctx.lineWidth = Math.max(1.2, 2 * S);
+    ctx.stroke();
+
+    // Right Ventricle (viewer's bottom-left, deoxygenated)
+    const rvG = ctx.createRadialGradient(-44 * S, 54 * S, 6 * S, -44 * S, 54 * S, safeR(72 * S));
+    rvG.addColorStop(0, `rgba(14, 165, 233, ${0.60 + systole * 0.25})`);
+    rvG.addColorStop(1, 'rgba(7, 45, 76, 0.95)');
+    ctx.fillStyle = rvG;
+    ctx.beginPath();
+    ctx.moveTo(-88 * S, 4 * S);
+    ctx.quadraticCurveTo(-102 * S, 86 * S, -18 * S, 126 * S);
+    ctx.quadraticCurveTo(-8 * S, 64 * S, -12 * S, 4 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+    ctx.stroke();
+
+    // Left Atrium (viewer's top-right, oxygenated)
+    const laG = ctx.createRadialGradient(64 * S, -44 * S, 4 * S, 64 * S, -44 * S, safeR(52 * S));
+    laG.addColorStop(0, `rgba(251, 113, 133, ${0.70 + atrialPulse * 0.25})`);
+    laG.addColorStop(1, 'rgba(136, 19, 55, 0.95)');
+    ctx.fillStyle = laG;
+    ctx.beginPath();
+    ctx.ellipse(64 * S, -44 * S, 44 * S, 36 * S, 0.2, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(251, 113, 133, 0.8)';
+    ctx.stroke();
+
+    // Left Ventricle (viewer's bottom-right, thick muscular wall, oxygenated)
+    const lvG = ctx.createRadialGradient(48 * S, 56 * S, 6 * S, 48 * S, 56 * S, safeR(78 * S));
+    lvG.addColorStop(0, `rgba(255, 138, 155, ${0.75 + systole * 0.25})`);
+    lvG.addColorStop(1, 'rgba(159, 18, 57, 0.96)');
+    ctx.fillStyle = lvG;
+    ctx.beginPath();
+    ctx.moveTo(14 * S, 4 * S);
+    ctx.quadraticCurveTo(10 * S, 78 * S, 24 * S, 132 * S);
+    ctx.quadraticCurveTo(104 * S, 96 * S, 96 * S, 6 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(251, 113, 133, 0.85)';
+    ctx.stroke();
+
+    // Interventricular Septum highlight
+    ctx.strokeStyle = '#fda4af';
+    ctx.lineWidth = Math.max(2, 4 * S);
+    ctx.beginPath();
+    ctx.moveTo(0, -14 * S);
+    ctx.lineTo(2 * S, 134 * S);
+    ctx.stroke();
+
+    // Animated Tricuspid (left) & Mitral (right) Valve leaflets
+    const avOpen = 1 - systole; // open during diastole, shut during systole
+    const drawValvePair = (vx, vy, openAmt) => {
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = Math.max(2, 3.4 * S);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(vx - 22 * S, vy);
+      ctx.lineTo(vx - 4 * S, vy + openAmt * 18 * S);
+      ctx.moveTo(vx + 22 * S, vy);
+      ctx.lineTo(vx + 4 * S, vy + openAmt * 18 * S);
+      ctx.stroke();
+    };
+    drawValvePair(-54 * S, 2 * S, avOpen);
+    drawValvePair(56 * S, 2 * S, avOpen);
+
+    // Flowing Blood Cells (Cyan venous left side, Crimson arterial right side)
+    for (let i = 0; i < 10; i++) {
+      const p = ((t * 0.72 + i / 10) % 1);
+      // Right heart path: Vena Cava -> RA -> RV -> Pulmonary Artery
+      const rx = p < 0.35
+        ? lerp(-78 * S, -64 * S, p / 0.35)
+        : p < 0.7
+        ? lerp(-64 * S, -42 * S, (p - 0.35) / 0.35)
+        : lerp(-42 * S, -22 * S, (p - 0.7) / 0.3);
+      const ry = p < 0.35
+        ? lerp(-155 * S, -38 * S, p / 0.35)
+        : p < 0.7
+        ? lerp(-38 * S, 76 * S, (p - 0.35) / 0.35)
+        : lerp(76 * S, -110 * S, (p - 0.7) / 0.3);
+      drawRBC(rx, ry, 6.2 * S, p * TAU, 0.12);
+
+      // Left heart path: LA -> LV -> Aortic Arch
+      const lx = p < 0.45
+        ? lerp(68 * S, 52 * S, p / 0.45)
+        : lerp(52 * S, 26 * S, (p - 0.45) / 0.55);
+      const ly = p < 0.45
+        ? lerp(-44 * S, 82 * S, p / 0.45)
+        : lerp(82 * S, -124 * S, (p - 0.45) / 0.55);
+      drawRBC(lx, ly, 6.5 * S, -p * TAU, 0.96);
+    }
+
+    // Chamber Labels
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#e0f2fe';
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText('RA', -68 * S, -42 * S);
+    ctx.fillText('RV', -48 * S, 56 * S);
+    ctx.fillStyle = '#ffe4e6';
+    ctx.fillText('LA', 64 * S, -44 * S);
+    ctx.fillText('LV', 54 * S, 58 * S);
+
+    ctx.restore(); // end heart pulse transform
+
+    // Live P-QRS-T ECG Strip below heart
+    const ecgW = 460 * S;
+    const ecgH = 92 * S;
+    const ecgX = cx - ecgW * 0.5;
+    const ecgY = cy + 148 * S;
+
+    ctx.fillStyle = 'rgba(7, 13, 28, 0.88)';
+    ctx.strokeStyle = 'rgba(251, 113, 133, 0.42)';
+    ctx.lineWidth = Math.max(1.2, 1.8 * S);
+    roundRect(ecgX, ecgY, ecgW, ecgH, 14 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // ECG baseline grid
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.10)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(ecgX + 12 * S, ecgY + ecgH * 0.62);
+    ctx.lineTo(ecgX + ecgW - 12 * S, ecgY + ecgH * 0.62);
+    ctx.stroke();
+
+    // Sweeping P-QRS-T trace
+    const samples = 140;
+    ctx.strokeStyle = PAL.emerald;
+    ctx.lineWidth = Math.max(1.8, 3 * S);
+    ctx.shadowColor = PAL.emerald;
+    ctx.shadowBlur = 10 * S;
+    ctx.beginPath();
+    let headX = ecgX + 14 * S;
+    let headY = ecgY + ecgH * 0.62;
+    for (let i = 0; i <= samples; i++) {
+      const f = i / samples;
+      const px = ecgX + 14 * S + f * (ecgW - 28 * S);
+      // Scroll left smoothly so current beat is at right edge
+      const sampleU = cyc - (1 - f) * 2.2;
+      const val = ecgSample(sampleU);
+      const py = ecgY + ecgH * 0.62 - val * (ecgH * 0.46);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+      headX = px;
+      headY = py;
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Glowing phosphor head dot
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(headX, headY, safeR(4.5 * S), 0, TAU);
+    ctx.fill();
+
+    // ECG labels
+    ctx.textAlign = 'left';
+    ctx.fillStyle = PAL.emerald;
+    ctx.font = `800 ${Math.round(11 * S)}px monospace`;
+    ctx.fillText('ECG LEAD II · P-QRS-T', ecgX + 14 * S, ecgY + 16 * S);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = PAL.crimson;
+    ctx.fillText('72 BPM · 7,200 L/DAY', ecgX + ecgW - 14 * S, ecgY + 16 * S);
+
+    drawCalloutPill(cx, cy - 246 * S, '4-CHAMBER HEART · 100,000 BEATS / DAY', PAL.crimson, 'rgba(76, 5, 25, 0.86)', S);
+    ctx.restore();
+  }
+
+  // --- Phase 2: Alveoli Gas Exchange (480M Sacs + 0.5-Micron Barrier) ---
+  function drawAlveoliGasExchange(cx, cy, S, t) {
+    ctx.save();
+    const breath = 0.5 + 0.5 * Math.sin(t * 2.1); // smooth inhale/exhale
+    const sacScale = 0.94 + breath * 0.09;
+
+    // Bronchiole neck entering from top
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
+    ctx.strokeStyle = PAL.cyan;
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    roundRect(cx - 32 * S, cy - 215 * S, 64 * S, 88 * S, 16 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Alveolar sac cluster (5 translucent lobes)
+    ctx.save();
+    ctx.translate(cx, cy - 34 * S);
+    ctx.scale(sacScale, sacScale);
+    const lobes = [
+      { x: 0, y: 0, r: 108 * S },
+      { x: -84 * S, y: -32 * S, r: 68 * S },
+      { x: 84 * S, y: -32 * S, r: 68 * S },
+      { x: -64 * S, y: 54 * S, r: 66 * S },
+      { x: 64 * S, y: 54 * S, r: 66 * S },
+    ];
+    for (const l of lobes) {
+      const lg = ctx.createRadialGradient(l.x - l.r * 0.2, l.y - l.r * 0.2, 6 * S, l.x, l.y, safeR(l.r));
+      lg.addColorStop(0, 'rgba(251, 113, 133, 0.28)');
+      lg.addColorStop(0.72, 'rgba(190, 18, 60, 0.18)');
+      lg.addColorStop(1, 'rgba(251, 113, 133, 0.58)');
+      ctx.fillStyle = lg;
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, safeR(l.r), 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(251, 113, 133, 0.65)';
+      ctx.lineWidth = Math.max(1.5, 2.2 * S);
+      ctx.stroke();
+    }
+
+    // Swirl of O2 molecules inside alveolus
+    for (let i = 0; i < 18; i++) {
+      const ang = t * 1.1 + i * 1.3;
+      const dist = (22 + hash(i * 19.1) * 78) * S;
+      const ox = Math.cos(ang) * dist;
+      const oy = Math.sin(ang * 0.8 + i) * dist * 0.72;
+      ctx.fillStyle = PAL.cyan;
+      ctx.beginPath();
+      ctx.arc(ox, oy, safeR(4.2 * S), 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
+      ctx.beginPath();
+      ctx.arc(ox, oy, safeR(8 * S), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Pulmonary Capillary Loop wrapping under the alveolus
+    const capY = cy + 124 * S;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+    ctx.lineWidth = Math.max(24, 52 * S);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - 240 * S, capY - 26 * S);
+    ctx.quadraticCurveTo(cx, capY + 34 * S, cx + 240 * S, capY - 26 * S);
+    ctx.stroke();
+
+    // Inner plasma gradient (blue venous left -> crimson arterial right)
+    const capG = ctx.createLinearGradient(cx - 240 * S, capY, cx + 240 * S, capY);
+    capG.addColorStop(0, 'rgba(14, 165, 233, 0.36)');
+    capG.addColorStop(0.5, 'rgba(168, 85, 247, 0.30)');
+    capG.addColorStop(1, 'rgba(251, 113, 133, 0.42)');
+    ctx.strokeStyle = capG;
+    ctx.lineWidth = Math.max(18, 40 * S);
+    ctx.stroke();
+
+    // Red Blood Cells gliding left -> right and oxygenating in real time!
+    for (let i = 0; i < 11; i++) {
+      const u = ((t * 0.28 + i / 11) % 1);
+      // Quadratic Bezier point along capillary
+      const x0 = cx - 240 * S, y0 = capY - 26 * S;
+      const x1 = cx, y1 = capY + 34 * S;
+      const x2 = cx + 240 * S, y2 = capY - 26 * S;
+      const inv = 1 - u;
+      const rx = inv * inv * x0 + 2 * inv * u * x1 + u * u * x2;
+      const ry = inv * inv * y0 + 2 * inv * u * y1 + u * u * y2;
+      const oxy = smooth(0.22, 0.78, u);
+      drawRBC(rx, ry, 15 * S, (u - 0.5) * 0.7, oxy);
+    }
+
+    // Crossing O2 (downward cyan) and CO2 (upward amber) gas molecules across 0.5-micron barrier
+    for (let i = 0; i < 6; i++) {
+      const u = (t * 0.9 + i / 6) % 1;
+      const gx = cx - 80 * S + i * 32 * S;
+      const o2y = lerp(cy + 42 * S, cy + 128 * S, u);
+      ctx.fillStyle = PAL.cyan;
+      ctx.beginPath();
+      ctx.arc(gx, o2y, safeR(4.5 * S), 0, TAU);
+      ctx.fill();
+
+      const co2y = lerp(cy + 128 * S, cy + 36 * S, (u + 0.5) % 1);
+      ctx.fillStyle = PAL.amber;
+      ctx.beginPath();
+      ctx.arc(gx + 14 * S, co2y, safeR(3.8 * S), 0, TAU);
+      ctx.fill();
+    }
+
+    // 0.5-micron barrier callout bracket
+    ctx.strokeStyle = PAL.emerald;
+    ctx.lineWidth = Math.max(1.5, 2.2 * S);
+    ctx.setLineDash([5 * S, 4 * S]);
+    ctx.beginPath();
+    ctx.moveTo(cx - 110 * S, cy + 88 * S);
+    ctx.lineTo(cx + 110 * S, cy + 88 * S);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = PAL.emerald;
+    ctx.font = `800 ${Math.round(13 * S)}px monospace`;
+    ctx.fillText('0.5 μm ALVEOLAR-CAPILLARY MEMBRANE', cx, cy + 188 * S);
+
+    ctx.fillStyle = PAL.cyan;
+    ctx.textAlign = 'left';
+    ctx.fillText('VENOUS (CO₂ HIGH)', cx - 235 * S, capY - 64 * S);
+    ctx.fillStyle = PAL.crimson;
+    ctx.textAlign = 'right';
+    ctx.fillText('ARTERIAL (99% O₂)', cx + 235 * S, capY - 64 * S);
+    ctx.restore();
+
+    drawCalloutPill(cx, cy - 246 * S, '480M ALVEOLI · 0.5 μm O₂ / CO₂ EXCHANGE', PAL.cyan, 'rgba(7, 25, 45, 0.88)', S);
+    ctx.restore();
+  }
+
+  // --- Phase 3: Circulatory Sync (Heart + Lungs Synchronized Telemetry) ---
+  function drawCirculatorySync(cx, cy, S, t) {
+    ctx.save();
+    const beatPulse = Math.exp(-Math.pow(((t * 1.2) % 1 - 0.35) / 0.11, 2));
+    const breath = 0.5 + 0.5 * Math.sin(t * 1.6);
+
+    const heartX = cx - 138 * S;
+    const lungsX = cx + 138 * S;
+    const midY = cy - 32 * S;
+
+    // Connecting figure-eight vessels: Pulmonary Artery (top, cyan) & Pulmonary Vein (bottom, crimson)
+    ctx.lineWidth = Math.max(8, 16 * S);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.32)';
+    ctx.beginPath();
+    ctx.moveTo(heartX + 46 * S, midY - 38 * S);
+    ctx.bezierCurveTo(cx - 20 * S, midY - 128 * S, cx + 20 * S, midY - 128 * S, lungsX - 66 * S, midY - 38 * S);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(251, 113, 133, 0.34)';
+    ctx.beginPath();
+    ctx.moveTo(lungsX - 66 * S, midY + 38 * S);
+    ctx.bezierCurveTo(cx + 20 * S, midY + 128 * S, cx - 20 * S, midY + 128 * S, heartX + 46 * S, midY + 38 * S);
+    ctx.stroke();
+
+    // Streaming RBCs along both vessels
+    for (let i = 0; i < 8; i++) {
+      const u = (t * 0.45 + i / 8) % 1;
+      const topX = lerp(heartX + 46 * S, lungsX - 66 * S, u);
+      const topY = midY - 38 * S - Math.sin(u * Math.PI) * 68 * S;
+      drawRBC(topX, topY, 6.5 * S, 0, 0.15);
+
+      const botX = lerp(lungsX - 66 * S, heartX + 46 * S, u);
+      const botY = midY + 38 * S + Math.sin(u * Math.PI) * 68 * S;
+      drawRBC(botX, botY, 6.5 * S, 0, 0.96);
+    }
+
+    // Left Node: Pulsing Heart Emblem
+    ctx.save();
+    ctx.translate(heartX, midY);
+    const hs = 1 + beatPulse * 0.09;
+    ctx.scale(hs, hs);
+    const hg = ctx.createRadialGradient(0, 0, 10 * S, 0, 0, safeR(88 * S));
+    hg.addColorStop(0, 'rgba(251, 113, 133, 0.85)');
+    hg.addColorStop(1, 'rgba(136, 19, 55, 0.88)');
+    ctx.fillStyle = hg;
+    ctx.strokeStyle = PAL.crimson;
+    ctx.lineWidth = Math.max(1.8, 2.8 * S);
+    ctx.beginPath();
+    ctx.arc(0, 0, safeR(78 * S), 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = PAL.white;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${Math.round(24 * S)}px monospace`;
+    ctx.fillText('72', 0, -10 * S);
+    ctx.font = `700 ${Math.round(12 * S)}px Inter, sans-serif`;
+    ctx.fillStyle = '#ffe4e6';
+    ctx.fillText('BPM PUMP', 0, 18 * S);
+    ctx.restore();
+
+    // Right Node: Expanding Twin Lung Lobes
+    ctx.save();
+    ctx.translate(lungsX, midY);
+    const ls = 0.94 + breath * 0.11;
+    ctx.scale(ls, ls);
+    for (const side of [-1, 1]) {
+      const lg = ctx.createRadialGradient(side * 28 * S, 0, 6 * S, side * 28 * S, 0, safeR(68 * S));
+      lg.addColorStop(0, 'rgba(56, 189, 248, 0.55)');
+      lg.addColorStop(1, 'rgba(12, 74, 110, 0.88)');
+      ctx.fillStyle = lg;
+      ctx.strokeStyle = PAL.cyan;
+      ctx.lineWidth = Math.max(1.5, 2.4 * S);
+      ctx.beginPath();
+      ctx.ellipse(side * 34 * S, 4 * S, 34 * S, 64 * S, side * -0.14, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.fillStyle = PAL.white;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${Math.round(22 * S)}px monospace`;
+    ctx.fillText('99%', 0, -8 * S);
+    ctx.font = `700 ${Math.round(11 * S)}px Inter, sans-serif`;
+    ctx.fillStyle = '#e0f2fe';
+    ctx.fillText('SpO₂ SYNC', 0, 16 * S);
+    ctx.restore();
+
+    // Bottom Synchronized Dual-Wave Telemetry Monitor (ECG + Respiration)
+    const boxW = 470 * S, boxH = 114 * S;
+    const bx = cx - boxW * 0.5, by = cy + 126 * S;
+    ctx.fillStyle = 'rgba(8, 14, 32, 0.88)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+    ctx.lineWidth = Math.max(1.2, 1.8 * S);
+    roundRect(bx, by, boxW, boxH, 14 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Cardiac trace (crimson)
+    ctx.strokeStyle = PAL.crimson;
+    ctx.lineWidth = Math.max(1.6, 2.4 * S);
+    ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const f = i / 120;
+      const px = bx + 14 * S + f * (boxW - 28 * S);
+      const py = by + 44 * S - ecgSample(t * 1.2 - (1 - f) * 2.4) * 28 * S;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Respiratory sine wave (cyan)
+    ctx.strokeStyle = PAL.cyan;
+    ctx.lineWidth = Math.max(1.6, 2.4 * S);
+    ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const f = i / 120;
+      const px = bx + 14 * S + f * (boxW - 28 * S);
+      const py = by + 84 * S - Math.sin(t * 1.6 - (1 - f) * 5.0) * 16 * S;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.font = `800 ${Math.round(11 * S)}px monospace`;
+    ctx.fillStyle = PAL.crimson;
+    ctx.fillText('CARDIAC: 5.0 L/MIN', bx + 14 * S, by + 16 * S);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = PAL.cyan;
+    ctx.fillText('RESPIRATION: 14 / MIN · 100,000 km VESSELS', bx + boxW - 14 * S, by + 16 * S);
+
+    drawCalloutPill(cx, cy - 246 * S, 'CARDIOPULMONARY CLOSED-LOOP SYNC', PAL.emerald, 'rgba(6, 40, 32, 0.88)', S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 2: THE 0.2-SECOND ALARM SYSTEM
+  // =========================================================================
+
+  // --- Phase 4: Amygdala Adrenaline Surge (0.05s flash -> spinal lightning -> 152 BPM + pupil dilation) ---
+  function drawAmygdalaAdrenaline(cx, cy, S, t) {
+    ctx.save();
+    const cyc = (t * 0.42) % 1; // deterministic 2.38s alarm wave
+    const amygFlash = smooth(0.0, 0.14, cyc) * (1 - smooth(0.28, 0.55, cyc));
+    const boltProg = smooth(0.12, 0.58, cyc);
+    const surgeAmt = smooth(0.45, 0.82, cyc);
+
+    const brainX = cx - 92 * S;
+    const brainY = cy - 92 * S;
+
+    // Stylized translucent brain outline
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.55)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+    ctx.lineWidth = Math.max(1.8, 2.8 * S);
+    ctx.beginPath();
+    ctx.arc(brainX, brainY, safeR(98 * S), Math.PI * 0.72, Math.PI * 2.28);
+    ctx.quadraticCurveTo(brainX + 26 * S, brainY + 104 * S, brainX - 18 * S, brainY + 94 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Brainstem & Spinal Cord column descending
+    const spineTop = brainY + 76 * S;
+    const spineBot = cy + 195 * S;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.lineWidth = Math.max(10, 22 * S);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(brainX - 10 * S, spineTop);
+    ctx.lineTo(brainX - 10 * S, spineBot);
+    ctx.stroke();
+
+    // Glowing Amygdala core (0.05s threat lock)
+    const amX = brainX + 8 * S;
+    const amY = brainY + 24 * S;
+    const amGlowR = safeR((28 + amygFlash * 52) * S);
+    const amG = ctx.createRadialGradient(amX, amY, 2 * S, amX, amY, amGlowR);
+    amG.addColorStop(0, '#ffffff');
+    amG.addColorStop(0.32, `rgba(251, 191, 36, ${0.75 + amygFlash * 0.25})`);
+    amG.addColorStop(0.68, `rgba(251, 113, 133, ${0.45 + amygFlash * 0.45})`);
+    amG.addColorStop(1, 'rgba(251, 113, 133, 0)');
+    ctx.fillStyle = amG;
+    ctx.beginPath();
+    ctx.arc(amX, amY, amGlowR, 0, TAU);
+    ctx.fill();
+
+    // Spinal Lightning Bolt racing down sympathetic chain
+    if (boltProg > 0.02) {
+      const boltEndY = lerp(amY, spineBot, boltProg);
+      ctx.strokeStyle = PAL.amber;
+      ctx.lineWidth = Math.max(2, 4 * S);
+      ctx.shadowColor = PAL.amber;
+      ctx.shadowBlur = 14 * S;
+      ctx.beginPath();
+      ctx.moveTo(amX, amY);
+      const segs = 12;
+      for (let i = 1; i <= segs; i++) {
+        const f = i / segs;
+        const sy = lerp(amY, boltEndY, f);
+        const jitter = (hash(i * 19.3 + Math.floor(t * 24)) - 0.5) * 18 * S;
+        ctx.lineTo(brainX - 10 * S + jitter, sy);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Adrenal Gland node at bottom of spine
+    const adrX = brainX + 42 * S;
+    const adrY = spineBot - 22 * S;
+    ctx.fillStyle = surgeAmt > 0.2 ? 'rgba(251, 191, 36, 0.35)' : 'rgba(30, 41, 59, 0.8)';
+    ctx.strokeStyle = PAL.amber;
+    ctx.lineWidth = Math.max(1.5, 2.4 * S);
+    ctx.beginPath();
+    ctx.arc(adrX, adrY, safeR(28 * S), 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = PAL.amber;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.round(10 * S)}px monospace`;
+    ctx.fillText('ADRENAL', adrX, adrY);
+
+    // Right Panel: Live Dilating Pupil + 152 BPM Spike
+    const eyeX = cx + 136 * S;
+    const eyeY = cy - 68 * S;
+    ctx.fillStyle = 'rgba(10, 17, 36, 0.9)';
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.45)';
+    ctx.lineWidth = Math.max(1.5, 2 * S);
+    roundRect(eyeX - 102 * S, eyeY - 86 * S, 204 * S, 172 * S, 18 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Sclera almond
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.moveTo(eyeX - 78 * S, eyeY);
+    ctx.quadraticCurveTo(eyeX, eyeY - 54 * S, eyeX + 78 * S, eyeY);
+    ctx.quadraticCurveTo(eyeX, eyeY + 54 * S, eyeX - 78 * S, eyeY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Iris (cyan-emerald ring)
+    ctx.fillStyle = '#0284c7';
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY, safeR(38 * S), 0, TAU);
+    ctx.fill();
+
+    // Dilating Pupil (expands dynamically with adrenaline surge!)
+    const pupilR = safeR(lerp(13, 30, surgeAmt) * S);
+    ctx.fillStyle = '#050712';
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY, pupilR, 0, TAU);
+    ctx.fill();
+    // Specular highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(eyeX - 10 * S, eyeY - 10 * S, safeR(5 * S), 0, TAU);
+    ctx.fill();
+
+    ctx.fillStyle = PAL.amber;
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText('PUPIL DILATION', eyeX, eyeY + 62 * S);
+
+    // Bottom-Right: 152 BPM Tachycardia Surge Box
+    const bpmY = cy + 114 * S;
+    ctx.fillStyle = 'rgba(10, 17, 36, 0.9)';
+    ctx.strokeStyle = 'rgba(251, 113, 133, 0.55)';
+    roundRect(eyeX - 102 * S, bpmY - 64 * S, 204 * S, 128 * S, 18 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    const liveBpm = Math.round(lerp(72, 152, surgeAmt));
+    ctx.fillStyle = PAL.crimson;
+    ctx.font = `900 ${Math.round(36 * S)}px monospace`;
+    ctx.fillText(`${liveBpm}`, eyeX, bpmY - 16 * S);
+    ctx.font = `800 ${Math.round(12 * S)}px Inter, sans-serif`;
+    ctx.fillStyle = '#fda4af';
+    ctx.fillText('BPM ADRENALINE PEAK', eyeX, bpmY + 14 * S);
+
+    // Mini fast ECG line
+    ctx.strokeStyle = PAL.crimson;
+    ctx.lineWidth = Math.max(1.5, 2.2 * S);
+    ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const f = i / 60;
+      const px = eyeX - 84 * S + f * 168 * S;
+      const py = bpmY + 46 * S - ecgSample(t * 2.5 - (1 - f) * 3.2) * 18 * S;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    drawCalloutPill(cx, cy - 246 * S, '0.05s AMYGDALA FLASH → 152 BPM SURGE', PAL.amber, 'rgba(66, 32, 6, 0.90)', S);
+    ctx.restore();
+  }
+
+  // --- Phase 5: Caffeine Blocking Adenosine Sleep Receptors ---
+  function drawCaffeineAdenosineBlock(cx, cy, S, t) {
+    ctx.save();
+    const memY = cy + 78 * S;
+
+    // Postsynaptic Neuron Membrane (lower glowing wall)
+    const memG = ctx.createLinearGradient(0, memY, 0, memY + 130 * S);
+    memG.addColorStop(0, '#1e293b');
+    memG.addColorStop(1, '#0b1120');
+    ctx.fillStyle = memG;
+    ctx.strokeStyle = PAL.cyan;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    roundRect(cx - 246 * S, memY, 492 * S, 118 * S, 24 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.round(13 * S)}px monospace`;
+    ctx.fillText('A₂A ADENOSINE SLEEP RECEPTORS · NEURON MEMBRANE', cx, memY + 76 * S);
+
+    // 5 Receptor Cup Pockets along top of membrane
+    const recCount = 5;
+    for (let i = 0; i < recCount; i++) {
+      const rx = cx - 180 * S + i * 90 * S;
+      const ry = memY;
+      // U-shaped receptor pocket
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = PAL.cyan;
+      ctx.lineWidth = Math.max(2, 3.2 * S);
+      ctx.beginPath();
+      ctx.arc(rx, ry - 6 * S, safeR(24 * S), 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+
+      // Caffeine molecule plugging the receptor (amber glowing hexagon)
+      const plugT = smooth(i * 0.12, i * 0.12 + 0.35, (t * 0.35) % 1.4);
+      const cyCaf = lerp(ry - 150 * S, ry - 14 * S, clamp(plugT * 1.4, 0, 1));
+      ctx.save();
+      ctx.translate(rx, cyCaf);
+      ctx.fillStyle = PAL.amber;
+      ctx.strokeStyle = '#fef3c7';
+      ctx.lineWidth = Math.max(1.5, 2 * S);
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * TAU - Math.PI / 6;
+        const px = Math.cos(a) * 18 * S;
+        const py = Math.sin(a) * 18 * S;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#050712';
+      ctx.font = `900 ${Math.round(10 * S)}px monospace`;
+      ctx.fillText('CAF', 0, 1 * S);
+      ctx.restore();
+    }
+
+    // Piling-up Adenosine molecules bouncing off plugged receptors in synaptic cleft
+    for (let i = 0; i < 24; i++) {
+      const col = i % 6;
+      const row = Math.floor(i / 6);
+      const baseX = cx - 195 * S + col * 78 * S + (hash(i * 7.3) - 0.5) * 26 * S;
+      const bounce = Math.abs(Math.sin(t * (2.4 + hash(i) * 1.6) + i * 1.1));
+      const baseY = memY - 68 * S - row * 36 * S - bounce * 22 * S;
+      const r = safeR(13 * S);
+
+      const ag = ctx.createRadialGradient(baseX - 3 * S, baseY - 3 * S, 2 * S, baseX, baseY, r);
+      ag.addColorStop(0, '#bae6fd');
+      ag.addColorStop(1, '#0284c7');
+      ctx.fillStyle = ag;
+      ctx.beginPath();
+      ctx.arc(baseX, baseY, r, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(224, 242, 254, 0.7)';
+      ctx.lineWidth = Math.max(1, 1.4 * S);
+      ctx.stroke();
+
+      ctx.fillStyle = '#050712';
+      ctx.font = `900 ${Math.round(9 * S)}px monospace`;
+      ctx.fillText('AD', baseX, baseY + 0.5 * S);
+    }
+
+    // Legend strip
+    ctx.fillStyle = PAL.amber;
+    ctx.textAlign = 'left';
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText('■ CAFFEINE (RECEPTOR BLOCKER)', cx - 236 * S, cy - 196 * S);
+    ctx.fillStyle = PAL.cyan;
+    ctx.textAlign = 'right';
+    ctx.fillText('● ADENOSINE (SLEEP PRESSURE BACKLOG)', cx + 236 * S, cy - 196 * S);
+
+    drawCalloutPill(cx, cy - 246 * S, 'CAFFEINE PLUGS RECEPTORS · ADENOSINE PILES UP', PAL.amber, 'rgba(66, 32, 6, 0.90)', S);
+    ctx.restore();
+  }
+
+  // --- Phase 6: Sugar Spike & Pancreatic Insulin Wave (39g -> Minute-55 Crash) ---
+  function drawSugarInsulinWave(cx, cy, S, t) {
+    ctx.save();
+    // Top half: Blood vessel with glucose hexagons + sweeping emerald insulin wave
+    const vesY = cy - 92 * S;
+    const vesW = 480 * S;
+    const vesH = 112 * S;
+    const vx = cx - vesW * 0.5;
+
+    ctx.fillStyle = 'rgba(136, 19, 55, 0.34)';
+    ctx.strokeStyle = PAL.crimson;
+    ctx.lineWidth = Math.max(2, 2.8 * S);
+    roundRect(vx, vesY - vesH * 0.5, vesW, vesH, 20 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    const waveX = vx + ((t * 0.24) % 1) * vesW;
+    // Emerald insulin wave glow sweeping across vessel
+    const ig = ctx.createRadialGradient(waveX, vesY, 8 * S, waveX, vesY, safeR(110 * S));
+    ig.addColorStop(0, 'rgba(52, 211, 153, 0.55)');
+    ig.addColorStop(1, 'rgba(52, 211, 153, 0)');
+    ctx.fillStyle = ig;
+    ctx.save();
+    roundRect(vx, vesY - vesH * 0.5, vesW, vesH, 20 * S);
+    ctx.clip();
+    ctx.fillRect(vx, vesY - vesH * 0.5, vesW, vesH);
+
+    // Glucose amber hexagons & Insulin emerald Y-keys
+    for (let i = 0; i < 16; i++) {
+      const gx = vx + ((hash(i * 13.7) + t * 0.14) % 1) * vesW;
+      const gy = vesY + (hash(i * 29.1) - 0.5) * (vesH - 34 * S);
+      // Glucose shrinks after insulin wave passes
+      const cleared = gx < waveX ? 0.55 : 1.0;
+      ctx.fillStyle = PAL.amber;
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * TAU;
+        const px = gx + Math.cos(a) * 9 * S * cleared;
+        const py = gy + Math.sin(a) * 9 * S * cleared;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+    for (let i = 0; i < 8; i++) {
+      const ix = waveX + (hash(i * 7.7) - 0.5) * 95 * S;
+      const iy = vesY + (hash(i * 19.3) - 0.5) * (vesH - 28 * S);
+      ctx.fillStyle = PAL.emerald;
+      ctx.beginPath();
+      ctx.arc(ix, iy, safeR(5.5 * S), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Bottom half: Live 90-Minute Glucose vs Insulin Telemetry Chart
+    const gx0 = cx - 240 * S;
+    const gy0 = cy + 12 * S;
+    const gw = 480 * S;
+    const gh = 186 * S;
+
+    ctx.fillStyle = 'rgba(8, 14, 32, 0.90)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.32)';
+    ctx.lineWidth = Math.max(1.2, 1.8 * S);
+    roundRect(gx0, gy0, gw, gh, 16 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Baseline dashed line (normal fasting glucose)
+    const baseLineY = gy0 + gh * 0.66;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.setLineDash([6 * S, 5 * S]);
+    ctx.beginPath();
+    ctx.moveTo(gx0 + 20 * S, baseLineY);
+    ctx.lineTo(gx0 + gw - 20 * S, baseLineY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Glucose curve: spike at u=0.22, crash below baseline at u=0.62 (min 55)
+    const glucoseY = (u) => {
+      const spike = Math.exp(-Math.pow((u - 0.22) / 0.13, 2)) * 0.95;
+      const crash = Math.exp(-Math.pow((u - 0.62) / 0.16, 2)) * 0.42;
+      return baseLineY - (spike - crash) * (gh * 0.52);
+    };
+    const insulinY = (u) => {
+      const surge = Math.exp(-Math.pow((u - 0.35) / 0.16, 2)) * 0.78;
+      return baseLineY - surge * (gh * 0.48);
+    };
+
+    // Draw Glucose curve (amber)
+    ctx.strokeStyle = PAL.amber;
+    ctx.lineWidth = Math.max(2, 3.2 * S);
+    ctx.beginPath();
+    for (let i = 0; i <= 80; i++) {
+      const u = i / 80;
+      const px = gx0 + 20 * S + u * (gw - 40 * S);
+      const py = glucoseY(u);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Draw Insulin curve (emerald)
+    ctx.strokeStyle = PAL.emerald;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    for (let i = 0; i <= 80; i++) {
+      const u = i / 80;
+      const px = gx0 + 20 * S + u * (gw - 40 * S);
+      const py = insulinY(u);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Animated cursor marker moving smoothly along timeline
+    const curU = (t * 0.16) % 1;
+    const curX = gx0 + 20 * S + curU * (gw - 40 * S);
+    ctx.fillStyle = PAL.white;
+    ctx.beginPath();
+    ctx.arc(curX, glucoseY(curU), safeR(5.5 * S), 0, TAU);
+    ctx.fill();
+
+    // Key point callouts
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.round(11 * S)}px monospace`;
+    ctx.fillStyle = PAL.amber;
+    ctx.fillText('39g SPIKE (MIN 15)', gx0 + 20 * S + 0.22 * (gw - 40 * S), gy0 + 22 * S);
+    ctx.fillStyle = PAL.crimson;
+    ctx.fillText('MIN-55 CRASH', gx0 + 20 * S + 0.62 * (gw - 40 * S), gy0 + gh - 18 * S);
+
+    drawCalloutPill(cx, cy - 246 * S, '39g GLUCOSE SPIKE → INSULIN WAVE → CRASH', PAL.emerald, 'rgba(6, 40, 32, 0.90)', S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 3: MICROSCOPIC DEFENSE & REBUILD
+  // =========================================================================
+
+  // --- Phase 7: Immune Antibody Hunt (Macrophages + T-Cells + Y-Shaped Antibodies) ---
+  function drawImmuneAntibodyHunt(cx, cy, S, t) {
+    ctx.save();
+
+    // Helper: draw spiky virus particle
+    const drawVirus = (vx, vy, vr, rot, locked) => {
+      ctx.save();
+      ctx.translate(vx, vy);
+      ctx.rotate(rot);
+      // Spike proteins
+      for (let k = 0; k < 10; k++) {
+        const a = (k / 10) * TAU;
+        ctx.strokeStyle = locked ? PAL.emerald : PAL.crimson;
+        ctx.lineWidth = Math.max(1.5, 2.4 * S);
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * vr, Math.sin(a) * vr);
+        ctx.lineTo(Math.cos(a) * (vr + 10 * S), Math.sin(a) * (vr + 10 * S));
+        ctx.stroke();
+        ctx.fillStyle = locked ? PAL.emerald : '#fda4af';
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * (vr + 11 * S), Math.sin(a) * (vr + 11 * S), safeR(3.2 * S), 0, TAU);
+        ctx.fill();
+      }
+      const vg = ctx.createRadialGradient(-vr * 0.2, -vr * 0.2, 2 * S, 0, 0, safeR(vr));
+      vg.addColorStop(0, '#fb7185');
+      vg.addColorStop(1, '#881337');
+      ctx.fillStyle = vg;
+      ctx.beginPath();
+      ctx.arc(0, 0, safeR(vr), 0, TAU);
+      ctx.fill();
+      if (locked) {
+        ctx.strokeStyle = PAL.emerald;
+        ctx.lineWidth = Math.max(1.5, 2.2 * S);
+        ctx.setLineDash([4 * S, 3 * S]);
+        ctx.beginPath();
+        ctx.arc(0, 0, safeR(vr + 20 * S), 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
+    };
+
+    // Helper: draw Y-shaped Antibody
+    const drawAntibody = (ax, ay, rot, scale) => {
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(rot);
+      ctx.strokeStyle = PAL.cyan;
+      ctx.lineWidth = Math.max(2, 3.2 * S * scale);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(0, 12 * S * scale);
+      ctx.lineTo(0, 0);
+      ctx.lineTo(-9 * S * scale, -10 * S * scale);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(9 * S * scale, -10 * S * scale);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    // Left: Large Bioluminescent Macrophage (amoeboid pulsing membrane)
+    const macX = cx - 148 * S;
+    const macY = cy + 28 * S;
+    ctx.save();
+    ctx.translate(macX, macY);
+    const macG = ctx.createRadialGradient(-12 * S, -12 * S, 10 * S, 0, 0, safeR(94 * S));
+    macG.addColorStop(0, 'rgba(52, 211, 153, 0.42)');
+    macG.addColorStop(1, 'rgba(6, 78, 59, 0.84)');
+    ctx.fillStyle = macG;
+    ctx.strokeStyle = PAL.emerald;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    for (let k = 0; k <= 48; k++) {
+      const a = (k / 48) * TAU;
+      const r = (74 + Math.sin(a * 5 + t * 2.2) * 10 + Math.cos(a * 3 - t * 1.5) * 7) * S;
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (k === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Nucleus
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.55)';
+    ctx.beginPath();
+    ctx.ellipse(-10 * S, 6 * S, 28 * S, 20 * S, 0.3, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = PAL.white;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText('MACROPHAGE', 0, 96 * S);
+    ctx.restore();
+
+    // Top-Left: Helper T-Cell releasing antibodies
+    const tcX = cx - 122 * S;
+    const tcY = cy - 134 * S;
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.28)';
+    ctx.strokeStyle = PAL.cyan;
+    ctx.lineWidth = Math.max(2, 2.8 * S);
+    ctx.beginPath();
+    ctx.arc(tcX, tcY, safeR(44 * S), 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#e0f2fe';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText('T-CELL', tcX, tcY);
+
+    // 3 Target Viruses on the right being locked down by flying Y-shaped antibodies
+    const targets = [
+      { x: cx + 118 * S, y: cy - 92 * S, r: 28 * S },
+      { x: cx + 158 * S, y: cy + 32 * S, r: 32 * S },
+      { x: cx + 66 * S, y: cy + 122 * S, r: 25 * S },
+    ];
+    for (let i = 0; i < targets.length; i++) {
+      const tr = targets[i];
+      const vx = tr.x + Math.sin(t * 1.4 + i * 2) * 12 * S;
+      const vy = tr.y + Math.cos(t * 1.1 + i * 1.7) * 10 * S;
+      const lockProg = smooth(0.25, 0.75, ((t * 0.45 + i * 0.28) % 1));
+      drawVirus(vx, vy, tr.r, t * 0.7 + i, lockProg > 0.65);
+
+      // Flying Y-shaped antibodies homing onto this virus
+      for (let a = 0; a < 3; a++) {
+        const flyU = clamp(((t * 0.45 + i * 0.28 + a * 0.08) % 1) * 1.35, 0, 1);
+        const ang = (a / 3) * TAU + i;
+        const destX = vx + Math.cos(ang) * (tr.r + 16 * S);
+        const destY = vy + Math.sin(ang) * (tr.r + 16 * S);
+        const ax = lerp(tcX + 36 * S, destX, smooth(0, 0.85, flyU));
+        const ay = lerp(tcY + 10 * S, destY, smooth(0, 0.85, flyU));
+        const rot = Math.atan2(vy - ay, vx - ax) + Math.PI * 0.5;
+        drawAntibody(ax, ay, rot, 1.0);
+      }
+    }
+
+    drawCalloutPill(cx, cy - 246 * S, 'T-CELLS + Y-SHAPED ANTIBODY PATHOGEN LOCK', PAL.emerald, 'rgba(6, 40, 32, 0.90)', S);
+    ctx.restore();
+  }
+
+  // --- Phase 8: Muscle Micro-Tear Repair (Z-Disc Micro-Tears -> Satellite Stem Cell Fusion) ---
+  function drawMuscleMicrotearRepair(cx, cy, S, t) {
+    ctx.save();
+    const cyc = (t * 0.28) % 1;
+    // 0..0.35 tear strain, 0.35..0.75 stem cell migration & fusion, 0.75..1.0 thickened rebuild
+    const tearAmt = smooth(0.05, 0.28, cyc) * (1 - smooth(0.55, 0.85, cyc));
+    const fuseAmt = smooth(0.30, 0.75, cyc);
+    const thicken = smooth(0.55, 0.95, cyc);
+
+    const fibW = 480 * S;
+    const fibH = lerp(128, 162, thicken) * S;
+    const fx = cx - fibW * 0.5;
+    const fy = cy - fibH * 0.5 - 12 * S;
+
+    // Outer muscle fiber sarcolemma sheath
+    const fibG = ctx.createLinearGradient(0, fy, 0, fy + fibH);
+    fibG.addColorStop(0, '#881337');
+    fibG.addColorStop(0.5, '#be123c');
+    fibG.addColorStop(1, '#4c0519');
+    ctx.fillStyle = fibG;
+    ctx.strokeStyle = PAL.crimson;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    roundRect(fx, fy, fibW, fibH, 26 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Sarcomere actin/myosin longitudinal striations
+    ctx.save();
+    roundRect(fx, fy, fibW, fibH, 26 * S);
+    ctx.clip();
+    const rows = 9;
+    for (let r = 0; r < rows; r++) {
+      const ry = fy + ((r + 0.5) / rows) * fibH;
+      ctx.strokeStyle = r % 2 === 0 ? 'rgba(253, 164, 175, 0.45)' : 'rgba(251, 191, 36, 0.30)';
+      ctx.lineWidth = Math.max(2, (3.2 + thicken * 1.8) * S);
+      ctx.beginPath();
+      ctx.moveTo(fx, ry);
+      ctx.lineTo(fx + fibW, ry);
+      ctx.stroke();
+    }
+
+    // Zig-zag Z-Discs across the fiber
+    const zCount = 5;
+    for (let z = 1; z < zCount; z++) {
+      const zx = fx + (z / zCount) * fibW;
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = Math.max(2, 3 * S);
+      ctx.beginPath();
+      for (let s = 0; s <= 12; s++) {
+        const sy = fy + (s / 12) * fibH;
+        const jx = (s % 2 === 0 ? -7 : 7) * S;
+        // Center Z-disc splits slightly during micro-tear
+        const split = (z === 2 || z === 3) && s > 3 && s < 9 ? tearAmt * 14 * S : 0;
+        if (s === 0) ctx.moveTo(zx + jx + split, sy);
+        else ctx.lineTo(zx + jx + split, sy);
+      }
+      ctx.stroke();
+
+      // Glowing crimson micro-tear fissure
+      if ((z === 2 || z === 3) && tearAmt > 0.05) {
+        const tg = ctx.createRadialGradient(zx, cy - 12 * S, 2 * S, zx, cy - 12 * S, safeR(46 * S * tearAmt));
+        tg.addColorStop(0, `rgba(255, 255, 255, ${0.85 * tearAmt})`);
+        tg.addColorStop(0.4, `rgba(251, 113, 133, ${0.75 * tearAmt})`);
+        tg.addColorStop(1, 'rgba(251, 113, 133, 0)');
+        ctx.fillStyle = tg;
+        ctx.beginPath();
+        ctx.arc(zx, cy - 12 * S, safeR(46 * S * tearAmt), 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+
+    // Satellite Stem Cells (emerald) migrating from basal lamina into micro-tears
+    for (let i = 0; i < 4; i++) {
+      const sx = cx - 90 * S + (i % 2) * 180 * S + (i >= 2 ? 32 * S : -32 * S);
+      const startY = i < 2 ? fy - 58 * S : fy + fibH + 58 * S;
+      const targetY = cy - 12 * S + (i < 2 ? -14 * S : 14 * S);
+      const sy = lerp(startY, targetY, fuseAmt);
+      const sr = safeR(lerp(18, 12, thicken) * S);
+
+      const sg = ctx.createRadialGradient(sx, sy, 2 * S, sx, sy, sr * 1.4);
+      sg.addColorStop(0, '#a7f3d0');
+      sg.addColorStop(0.6, PAL.emerald);
+      sg.addColorStop(1, 'rgba(52, 211, 153, 0)');
+      ctx.fillStyle = sg;
+      ctx.beginPath();
+      ctx.arc(sx, sy, safeR(sr * 1.4), 0, TAU);
+      ctx.fill();
+
+      ctx.fillStyle = PAL.emerald;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr * 0.65, 0, TAU);
+      ctx.fill();
+    }
+
+    // Status progression bar below fiber
+    const stageText = thicken > 0.4
+      ? 'PHASE 3: MYOFIBRIL HYPERTROPHY (+18% THICKER)'
+      : fuseAmt > 0.25
+      ? 'PHASE 2: SATELLITE STEM CELLS FUSING'
+      : 'PHASE 1: Z-DISC MICRO-TEAR STRAIN';
+    ctx.fillStyle = thicken > 0.4 ? PAL.emerald : fuseAmt > 0.25 ? PAL.cyan : PAL.amber;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.round(14 * S)}px monospace`;
+    ctx.fillText(stageText, cx, cy + 168 * S);
+
+    drawCalloutPill(cx, cy - 246 * S, 'Z-DISC MICRO-TEARS → SATELLITE STEM FUSION', PAL.crimson, 'rgba(76, 5, 25, 0.90)', S);
+    ctx.restore();
+  }
+
+  // --- Phase 9: Cellular Resilience (Live Cellular Repair vs Oxidative Stress) ---
+  function drawCellularResilience(cx, cy, S, t) {
+    ctx.save();
+    // Center: Glowing Eukaryotic Cell with Rotating DNA Double Helix inside Nucleus
+    const cellY = cy - 62 * S;
+    const cellR = 112 * S;
+
+    const cg = ctx.createRadialGradient(cx, cellY, 12 * S, cx, cellY, safeR(cellR));
+    cg.addColorStop(0, 'rgba(52, 211, 153, 0.28)');
+    cg.addColorStop(0.7, 'rgba(14, 165, 233, 0.16)');
+    cg.addColorStop(1, 'rgba(52, 211, 153, 0.65)');
+    ctx.fillStyle = cg;
+    ctx.strokeStyle = PAL.emerald;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    ctx.arc(cx, cellY, safeR(cellR), 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+
+    // Rotating DNA Double Helix inside nucleus
+    for (let i = -5; i <= 5; i++) {
+      const yOff = i * 11 * S;
+      const phase = t * 2.8 + i * 0.55;
+      const x1 = cx + Math.sin(phase) * 34 * S;
+      const x2 = cx - Math.sin(phase) * 34 * S;
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
+      ctx.lineWidth = Math.max(1.2, 2 * S);
+      ctx.beginPath();
+      ctx.moveTo(x1, cellY + yOff);
+      ctx.lineTo(x2, cellY + yOff);
+      ctx.stroke();
+
+      ctx.fillStyle = PAL.cyan;
+      ctx.beginPath();
+      ctx.arc(x1, cellY + yOff, safeR(4.2 * S), 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = PAL.emerald;
+      ctx.beginPath();
+      ctx.arc(x2, cellY + yOff, safeR(4.2 * S), 0, TAU);
+      ctx.fill();
+    }
+
+    // Orbiting ATP Mitochondria pods
+    for (let m = 0; m < 4; m++) {
+      const a = t * 0.7 + (m / 4) * TAU;
+      const mx = cx + Math.cos(a) * 82 * S;
+      const my = cellY + Math.sin(a) * 82 * S;
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.rotate(a + Math.PI * 0.5);
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 14 * S, 7 * S, 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Bottom Comparative Telemetry Panel: Repair Rate (Emerald) vs Oxidative Stress (Crimson)
+    const bx = cx - 236 * S;
+    const by = cy + 86 * S;
+    const bw = 472 * S;
+    const bh = 124 * S;
+    ctx.fillStyle = 'rgba(8, 14, 32, 0.90)';
+    ctx.strokeStyle = 'rgba(52, 211, 153, 0.42)';
+    ctx.lineWidth = Math.max(1.2, 1.8 * S);
+    roundRect(bx, by, bw, bh, 16 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    const repairVal = 0.86 + 0.08 * Math.sin(t * 2.1);
+    const stressVal = 0.28 + 0.10 * Math.cos(t * 1.7);
+
+    const drawBarRow = (yRow, label, pct, col) => {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = col;
+      ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+      ctx.fillText(label, bx + 18 * S, yRow);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = PAL.white;
+      ctx.fillText(`${Math.round(pct * 100)}%`, bx + bw - 18 * S, yRow);
+
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+      roundRect(bx + 18 * S, yRow + 14 * S, bw - 36 * S, 11 * S, 999);
+      ctx.fill();
+      ctx.fillStyle = col;
+      roundRect(bx + 18 * S, yRow + 14 * S, (bw - 36 * S) * clamp(pct, 0.05, 1), 11 * S, 999);
+      ctx.fill();
+    };
+
+    drawBarRow(by + 28 * S, 'CELLULAR REPAIR · 330B CELLS/DAY', repairVal, PAL.emerald);
+    drawBarRow(by + 82 * S, 'OXIDATIVE STRESS · MITIGATED', stressVal, PAL.crimson);
+
+    drawCalloutPill(cx, cy - 246 * S, 'CELLULAR RESILIENCE · 10,000 DNA REPAIRS/CELL', PAL.emerald, 'rgba(6, 40, 32, 0.90)', S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 4: THE NIGHTLY RESET & SECOND BRAIN
+  // =========================================================================
+
+  // --- Phase 10: Glymphatic Brain Wash (60% Neuron Shrink + Cyan CSF Flush) ---
+  function drawGlymphaticBrainWash(cx, cy, S, t) {
+    ctx.save();
+    const sleepCycle = smooth(0.12, 0.55, (t * 0.22) % 1);
+    // Neuron radius shrinks by 60% in deep sleep (1.0 -> 0.40 volume / ~0.64 visual radius)
+    const shrinkFactor = lerp(1.0, 0.62, sleepCycle);
+
+    // Cortical chamber frame
+    const boxW = 476 * S;
+    const boxH = 344 * S;
+    const bx = cx - boxW * 0.5;
+    const by = cy - boxH * 0.5 + 10 * S;
+
+    ctx.fillStyle = 'rgba(7, 14, 32, 0.92)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.48)';
+    ctx.lineWidth = Math.max(1.8, 2.6 * S);
+    roundRect(bx, by, boxW, boxH, 24 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.save();
+    roundRect(bx, by, boxW, boxH, 24 * S);
+    ctx.clip();
+
+    // Sweeping Cyan Cerebrospinal Fluid (CSF) current waves through widened interstitial channels
+    for (let w = 0; w < 6; w++) {
+      const wy = by + 42 * S + w * 54 * S;
+      ctx.strokeStyle = `rgba(56, 189, 248, ${0.14 + sleepCycle * 0.46})`;
+      ctx.lineWidth = Math.max(4, (6 + sleepCycle * 12) * S);
+      ctx.beginPath();
+      for (let x = 0; x <= 40; x++) {
+        const px = bx + (x / 40) * boxW;
+        const py = wy + Math.sin(x * 0.45 - t * 3.8 + w) * 10 * S;
+        if (x === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    // 9 Packed Cortical Neurons shrinking by 60% during Deep Sleep
+    const cols = 3, rows = 3;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const nx = bx + (c + 0.5) * (boxW / cols);
+        const ny = by + (r + 0.5) * (boxH / rows);
+        const nr = safeR(48 * S * shrinkFactor);
+
+        // Dendrite branches
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+        ctx.lineWidth = Math.max(1.2, 2 * S);
+        for (let d = 0; d < 5; d++) {
+          const da = (d / 5) * TAU + r + c;
+          ctx.beginPath();
+          ctx.moveTo(nx, ny);
+          ctx.lineTo(nx + Math.cos(da) * (nr + 18 * S), ny + Math.sin(da) * (nr + 18 * S));
+          ctx.stroke();
+        }
+
+        const ng = ctx.createRadialGradient(nx - nr * 0.2, ny - nr * 0.2, 3 * S, nx, ny, nr);
+        ng.addColorStop(0, '#c084fc');
+        ng.addColorStop(1, '#3b0764');
+        ctx.fillStyle = ng;
+        ctx.strokeStyle = '#e9d5ff';
+        ctx.lineWidth = Math.max(1.2, 2 * S);
+        ctx.beginPath();
+        ctx.arc(nx, ny, nr, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    // Amber Beta-Amyloid / Tau waste plaques being flushed rightward by cyan CSF
+    for (let i = 0; i < 18; i++) {
+      const speed = 0.08 + sleepCycle * 0.32;
+      const px = bx + ((hash(i * 13.1) + t * speed) % 1) * boxW;
+      const py = by + 26 * S + hash(i * 23.7) * (boxH - 52 * S);
+      ctx.fillStyle = PAL.amber;
+      ctx.beginPath();
+      ctx.arc(px, py, safeR((4 + hash(i) * 3.5) * S), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // State readout below chamber
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = PAL.cyan;
+    ctx.font = `800 ${Math.round(13 * S)}px monospace`;
+    ctx.fillText(
+      `INTERSTITIAL SPACE: +${Math.round(sleepCycle * 60)}%  ·  CSF WASTE FLUSH ACTIVE`,
+      cx,
+      by + boxH + 28 * S
+    );
+
+    drawCalloutPill(cx, cy - 246 * S, 'DEEP SLEEP · 60% NEURON SHRINK + CSF FLUSH', PAL.cyan, 'rgba(7, 25, 45, 0.90)', S);
+    ctx.restore();
+  }
+
+  // --- Phase 11: Gut-Brain Vagus Highway (500M Enteric Neurons + 90% Serotonin + 80% Upward Signals) ---
+  function drawGutBrainVagusHighway(cx, cy, S, t) {
+    ctx.save();
+    const topY = cy - 134 * S;
+    const botY = cy + 126 * S;
+
+    // Central Vagus Nerve Dual-Track Conduit
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.30)';
+    ctx.lineWidth = Math.max(16, 30 * S);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, topY + 52 * S);
+    ctx.lineTo(cx, botY - 56 * S);
+    ctx.stroke();
+
+    // 80% UPWARD sensory pulses (Cyan/Emerald, left & center lanes)
+    for (let i = 0; i < 12; i++) {
+      const u = (t * 0.58 + i / 12) % 1;
+      const laneX = cx - 8 * S + (i % 2 === 0 ? -4 * S : 5 * S);
+      const py = lerp(botY - 52 * S, topY + 52 * S, u);
+      ctx.fillStyle = i % 3 === 0 ? PAL.emerald : PAL.cyan;
+      ctx.beginPath();
+      ctx.arc(laneX, py, safeR(5 * S), 0, TAU);
+      ctx.fill();
+    }
+    // 20% DOWNWARD motor pulses (Amber, right lane)
+    for (let i = 0; i < 3; i++) {
+      const u = (t * 0.42 + i / 3) % 1;
+      const py = lerp(topY + 52 * S, botY - 52 * S, u);
+      ctx.fillStyle = PAL.amber;
+      ctx.beginPath();
+      ctx.arc(cx + 12 * S, py, safeR(4.2 * S), 0, TAU);
+      ctx.fill();
+    }
+
+    // Top Node: Brain
+    const bg = ctx.createRadialGradient(cx, topY, 6 * S, cx, topY, safeR(78 * S));
+    bg.addColorStop(0, 'rgba(56, 189, 248, 0.65)');
+    bg.addColorStop(1, 'rgba(12, 74, 110, 0.90)');
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = PAL.cyan;
+    ctx.lineWidth = Math.max(2, 2.8 * S);
+    ctx.beginPath();
+    ctx.ellipse(cx, topY, 82 * S, 54 * S, 0, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = PAL.white;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${Math.round(16 * S)}px Inter, sans-serif`;
+    ctx.fillText('CENTRAL BRAIN', cx, topY - 8 * S);
+    ctx.fillStyle = '#bae6fd';
+    ctx.font = `700 ${Math.round(11 * S)}px monospace`;
+    ctx.fillText('RECEIVES 80% UPWARD', cx, topY + 14 * S);
+
+    // Bottom Node: Enteric "Second Brain" Gut Coils
+    const gg = ctx.createRadialGradient(cx, botY, 8 * S, cx, botY, safeR(98 * S));
+    gg.addColorStop(0, 'rgba(52, 211, 153, 0.55)');
+    gg.addColorStop(1, 'rgba(6, 78, 59, 0.90)');
+    ctx.fillStyle = gg;
+    ctx.strokeStyle = PAL.emerald;
+    ctx.lineWidth = Math.max(2, 2.8 * S);
+    roundRect(cx - 118 * S, botY - 56 * S, 236 * S, 112 * S, 42 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Serotonin glowing vesicles budding around gut wall
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * TAU + t * 0.5;
+      const sx = cx + Math.cos(a) * 134 * S;
+      const sy = botY + Math.sin(a) * 66 * S;
+      ctx.fillStyle = PAL.emerald;
+      ctx.beginPath();
+      ctx.arc(sx, sy, safeR(4.2 * S), 0, TAU);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = PAL.white;
+    ctx.font = `900 ${Math.round(16 * S)}px Inter, sans-serif`;
+    ctx.fillText('SECOND BRAIN (GUT)', cx, botY - 14 * S);
+    ctx.fillStyle = '#a7f3d0';
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText('500M NEURONS · 90% SEROTONIN', cx, botY + 12 * S);
+
+    // Side Highway Callout Labels
+    ctx.textAlign = 'right';
+    ctx.fillStyle = PAL.cyan;
+    ctx.font = `800 ${Math.round(13 * S)}px monospace`;
+    ctx.fillText('▲ 80% UPWARD', cx - 34 * S, cy - 12 * S);
+    ctx.fillStyle = PAL.slate;
+    ctx.fillText('GUT → BRAIN', cx - 34 * S, cy + 8 * S);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = PAL.amber;
+    ctx.fillText('▼ 20% DOWNWARD', cx + 34 * S, cy - 12 * S);
+    ctx.fillStyle = PAL.slate;
+    ctx.fillText('BRAIN → GUT', cx + 34 * S, cy + 8 * S);
+
+    drawCalloutPill(cx, cy - 246 * S, 'VAGUS NERVE HIGHWAY · 500M ENTERIC NEURONS', PAL.emerald, 'rgba(6, 40, 32, 0.90)', S);
+    ctx.restore();
+  }
+
+  // --- Phase 12: Clean Bio Mechanics Series Outro ---
+  function drawSeriesOutro(cx, cy, S, t) {
+    ctx.save();
+    const pulse = 0.85 + 0.15 * Math.sin(t * 4.5);
+    const rad = ctx.createRadialGradient(cx, cy - 20 * S, 10, cx, cy - 20 * S, safeR(240 * S));
+    rad.addColorStop(0, `rgba(251, 113, 133, ${0.22 * pulse})`);
+    rad.addColorStop(0.55, `rgba(56, 189, 248, ${0.12 * pulse})`);
+    rad.addColorStop(1, 'rgba(5, 7, 18, 0)');
+    ctx.fillStyle = rad;
+    ctx.beginPath();
+    ctx.arc(cx, cy - 20 * S, safeR(240 * S), 0, TAU);
+    ctx.fill();
+
+    // Bioluminescent rotating DNA helix emblem
+    const hx = cx;
+    const hy = cy - 68 * S;
+    for (let i = -5; i <= 5; i++) {
+      const px = hx + i * 22 * S;
+      const ph = t * 2.4 + i * 0.55;
+      const y1 = hy + Math.sin(ph) * 32 * S;
+      const y2 = hy - Math.sin(ph) * 32 * S;
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+      ctx.lineWidth = Math.max(1.5, 2.2 * S);
+      ctx.beginPath();
+      ctx.moveTo(px, y1);
+      ctx.lineTo(px, y2);
+      ctx.stroke();
+
+      ctx.fillStyle = PAL.crimson;
+      ctx.beginPath();
+      ctx.arc(px, y1, safeR(5.5 * S), 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = PAL.cyan;
+      ctx.beginPath();
+      ctx.arc(px, y2, safeR(5.5 * S), 0, TAU);
+      ctx.fill();
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = PAL.crimson;
+    fitFont(BRAND, 26 * S, 420 * S, '900');
+    ctx.fillText(BRAND, cx, cy + 36 * S);
+
+    ctx.fillStyle = PAL.white;
+    fitFont('NEXT: INSIDE THE 100-BILLION-NEURON BRAIN', 21 * S, 470 * S, '800');
+    ctx.fillText('NEXT: INSIDE THE 100-BILLION-NEURON BRAIN', cx, cy + 78 * S);
+
+    // Subscribe Pill
+    const pw = 310 * S;
+    const ph = 48 * S;
+    ctx.fillStyle = PAL.emerald;
+    roundRect(cx - pw * 0.5, cy + 118 * S, pw, ph, 999);
+    ctx.fill();
+    ctx.fillStyle = '#050712';
+    fitFont('SUBSCRIBE TO BIO MECHANICS', 16 * S, pw - 24 * S, '900');
+    ctx.fillText('SUBSCRIBE TO BIO MECHANICS', cx, cy + 118 * S + ph * 0.5);
+    ctx.restore();
+  }
+
+  // --- Live Biological Telemetry per Visual Phase ---
+  function getTelemetry(phase, t) {
+    switch (phase) {
+      case 'heart-cutaway-live':
+        return { bpm: 72, spo2: 99, output: '7,200 L/DAY', load: 0.72, status: 'SINUS RHYTHM' };
+      case 'alveoli-gas-exchange':
+        return { bpm: 74, spo2: 99, output: '480M ALVEOLI', load: 0.68, status: '0.5 μm DIFFUSION' };
+      case 'circulatory-sync':
+        return { bpm: 72, spo2: 99, output: '5.0 L/MIN', load: 0.76, status: 'CLOSED-LOOP SYNC' };
+      case 'amygdala-adrenaline-surge': {
+        const surge = smooth(0.45, 0.82, (t * 0.42) % 1);
+        return { bpm: Math.round(lerp(72, 152, surge)), spo2: 98, output: '0.05s ALARM', load: 0.96, status: 'ADRENALINE SURGE' };
+      }
+      case 'caffeine-adenosine-block':
+        return { bpm: 88, spo2: 98, output: 'A₂A BLOCKED', load: 0.82, status: 'ADENOSINE BACKLOG' };
+      case 'sugar-insulin-wave':
+        return { bpm: 84, spo2: 98, output: '39g GLUCOSE', load: 0.88, status: 'INSULIN RESPONSE' };
+      case 'immune-antibody-hunt':
+        return { bpm: 92, spo2: 97, output: 'IgG LOCK-ON', load: 0.91, status: 'IMMUNE DEFENSE' };
+      case 'muscle-microtear-repair':
+        return { bpm: 108, spo2: 98, output: '+18% FIBER', load: 0.84, status: 'STEM CELL FUSION' };
+      case 'cellular-resilience':
+        return { bpm: 68, spo2: 99, output: '330B / DAY', load: 0.92, status: 'HOMEOSTASIS' };
+      case 'glymphatic-brain-wash':
+        return { bpm: 54, spo2: 98, output: '60% SHRINK', load: 0.95, status: 'DEEP SLEEP FLUSH' };
+      case 'gut-brain-vagus-highway':
+        return { bpm: 64, spo2: 99, output: '90% 5-HT', load: 0.86, status: '80% UPWARD VAGUS' };
+      case 'series-outro':
+      default:
+        return { bpm: 68, spo2: 99, output: '37T CELLS', load: 0.94, status: 'BIO MECHANICS' };
+    }
+  }
+
+  // --- Right 30% Glassmorphic Bio Telemetry Card (16:9 Mode) ---
+  function drawRightTelemetryCard(beat, t, tel) {
+    const pad = W * 0.022;
+    const cardX = W * 0.69;
+    const cardY = pad;
+    const cardW = W * 0.288;
+    const cardH = H - pad * 2;
+    const S = H / 1080;
+
+    const actColors = [PAL.crimson, PAL.amber, PAL.emerald, PAL.cyan];
+    const actCol = actColors[clamp(beat.actIndex, 0, 3)];
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 13, 28, 0.84)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.26)';
+    ctx.lineWidth = 1.6;
+    roundRect(cardX, cardY, cardW, cardH, 22 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    const ix = cardX + 24 * S;
+    const iw = cardW - 48 * S;
+    let y = cardY + 28 * S;
+
+    // Brand + Timestamp
+    ctx.fillStyle = ACCENT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    fitFont(BRAND, 14 * S, iw * 0.7, '900');
+    ctx.fillText(BRAND, ix, y);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = PAL.slate;
+    const ts = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    fitFont(ts, 14 * S, iw * 0.3, '700', 'monospace');
+    ctx.fillText(ts, ix + iw, y);
+
+    y += 28 * S;
+
+    // 4-Act Progress Bar
+    const actGap = 8 * S;
+    const segW = (iw - actGap * 3) / 4;
+    for (let a = 0; a < 4; a++) {
+      const sx = ix + a * (segW + actGap);
+      const active = a === beat.actIndex;
+      const done = a < beat.actIndex;
+      ctx.fillStyle = active ? actColors[a] : done ? 'rgba(56, 189, 248, 0.42)' : 'rgba(51, 65, 85, 0.65)';
+      roundRect(sx, y, segW, 7 * S, 999);
+      ctx.fill();
+
+      ctx.fillStyle = active ? PAL.white : '#64748b';
+      ctx.textAlign = 'center';
+      ctx.font = `800 ${Math.round(11 * S)}px Inter, sans-serif`;
+      ctx.fillText(`ACT ${a + 1}`, sx + segW * 0.5, y + 20 * S);
+    }
+
+    y += 46 * S;
+
+    // Active Act Title
+    ctx.textAlign = 'left';
+    ctx.fillStyle = PAL.white;
+    fitFont(beat.actTitle || 'Human Body Deep Dive', 21 * S, iw, '800');
+    ctx.fillText(beat.actTitle || 'Human Body Deep Dive', ix, y);
+
+    y += 34 * S;
+
+    // Live Caption Pill
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+    ctx.strokeStyle = actCol;
+    ctx.lineWidth = 1.6;
+    roundRect(ix, y, iw, 42 * S, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = actCol;
+    ctx.textAlign = 'center';
+    fitFont(beat.caption || '', 16 * S, iw - 20 * S, '900');
+    ctx.fillText(beat.caption || '', ix + iw * 0.5, y + 21 * S);
+
+    y += 66 * S;
+
+    // Wrapped Narration Subtitle Box
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    roundRect(ix, y, iw, 200 * S, 14 * S);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const subPx = Math.round(24 * S);
+    ctx.font = `900 ${subPx}px Inter, -apple-system, sans-serif`;
+    const shortTag = (beat.caption || beat.actTitle || 'LIVE TELEMETRY').toUpperCase();
+    const lines = wrapLines(shortTag, iw - 28 * S, 2);
+    const lh = Math.round(32 * S);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], ix + 14 * S, y + 18 * S + i * lh);
+    }
+
+    y += 224 * S;
+
+    // Live Bio Telemetry Gauges
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = PAL.slate;
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText(`BIO TELEMETRY · ${tel.status}`, ix, y);
+    y += 24 * S;
+
+    const gauges = [
+      { label: 'HEART RATE', val: `${tel.bpm} BPM`, frac: clamp(tel.bpm / 170, 0, 1), col: tel.bpm > 120 ? PAL.amber : PAL.crimson },
+      { label: 'O₂ SATURATION', val: `${tel.spo2}% SpO₂`, frac: clamp(tel.spo2 / 100, 0, 1), col: PAL.cyan },
+      { label: 'ACTIVE METRIC', val: tel.output, frac: clamp(0.65 + 0.25 * Math.sin(t * 1.3), 0, 1), col: actCol },
+      { label: 'SYSTEM ACTIVITY', val: `${Math.round(tel.load * 100)}%`, frac: clamp(tel.load, 0, 1), col: PAL.emerald },
+    ];
+
+    for (const g of gauges) {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = PAL.slate;
+      ctx.font = `700 ${Math.round(12 * S)}px Inter, sans-serif`;
+      ctx.fillText(g.label, ix, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = PAL.white;
+      ctx.font = `800 ${Math.round(14 * S)}px monospace`;
+      ctx.fillText(g.val, ix + iw, y);
+
+      const by = y + 14 * S;
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+      roundRect(ix, by, iw, 9 * S, 999);
+      ctx.fill();
+      ctx.fillStyle = g.col;
+      roundRect(ix, by, Math.max(8 * S, iw * g.frac), 9 * S, 999);
+      ctx.fill();
+      y += 48 * S;
+    }
+
+    // Overall episode progress bar
+    const progY = cardY + cardH - 22 * S;
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+    roundRect(ix, progY, iw, 6 * S, 999);
+    ctx.fill();
+    ctx.fillStyle = actCol;
+    roundRect(ix, progY, iw * clamp(t / Math.max(1, DUR), 0, 1), 6 * S, 999);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- Narrative Bridge Banner (16:9, first 2.0s of beat.isBridge) ---
+  function drawBridgeBanner(beat, localT) {
+    if (!beat.isBridge || localT < 0 || localT >= 2.0) return;
+    const S = H / 1080;
+    const enter = smooth(0, 0.28, localT);
+    const exit = 1 - smooth(1.65, 2.0, localT);
+    const alpha = clamp(enter * exit, 0, 1);
+    const slideY = lerp(-40 * S, 24 * S, enter);
+    const bw = W * 0.62;
+    const bh = 54 * S;
+    const bx = W * 0.03;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(251, 113, 133, 0.16)';
+    ctx.strokeStyle = PAL.crimson;
+    ctx.lineWidth = 2;
+    roundRect(bx, slideY, bw, bh, 14 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = PAL.white;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const label = `ACT ${beat.actIndex + 1} · ${String(beat.actTitle || '').toUpperCase()}`;
+    fitFont(label, 19 * S, bw - 40 * S, '900');
+    ctx.fillText(label, bx + 22 * S, slideY + bh * 0.5);
+    ctx.restore();
+  }
+
+  // --- 9:16 Native Vertical Safe-Zone Overlay ---
+  function drawVerticalOverlay(beat, t, tel) {
+    // Safe zone: x in [W*0.07, W*0.88], y in [H*0.12, H*0.78]
+    const safeL = W * 0.07;
+    const safeRBound = W * 0.88;
+    const safeW = safeRBound - safeL;
+    const safeCx = (safeL + safeRBound) * 0.5;
+    const S = W / 1080;
+
+    const actColors = [PAL.crimson, PAL.amber, PAL.emerald, PAL.cyan];
+    const actCol = actColors[clamp(beat.actIndex, 0, 3)];
+
+    ctx.save();
+    // Top: Part label pill
+    const partLabel = (SHORT_META && SHORT_META.partLabel) || `${BRAND} · ACT ${beat.actIndex + 1}`;
+    const topY = H * 0.125;
+    const pillH = 38 * S;
+    const pillW = Math.min(safeW * 0.88, Math.max(260 * S, safeW * 0.72));
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+    ctx.strokeStyle = actCol;
+    ctx.lineWidth = 2 * S;
+    roundRect(safeCx - pillW * 0.5, topY, pillW, pillH, 999);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = actCol;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(partLabel, 21 * S, pillW - 26 * S, '800');
+    ctx.fillText(partLabel, safeCx, topY + pillH * 0.5);
+
+    // Top: Huge Hook Headline (clamped cleanly inside safeW)
+    const hookText = (SHORT_META && SHORT_META.hook) || String(beat.actTitle || '').toUpperCase();
+    const hookY = topY + pillH + 34 * S;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(5, 7, 18, 0.92)';
+    ctx.shadowBlur = 12 * S;
+    fitFont(hookText, 48 * S, safeW - 12 * S, '900');
+    ctx.fillText(hookText, safeCx, hookY);
+    ctx.shadowBlur = 0;
+
+    // Live Bio Telemetry Strip under Hook
+    ctx.fillStyle = PAL.slate;
+    const strip = `${tel.bpm} BPM  ·  ${tel.spo2}% SpO₂  ·  ${tel.output}`;
+    fitFont(strip, 20 * S, safeW, '700', 'monospace');
+    ctx.fillText(strip, safeCx, hookY + 42 * S);
+
+    // Bottom (above H*0.78): High-contrast Caption Pill
+    const capPillH = 66 * S;
+    const capPillY = H * 0.78 - capPillH - 12 * S;
+    ctx.fillStyle = actCol;
+    roundRect(safeL, capPillY, safeW, capPillH, 16 * S);
+    ctx.fill();
+
+    ctx.fillStyle = '#050712';
+    fitFont(beat.caption || '', 34 * S, safeW - 32 * S, '900');
+    ctx.fillText(beat.caption || '', safeCx, capPillY + capPillH * 0.5);
+
+    // Last 1.2s of duration: Crisp high-contrast CTA Subscribe banner
+    const timeRem = DUR - t;
+    if (timeRem <= 1.2 && SHORT_META && SHORT_META.ctaText) {
+      const pop = smooth(0, 0.22, 1.2 - timeRem);
+      const ctaH = 74 * S;
+      const ctaY = capPillY - ctaH - 16 * S;
+      ctx.save();
+      ctx.globalAlpha = pop;
+      ctx.fillStyle = PAL.crimsonDeep;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3 * S;
+      roundRect(safeL, ctaY, safeW, ctaH, 18 * S);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      fitFont(SHORT_META.ctaText, 30 * S, safeW - 32 * S, '900');
+      ctx.fillText(SHORT_META.ctaText, safeCx, ctaY + ctaH * 0.5);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // --- Beat Lookup ---
+  function findBeat(t) {
+    if (!BEATS.length) {
+      return {
+        id: 'default', actIndex: 0, actKind: 'hook', actTitle: '1. The 100,000-Beat Engine',
+        visualPhase: 'heart-cutaway-live', caption: 'BIO MECHANICS', text: '', start: 0, end: DUR,
+      };
+    }
+    let active = BEATS[0];
+    for (let i = 0; i < BEATS.length; i++) {
+      if (t >= BEATS[i].start) active = BEATS[i];
+      else break;
+    }
+    return active;
+  }
+
+  // --- Main Frame Renderer ---
+  function renderFrame(frameIdx) {
+    const fIdx = Number.isFinite(frameIdx) ? frameIdx : 0;
+    const t = fIdx / Math.max(1, FPS);
+    const beat = findBeat(t);
+    const localT = Math.max(0, t - beat.start);
+    const phase = beat.visualPhase || 'heart-cutaway-live';
+
+    drawBioStudioBg(t, beat.actIndex || 0);
+
+    // Stage bounding box (adapts natively to 16:9 vs 9:16 safe-zone)
+    const isVert = ASPECT === '9:16';
+    const stageX = isVert ? W * 0.07 : W * 0.03;
+    const stageY = isVert ? H * 0.24 : H * 0.08;
+    const stageW = isVert ? W * 0.81 : W * 0.64;
+    const stageH = isVert ? H * 0.46 : H * 0.84;
+    const stageCx = stageX + stageW * 0.5;
+    const stageCy = stageY + stageH * 0.5;
+    const stageS = Math.min(stageW / 560, stageH / 560);
+
+    if (phase === 'heart-cutaway-live') {
+      drawHeartCutaway(stageCx, stageCy, stageS, t);
+    } else if (phase === 'alveoli-gas-exchange') {
+      drawAlveoliGasExchange(stageCx, stageCy, stageS, t);
+    } else if (phase === 'circulatory-sync') {
+      drawCirculatorySync(stageCx, stageCy, stageS, t);
+    } else if (phase === 'amygdala-adrenaline-surge') {
+      drawAmygdalaAdrenaline(stageCx, stageCy, stageS, t);
+    } else if (phase === 'caffeine-adenosine-block') {
+      drawCaffeineAdenosineBlock(stageCx, stageCy, stageS, t);
+    } else if (phase === 'sugar-insulin-wave') {
+      drawSugarInsulinWave(stageCx, stageCy, stageS, t);
+    } else if (phase === 'immune-antibody-hunt') {
+      drawImmuneAntibodyHunt(stageCx, stageCy, stageS, t);
+    } else if (phase === 'muscle-microtear-repair') {
+      drawMuscleMicrotearRepair(stageCx, stageCy, stageS, t);
+    } else if (phase === 'cellular-resilience') {
+      drawCellularResilience(stageCx, stageCy, stageS, t);
+    } else if (phase === 'glymphatic-brain-wash') {
+      drawGlymphaticBrainWash(stageCx, stageCy, stageS, t);
+    } else if (phase === 'gut-brain-vagus-highway') {
+      drawGutBrainVagusHighway(stageCx, stageCy, stageS, t);
+    } else if (phase === 'series-outro') {
+      drawSeriesOutro(stageCx, stageCy, stageS, t);
+    } else {
+      drawHeartCutaway(stageCx, stageCy, stageS, t);
+    }
+
+    const tel = getTelemetry(phase, t);
+
+    if (isVert) {
+      drawVerticalOverlay(beat, t, tel);
+    } else {
+      drawRightTelemetryCard(beat, t, tel);
+      drawBridgeBanner(beat, localT);
+    }
+  }
+
+  // --- Deterministic Audio Events ---
+  function buildEvents() {
+    const evs = [];
+    for (let i = 0; i < BEATS.length; i++) {
+      const b = BEATS[i];
+      const t0 = clamp(b.start + 0.08, 0.05, Math.max(0.1, DUR - 0.1));
+      if (b.visualPhase === 'amygdala-adrenaline-surge' || b.visualPhase === 'immune-antibody-hunt' || b.visualPhase === 'muscle-microtear-repair') {
+        evs.push({ t: t0, type: 'break', pitchIndex: 2 + (i % 5), intensity: 0.88 });
+        if (b.end - b.start > 3.0) {
+          evs.push({ t: clamp(b.start + 1.8, 0.1, DUR - 0.1), type: 'bounce', pitchIndex: 4, intensity: 0.72 });
+        }
+      } else if (b.visualPhase === 'series-outro') {
+        evs.push({ t: t0, type: 'win', pitchIndex: 10, intensity: 0.95 });
+      } else if (b.isBridge) {
+        evs.push({ t: t0, type: 'win', pitchIndex: 6 + b.actIndex, intensity: 0.74 });
+      } else {
+        evs.push({ t: t0, type: 'bounce', pitchIndex: 2 + (i % 7), intensity: 0.58 });
+      }
+    }
+    evs.sort((a, b) => a.t - b.t);
+    return evs;
+  }
+
+  // --- Exact Window API Contract ---
+  window.init = (cfg = {}) => {
+    W = Math.max(160, Math.round(cfg.width || 1920));
+    H = Math.max(160, Math.round(cfg.height || 1080));
+    FPS = Math.max(1, Number(cfg.fps) || 60);
+    ASPECT = cfg.aspect === '9:16' || H > W ? '9:16' : '16:9';
+    DUR = Math.max(1, Number(cfg.duration) || 240);
+    TITLE = cfg.title || TITLE;
+    BRAND = cfg.brand || BRAND;
+    ACCENT = cfg.accent || PAL.crimson;
+    SHORT_META = cfg.shortMeta || null;
+
+    if (Array.isArray(cfg.beats) && cfg.beats.length > 0) {
+      BEATS = cfg.beats.map((b, idx) => ({
+        id: b.id || `b-${idx}`,
+        actIndex: Number.isFinite(b.actIndex) ? b.actIndex : 0,
+        actKind: b.actKind || 'hook',
+        actTitle: b.actTitle || '',
+        visualPhase: b.visualPhase || 'heart-cutaway-live',
+        caption: b.caption || '',
+        text: b.text || '',
+        start: Number.isFinite(b.start) ? b.start : (idx * DUR) / cfg.beats.length,
+        end: Number.isFinite(b.end) ? b.end : ((idx + 1) * DUR) / cfg.beats.length,
+        isBridge: Boolean(b.isBridge),
+      }));
+    } else {
+      const seg = DUR / DEFAULT_BEATS.length;
+      BEATS = DEFAULT_BEATS.map((b, idx) => ({ ...b, start: idx * seg, end: (idx + 1) * seg }));
+    }
+
+    cv.width = W;
+    cv.height = H;
+    EVENTS = buildEvents();
+  };
+
+  window.renderFrame = renderFrame;
+
+  window.renderBatch = (startFrame, count) => {
+    const out = [];
+    const n = Math.max(0, Math.floor(count || 0));
+    const s = Math.max(0, Math.floor(startFrame || 0));
+    for (let i = 0; i < n; i++) {
+      renderFrame(s + i);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.9);
+      out.push(dataUrl.replace(/^data:[^,]+,/, ''));
+    }
+    return out;
+  };
+
+  window.getEvents = () => EVENTS;
+  window.ready = true;
+})();
+</script>

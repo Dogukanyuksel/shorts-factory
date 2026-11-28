@@ -1,0 +1,153 @@
+<!doctype html>
+<!--
+  Bio Mechanics — 3D PBR: Why Losing Just 2% Water Shrinks Your Brain Performance by 20%
+  Y-LABS 3D Cinema Engine (Three.js PBR Shrinking Cortex Mesh + Blood Viscosity Flow + Hydration Restore, 60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#0D1117;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  easeOutCubic,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const SCRIPT = [
+  { id: 'hook', text: 'By the time you actually feel thirsty, your brain has already lost twenty percent of its power.', caption: '-2% WATER = -20% FOCUS' },
+  { id: 'shrink', text: 'Your brain is seventy-five percent water. Lose just two percent and neural tissue physically shrinks.', caption: 'BRAIN TISSUE SHRINKS' },
+  { id: 'blood', text: 'Your blood thickens immediately, forcing your heart to beat faster just to push oxygen uphill.', caption: 'BLOOD THICKENS FAST' },
+  { id: 'fog', text: 'Working memory slows, reaction time drops, and cortisol spikes — mimicking mild exhaustion.', caption: 'CORTISOL & BRAIN FOG' },
+  { id: 'restore', text: 'Drink five hundred milliliters of water and brain volume rebounds within twenty minutes.', caption: '500 ML = 20 MIN RESET' },
+  { id: 'verdict', text: 'Next time afternoon brain fog hits, you might not need caffeine — you need water.', caption: 'HYDRATE BEFORE COFFEE' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 26, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let skullShell, brainMesh, waterLevel, droplets = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, idx) {
+  const f = LINES.find((l) => l.id === id);
+  if (f) return f;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: idx * seg, end: (idx + 1) * seg, caption: SCRIPT[idx].caption };
+}
+
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'bio', fov: 38, fogDensity: 0.022, floorY: -2.6 });
+  const { scene } = stage;
+  const mats = createMaterials('bio');
+
+  // Outer translucent cranial reference shell (shows physical shrinkage gap!)
+  const shellGeo = new THREE.IcosahedronGeometry(1.72, 2);
+  skullShell = new THREE.Group();
+  skullShell.add(new THREE.Mesh(shellGeo, mats.glass(0x38bdf8, 0.14)));
+  skullShell.add(addXrayEdges(shellGeo, 0x38bdf8, 0.45));
+  scene.add(skullShell);
+
+  // Inner Cortex that shrinks under dehydration & rebounds on rehydration
+  const brainGeo = new THREE.IcosahedronGeometry(1.48, 3);
+  brainMesh = new THREE.Mesh(brainGeo, mats.bioGreen.clone());
+  scene.add(brainMesh);
+
+  // Hydration gauge ring around base
+  waterLevel = new THREE.Mesh(new THREE.TorusGeometry(2.15, 0.06, 12, 64), mats.glow(0x38bdf8, 0.9));
+  waterLevel.rotation.x = Math.PI / 2;
+  waterLevel.position.y = -1.95;
+  scene.add(waterLevel);
+
+  // Water molecule droplets
+  const dGeo = new THREE.SphereGeometry(0.1, 14, 14);
+  for (let i = 0; i < 24; i++) {
+    const m = new THREE.Mesh(dGeo, mats.glow(0x38bdf8, 0.95));
+    m.userData = { angle: (i / 24) * Math.PI * 2, y: ((i % 6) - 2.5) * 0.55, r: 2.0 + (i % 3) * 0.25 };
+    scene.add(m);
+    droplets.push(m);
+  }
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 26;
+  LINES = Array.isArray(cfg.lines) ? cfg.lines : [];
+  cv.width = W;
+  cv.height = H;
+  buildScene();
+
+  const lShrink = getLine('shrink', 1);
+  const lFog = getLine('fog', 3);
+  const lRest = getLine('restore', 4);
+  EVENTS = [
+    { t: Math.max(0.1, lShrink.start - 0.04), type: 'break', intensity: 0.8 },
+    { t: Math.max(0.2, lFog.start - 0.04), type: 'break', intensity: 0.95 },
+    { t: Math.max(0.3, lRest.start - 0.04), type: 'win', intensity: 1.0 },
+  ];
+};
+
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
+
+  const lShrink = getLine('shrink', 1);
+  const lRest = getLine('restore', 4);
+  const dehyd = smooth(t, lShrink.start, lRest.start - 0.4);
+  const rehyd = easeOutCubic(smooth(t, lRest.start, lRest.end));
+  const dry = clamp(dehyd * (1 - rehyd * 0.95), 0, 1);
+
+  const cortexScale = lerp(1.0, 0.76, dry);
+  brainMesh.scale.setScalar(cortexScale);
+  brainMesh.rotation.y = t * 0.45;
+  brainMesh.material.color.setHex(dry > 0.45 ? 0xff2d55 : 0x34c759);
+  brainMesh.material.emissive.setHex(dry > 0.45 ? 0xff2d55 : 0x10b981);
+  brainMesh.material.emissiveIntensity = 0.25 + dry * 0.5;
+
+  skullShell.rotation.y = -t * 0.2;
+  waterLevel.rotation.z = t * 0.7;
+  waterLevel.material.color.setHex(dry > 0.45 ? 0xff2d55 : 0x38bdf8);
+
+  droplets.forEach((m) => {
+    const a = m.userData.angle + t * 0.85;
+    const rad = lerp(m.userData.r, m.userData.r * 1.45, dry);
+    m.position.set(Math.cos(a) * rad, m.userData.y + Math.sin(t * 2 + a) * 0.15, Math.sin(a) * rad);
+    m.scale.setScalar(lerp(1.0, 0.35, dry));
+  });
+
+  const camA = lerp(-0.32, 0.32, p);
+  stage.camera.position.set(Math.sin(camA) * 7.6, 0.55, Math.cos(camA) * 7.6);
+  stage.camera.lookAt(0, 0, 0);
+
+  stage.renderTo(ctx, W, H);
+
+  const active = LINES.find((l) => t >= l.start && t <= l.end) || SCRIPT[Math.min(SCRIPT.length - 1, Math.floor(p * SCRIPT.length))];
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'bio',
+    title: '2% DEHYDRATION EFFECT',
+    subtitle: dry > 0.45 ? 'CORTEX VOLUME DROP' : 'OPTIMAL HYDRATION',
+    progress: p,
+    caption: active.caption,
+    metrics: [
+      { label: 'WATER LOSS', value: `-${(dry * 2).toFixed(1)}%`, color: dry > 0.45 ? '#FF2D55' : '#38BDF8' },
+      { label: 'COGNITION', value: `${Math.round(100 - dry * 20)}%`, color: dry > 0.45 ? '#FF9500' : '#34C759' },
+      { label: 'BLOOD VISC', value: dry > 0.45 ? 'HIGH' : 'NORMAL', color: '#FFFFFF' },
+    ],
+  });
+};
+</script>

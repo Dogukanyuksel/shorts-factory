@@ -1,0 +1,2381 @@
+<!doctype html>
+<!--
+  Wealth Mechanics — Deep Dive: How Compound Math Turns Ordinary Salaries Into Millions
+  Native Dual-Aspect (16:9 Documentary + 9:16 Vertical Safe-Zone), 60fps, Deterministic
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // --- Deterministic Math Utilities (Zero Math.random, Zero NaN) ---
+  const TAU = Math.PI * 2;
+  const clamp = (v, lo, hi) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo);
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = (a, b, t) => {
+    const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1);
+    return x * x * (3 - 2 * x);
+  };
+  const easeOutCubic = (x) => {
+    const c = clamp(x, 0, 1);
+    return 1 - Math.pow(1 - c, 3);
+  };
+  const hash = (n) => {
+    const x = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+    return x - Math.floor(x);
+  };
+  const safeR = (r) => Math.max(0.5, Number.isFinite(r) ? r : 0.5);
+  const fmtMoney = (v) => {
+    const n = Number.isFinite(v) ? v : 0;
+    const sign = n < 0 ? '-' : '';
+    const a = Math.abs(n);
+    if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(2)}M`;
+    if (a >= 1e4) return `${sign}$${Math.round(a / 1e3)}K`;
+    if (a >= 1e3) return `${sign}$${(a / 1e3).toFixed(1)}K`;
+    return `${sign}$${Math.round(a).toLocaleString()}`;
+  };
+  const fvMonthly = (pmt, annualRate, years) => {
+    if (years <= 0) return 0;
+    const r = annualRate / 12;
+    const n = years * 12;
+    if (Math.abs(r) < 1e-7) return pmt * n;
+    return pmt * ((Math.pow(1 + r, n) - 1) / r);
+  };
+
+  // --- Theme Palette (Wealth Mechanics) ---
+  const COL_BG = '#030a08';
+  const COL_EMERALD = '#10b981';
+  const COL_GOLD = '#f59e0b';
+  const COL_CRIMSON = '#ef4444';
+  const COL_CYAN = '#38bdf8';
+  const COL_INK = '#ecfdf5';
+  const COL_MUTED = '#94a3b8';
+
+  // --- State ---
+  let W = 1920, H = 1080, FPS = 60, DUR = 240;
+  let ASPECT = '16:9';
+  let TITLE = 'How Compound Math Turns Ordinary Salaries Into Millions';
+  let BRAND = 'WEALTH MECHANICS';
+  let ACCENT = COL_EMERALD;
+  let SHORT_META = null;
+  let BEATS = [];
+  let EVENTS = [];
+
+  // 4 Cohesive Acts, 16 Beats Total
+  const DEFAULT_BEATS = [
+    // Act 1: hook — 1. The Time Multiplier
+    {
+      id: 'a1-time-race',
+      actIndex: 0,
+      actKind: 'hook',
+      actTitle: '1. The Time Multiplier',
+      visualPhase: 'time-race-preview',
+      caption: '$100/MO AT 20 VS $500/MO AT 35',
+      text: 'Investing $100 a month starting at age 20 rivals $500 a month at age 35 — with one-third the cash out of pocket.',
+    },
+    {
+      id: 'a1-rule-72',
+      actIndex: 0,
+      actKind: 'hook',
+      actTitle: '1. The Time Multiplier',
+      visualPhase: 'rule-of-72-grid',
+      caption: '72 ÷ RATE = DOUBLING YEARS',
+      text: 'Divide 72 by your annual return to see how fast money doubles: 72 years at 1%, 18 years at 4%, and just 8 years at 9%.',
+    },
+    {
+      id: 'a1-exp-knee',
+      actIndex: 0,
+      actKind: 'hook',
+      actTitle: '1. The Time Multiplier',
+      visualPhase: 'exponential-knee',
+      caption: 'THE AGE 50 VERTICAL KNEE',
+      text: 'For decades compounding looks painfully flat — until age 50, when annual market gains suddenly overtake your paycheck.',
+    },
+    // Act 2: mechanism — 2. The Silent Wealth Killers
+    {
+      id: 'a2-bridge',
+      actIndex: 1,
+      actKind: 'mechanism',
+      actTitle: '2. The Silent Wealth Killers',
+      visualPhase: 'inflation-drain',
+      caption: 'THE SILENT WEALTH KILLERS',
+      isBridge: true,
+      text: 'Compounding works in both directions. Before growing wealth, you have to seal the three invisible leaks draining it.',
+    },
+    {
+      id: 'a2-inflation',
+      actIndex: 1,
+      actKind: 'mechanism',
+      actTitle: '2. The Silent Wealth Killers',
+      visualPhase: 'inflation-drain',
+      caption: '$10K → $4,741 REAL VALUE',
+      text: 'At 3.8% annual inflation, $10,000 parked in idle cash still reads $10,000 — yet loses over half its buying power in 20 years.',
+    },
+    {
+      id: 'a2-vortex-1',
+      actIndex: 1,
+      actKind: 'mechanism',
+      actTitle: '2. The Silent Wealth Killers',
+      visualPhase: 'credit-card-vortex',
+      caption: '24% APR REFILL VORTEX',
+      text: 'A $5,000 credit card balance at 24% APR traps minimum payers in a vortex where interest refills the bucket every month.',
+    },
+    {
+      id: 'a2-vortex-2',
+      actIndex: 1,
+      actKind: 'mechanism',
+      actTitle: '2. The Silent Wealth Killers',
+      visualPhase: 'credit-card-vortex',
+      caption: '16.2 YRS VS 3.3 YRS ESCAPE',
+      text: 'Paying minimums takes 16.2 years and $13,400 total. Fixing payments at $200/mo clears it in 3.3 years and saves $6,660.',
+    },
+    {
+      id: 'a2-tax',
+      actIndex: 1,
+      actKind: 'mechanism',
+      actTitle: '2. The Silent Wealth Killers',
+      visualPhase: 'tax-buckets-truth',
+      caption: 'MARGINAL TAX BUCKETS TRUTH',
+      text: 'A raise never shrinks your take-home pay. Tax brackets work like stacked buckets — only the overflow pays the higher rate.',
+    },
+    // Act 3: failure — 3. The Real-World Crossover
+    {
+      id: 'a3-bridge',
+      actIndex: 2,
+      actKind: 'failure',
+      actTitle: '3. The Real-World Crossover',
+      visualPhase: 'paycheck-split-50-30-20',
+      caption: 'AUTOMATE EVERY PAYCHECK',
+      isBridge: true,
+      text: 'With leaks sealed, wealth becomes a systems problem: route every paycheck automatically before emotions interfere.',
+    },
+    {
+      id: 'a3-paycheck',
+      actIndex: 2,
+      actKind: 'failure',
+      actTitle: '3. The Real-World Crossover',
+      visualPhase: 'paycheck-split-50-30-20',
+      caption: '50% NEEDS · 30% WANTS · 20% INVEST',
+      text: 'Route a $5,000 net paycheck into three conduits: $2,500 needs, $1,500 wants, and $1,000 automatically into compounding assets.',
+    },
+    {
+      id: 'a3-rent-buy',
+      actIndex: 2,
+      actKind: 'failure',
+      actTitle: '3. The Real-World Crossover',
+      visualPhase: 'rent-vs-buy-crossover',
+      caption: 'YEAR 8.9 BREAK-EVEN CROSSOVER',
+      text: 'A $400K mortgage carries closing, tax, and maintenance drag — Rent plus Invest leads until the Year 8.9 break-even crossover.',
+    },
+    {
+      id: 'a3-panic-1',
+      actIndex: 2,
+      actKind: 'failure',
+      actTitle: '3. The Real-World Crossover',
+      visualPhase: 'panic-sell-mistake',
+      caption: '2000 · 2008 · 2020 CRASHES',
+      text: 'Over 30 years the S&P 500 survived Dot-Com, 2008, and 2020. The biggest risk was never the crash — it was selling inside it.',
+    },
+    {
+      id: 'a3-panic-2',
+      actIndex: 2,
+      actKind: 'failure',
+      actTitle: '3. The Real-World Crossover',
+      visualPhase: 'panic-sell-mistake',
+      caption: 'PANIC FLATLINE VS $1.42M',
+      text: 'Selling in panic locks in losses and misses the sharpest rebound days — costing over $1.1 million compared to staying invested.',
+    },
+    // Act 4: comparison — 4. The Unstoppable Snowball
+    {
+      id: 'a4-bridge',
+      actIndex: 3,
+      actKind: 'comparison',
+      actTitle: '4. The Unstoppable Snowball',
+      visualPhase: 'dividend-snowball-drip',
+      caption: 'THE 30-YEAR DRIP SNOWBALL',
+      isBridge: true,
+      text: 'Now turn on automatic dividend reinvestment and watch a tiny $150 annual payout snowball into $1,550 every single month.',
+    },
+    {
+      id: 'a4-scorecard',
+      actIndex: 3,
+      actKind: 'comparison',
+      actTitle: '4. The Unstoppable Snowball',
+      visualPhase: 'final-blueprint-scorecard',
+      caption: '4-PILLAR WEALTH BLUEPRINT',
+      text: 'Start early, eliminate high-APR drag, automate 20% through every crash, and reinvest dividends — ordinary salaries become millions.',
+    },
+    {
+      id: 'a4-outro',
+      actIndex: 3,
+      actKind: 'comparison',
+      actTitle: '4. The Unstoppable Snowball',
+      visualPhase: 'series-outro',
+      caption: 'SUBSCRIBE · WEALTH MECHANICS',
+      text: 'Subscribe to Wealth Mechanics — next we break down why the first $100,000 is mathematically the hardest milestone.',
+    },
+  ];
+
+  // --- Drawing Helpers ---
+  function roundRect(x, y, w, h, r) {
+    const ww = Math.max(0.5, w);
+    const hh = Math.max(0.5, h);
+    const rr = Math.min(Math.max(0, r), ww * 0.5, hh * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + ww, y, x + ww, y + hh, rr);
+    ctx.arcTo(x + ww, y + hh, x, y + hh, rr);
+    ctx.arcTo(x, y + hh, x, y, rr);
+    ctx.arcTo(x, y, x + ww, y, rr);
+    ctx.closePath();
+  }
+
+  function fitFont(text, basePx, maxW, weight = '800', family = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif') {
+    let px = Math.max(9, Math.round(basePx));
+    ctx.font = `${weight} ${px}px ${family}`;
+    const mw = ctx.measureText(text).width || 1;
+    if (mw > maxW && maxW > 10) {
+      px = Math.max(9, Math.floor(px * (maxW / mw)));
+      ctx.font = `${weight} ${px}px ${family}`;
+    }
+    return px;
+  }
+
+  function wrapLines(text, maxW, maxLines) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (let i = 0; i < words.length; i++) {
+      const test = cur ? cur + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width <= maxW || !cur) {
+        cur = test;
+      } else {
+        lines.push(cur);
+        cur = words[i];
+        if (lines.length >= maxLines - 1) {
+          cur = words.slice(i).join(' ');
+          break;
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    if (lines.length > maxLines) lines.length = maxLines;
+    if (lines.length > 0) {
+      let last = lines[lines.length - 1];
+      while (last.length > 4 && ctx.measureText(last).width > maxW) {
+        last = last.slice(0, -4).trimEnd() + '…';
+      }
+      lines[lines.length - 1] = last;
+    }
+    return lines;
+  }
+
+  function drawStageHeader(rx, ry, rw, title, badgeText, badgeCol, S) {
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL_INK;
+    fitFont(title, 22 * S, rw * 0.65, '900');
+    ctx.fillText(title, rx + 4 * S, ry + 16 * S);
+
+    if (badgeText) {
+      const bw = Math.min(rw * 0.36, Math.max(150 * S, badgeText.length * 10 * S + 28 * S));
+      const bh = 28 * S;
+      const bx = rx + rw - bw;
+      const by = ry + 2 * S;
+      ctx.fillStyle = 'rgba(6, 20, 16, 0.85)';
+      ctx.strokeStyle = badgeCol || COL_EMERALD;
+      ctx.lineWidth = Math.max(1.2, 1.8 * S);
+      roundRect(bx, by, bw, bh, 999);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = badgeCol || COL_EMERALD;
+      ctx.textAlign = 'center';
+      fitFont(badgeText, 13 * S, bw - 16 * S, '800', 'monospace');
+      ctx.fillText(badgeText, bx + bw * 0.5, by + bh * 0.5);
+    }
+    ctx.restore();
+  }
+
+  function drawGlassPanel(x, y, w, h, r, strokeCol = 'rgba(16, 185, 129, 0.24)', fillCol = 'rgba(6, 20, 15, 0.78)') {
+    ctx.save();
+    ctx.fillStyle = fillCol;
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = 1.5;
+    roundRect(x, y, w, h, r);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // --- Studio Background (#030a08 Dark Emerald-Obsidian) ---
+  function drawStudioBg(t, actKind) {
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#030a08');
+    bg.addColorStop(0.5, '#05140f');
+    bg.addColorStop(1, '#020705');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle animated emerald ledger grid
+    const step = Math.max(36, Math.round(Math.min(W, H) * 0.048));
+    const ox = (t * 5) % step;
+    const oy = (t * 2.5) % step;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.045)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = -step + ox; x < W + step; x += step) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = -step + oy; y < H + step; y += step) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+
+    // Major crosshairs
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.085)';
+    ctx.beginPath();
+    for (let x = -step * 4 + ox; x < W + step * 4; x += step * 4) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+    }
+    for (let y = -step * 4 + oy; y < H + step * 4; y += step * 4) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+
+    // Radial spotlight tinted subtly by act
+    const sx = ASPECT === '16:9' ? W * 0.35 : W * 0.5;
+    const sy = ASPECT === '16:9' ? H * 0.48 : H * 0.46;
+    const sr = Math.min(W, H) * 0.56;
+    const rad = ctx.createRadialGradient(sx, sy, 10, sx, sy, safeR(sr));
+    const glowRgb = actKind === 'failure' ? '239, 68, 68' : actKind === 'mechanism' ? '245, 158, 11' : '16, 185, 129';
+    rad.addColorStop(0, `rgba(${glowRgb}, 0.11)`);
+    rad.addColorStop(0.55, 'rgba(16, 185, 129, 0.03)');
+    rad.addColorStop(1, 'rgba(3, 10, 8, 0)');
+    ctx.fillStyle = rad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Deterministic subtle floating dust motes
+    for (let i = 0; i < 24; i++) {
+      const mx = ((hash(i * 19.3 + 1) * W + t * (6 + hash(i * 7.1) * 10)) % W + W) % W;
+      const my = ((hash(i * 31.7 + 2) * H - t * (4 + hash(i * 11.9) * 8)) % H + H) % H;
+      const a = 0.08 + 0.12 * Math.sin(t * 2 + i * 1.7);
+      ctx.fillStyle = i % 3 === 0 ? `rgba(245, 158, 11, ${a})` : `rgba(16, 185, 129, ${a})`;
+      ctx.beginPath();
+      ctx.arc(mx, my, safeR(1.5 + hash(i * 5.3) * 1.8), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 1 — PHASE 1: time-race-preview ($100/mo at 20 vs $500/mo at 35)
+  // =========================================================================
+  function drawTimeRacePreview(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'THE 15-YEAR HEAD START RACE', '10% AVG RETURN', COL_EMERALD, S);
+
+    const chartX = rx + 62 * S;
+    const chartY = ry + 48 * S;
+    const chartW = rw - 82 * S;
+    const chartH = rh - 148 * S;
+    drawGlassPanel(chartX - 10 * S, chartY - 8 * S, chartW + 20 * S, chartH + 28 * S, 16 * S);
+
+    const maxVal = 1200000;
+    const prog = easeOutCubic(clamp((localT % 10.5) / 7.5, 0.08, 1));
+    const curAge = lerp(20, 65, prog);
+
+    const xOfAge = (age) => chartX + ((age - 20) / 45) * chartW;
+    const yOfVal = (v) => chartY + chartH - clamp(v / maxVal, 0, 1) * (chartH - 18 * S);
+
+    // Shaded 15-year head start zone (Age 20 -> 35)
+    ctx.save();
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+    ctx.fillRect(xOfAge(20), chartY, xOfAge(35) - xOfAge(20), chartH);
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.25)';
+    ctx.setLineDash([5 * S, 5 * S]);
+    ctx.beginPath();
+    ctx.moveTo(xOfAge(35), chartY);
+    ctx.lineTo(xOfAge(35), chartY + chartH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = COL_EMERALD;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    fitFont('15-YR HEAD START', 12 * S, xOfAge(35) - xOfAge(20) - 8 * S, '800', 'monospace');
+    ctx.fillText('15-YR HEAD START', (xOfAge(20) + xOfAge(35)) * 0.5, chartY + 8 * S);
+
+    // Y gridlines
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) {
+      const val = (maxVal * g) / 4;
+      const gy = yOfVal(val);
+      ctx.beginPath();
+      ctx.moveTo(chartX, gy);
+      ctx.lineTo(chartX + chartW, gy);
+      ctx.stroke();
+      ctx.fillStyle = COL_MUTED;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.font = `700 ${Math.round(12 * S)}px monospace`;
+      ctx.fillText(fmtMoney(val), chartX - 14 * S, gy);
+    }
+
+    // X axis age ticks
+    for (const age of [20, 30, 35, 45, 55, 65]) {
+      const gx = xOfAge(age);
+      ctx.fillStyle = age === 35 ? COL_GOLD : COL_MUTED;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.font = `700 ${Math.round(12 * S)}px monospace`;
+      ctx.fillText(`AGE ${age}`, gx, chartY + chartH + 6 * S);
+    }
+
+    // Curve A: Early ($100/mo at Age 20, 10% -> $1.05M)
+    const steps = 90;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const age = lerp(20, curAge, i / steps);
+      const val = fvMonthly(100, 0.10, age - 20);
+      const px = xOfAge(age);
+      const py = yOfVal(val);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = COL_EMERALD;
+    ctx.lineWidth = Math.max(2.5, 4.5 * S);
+    ctx.shadowColor = COL_EMERALD;
+    ctx.shadowBlur = 14 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Curve B: Late ($500/mo at Age 35, 10% -> $1.13M)
+    if (curAge >= 35) {
+      ctx.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const age = lerp(35, curAge, i / steps);
+        const val = fvMonthly(500, 0.10, age - 35);
+        const px = xOfAge(age);
+        const py = yOfVal(val);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = COL_GOLD;
+      ctx.lineWidth = Math.max(2.5, 4.2 * S);
+      ctx.shadowColor = COL_GOLD;
+      ctx.shadowBlur = 12 * S;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Live glowing heads
+    const valA = fvMonthly(100, 0.10, curAge - 20);
+    const valB = curAge > 35 ? fvMonthly(500, 0.10, curAge - 35) : 0;
+    const headX = xOfAge(curAge);
+    const headYA = yOfVal(valA);
+    const headYB = yOfVal(valB);
+
+    for (const [hx, hy, col] of [
+      [headX, headYA, COL_EMERALD],
+      [headX, headYB, COL_GOLD],
+    ]) {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(hx, hy, safeR(7.5 * S), 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1.5, 2.2 * S);
+      ctx.stroke();
+    }
+
+    // Bottom Comparison Strip (Cash Put In vs Final Balance)
+    const botY = ry + rh - 72 * S;
+    const cardW = (rw - 18 * S) * 0.5;
+    const cardH = 68 * S;
+
+    const pairs = [
+      {
+        x: rx,
+        col: COL_EMERALD,
+        title: 'AGE 20 · $100 / MO',
+        putIn: `CASH IN: ${fmtMoney((curAge - 20) * 1200)}`,
+        val: fmtMoney(valA),
+      },
+      {
+        x: rx + cardW + 18 * S,
+        col: COL_GOLD,
+        title: 'AGE 35 · $500 / MO (5x)',
+        putIn: `CASH IN: ${fmtMoney(Math.max(0, curAge - 35) * 6000)}`,
+        val: fmtMoney(valB),
+      },
+    ];
+
+    for (const p of pairs) {
+      drawGlassPanel(p.x, botY, cardW, cardH, 12 * S, p.col, 'rgba(6, 20, 15, 0.88)');
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = p.col;
+      fitFont(p.title, 15 * S, cardW * 0.62, '900');
+      ctx.fillText(p.title, p.x + 14 * S, botY + 22 * S);
+
+      ctx.fillStyle = COL_MUTED;
+      fitFont(p.putIn, 13 * S, cardW * 0.62, '700', 'monospace');
+      ctx.fillText(p.putIn, p.x + 14 * S, botY + 46 * S);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ffffff';
+      fitFont(p.val, 26 * S, cardW * 0.36, '900', 'monospace');
+      ctx.fillText(p.val, p.x + cardW - 14 * S, botY + 34 * S);
+    }
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 1 — PHASE 2: rule-of-72-grid (72 ÷ RATE = YEARS: 1% vs 4% vs 9%)
+  // =========================================================================
+  function drawRuleOf72Grid(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'THE RULE OF 72 DOUBLING ENGINE', '40-YR HORIZON', COL_GOLD, S);
+
+    // Hero Formula Banner
+    const fY = ry + 44 * S;
+    const fH = 62 * S;
+    drawGlassPanel(rx, fY, rw, fH, 14 * S, COL_GOLD, 'rgba(245, 158, 11, 0.10)');
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fef3c7';
+    fitFont('72  ÷  ANNUAL RATE  =  YEARS TO DOUBLE', 26 * S, rw - 36 * S, '900', 'monospace');
+    ctx.fillText('72  ÷  ANNUAL RATE  =  YEARS TO DOUBLE', rx + rw * 0.5, fY + fH * 0.5);
+    ctx.restore();
+
+    // 3 Doubling Chambers: 1% vs 4% vs 9%
+    const cols = [
+      { rate: 1, yrs: 72, label: '1% SAVINGS', col: '#94a3b8', bg: 'rgba(148, 163, 184, 0.08)', note: '0.5 DOUBLES / 40Y' },
+      { rate: 4, yrs: 18, label: '4% HYSA / BONDS', col: COL_CYAN, bg: 'rgba(56, 189, 248, 0.09)', note: '2.2 DOUBLES / 40Y' },
+      { rate: 9, yrs: 8, label: '9% INDEX FUND', col: COL_EMERALD, bg: 'rgba(16, 185, 129, 0.12)', note: '5.0 DOUBLES / 40Y' },
+    ];
+
+    const gridY = fY + fH + 16 * S;
+    const gridH = rh - (gridY - ry) - 10 * S;
+    const gap = 16 * S;
+    const cw = (rw - gap * 2) / 3;
+    const simYear = clamp(((localT % 10) / 8) * 40, 1, 40);
+
+    for (let i = 0; i < 3; i++) {
+      const c = cols[i];
+      const cx = rx + i * (cw + gap);
+      drawGlassPanel(cx, gridY, cw, gridH, 16 * S, c.col, c.bg);
+
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Rate title
+      ctx.fillStyle = c.col;
+      fitFont(c.label, 18 * S, cw - 20 * S, '900');
+      ctx.fillText(c.label, cx + cw * 0.5, gridY + 26 * S);
+
+      // Equation
+      ctx.fillStyle = '#ffffff';
+      fitFont(`72 ÷ ${c.rate}% = ${c.yrs} YRS`, 15 * S, cw - 20 * S, '800', 'monospace');
+      ctx.fillText(`72 ÷ ${c.rate}% = ${c.yrs} YRS`, cx + cw * 0.5, gridY + 54 * S);
+
+      // Concentric Doubling Shockwaves
+      const orbX = cx + cw * 0.5;
+      const orbY = gridY + gridH * 0.48;
+      const maxOrbR = Math.min(cw * 0.38, gridH * 0.24);
+      const doublings = simYear / c.yrs;
+      const wholeD = Math.floor(doublings);
+      const fracD = doublings - wholeD;
+
+      // Expanding shockwave rings
+      const rings = Math.max(1, wholeD + 1);
+      for (let r = 0; r < Math.min(rings, 6); r++) {
+        const ringPhase = (fracD + r * 0.22) % 1;
+        const rr = safeR(maxOrbR * (0.28 + ringPhase * 0.85));
+        ctx.strokeStyle = c.col;
+        ctx.globalAlpha = (1 - ringPhase) * (i === 2 ? 0.85 : 0.45);
+        ctx.lineWidth = Math.max(1.5, (i === 2 ? 3.5 : 2.2) * S);
+        ctx.beginPath();
+        ctx.arc(orbX, orbY, rr, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      // Glowing core circle
+      const coreR = safeR(maxOrbR * (0.36 + 0.08 * Math.sin(t * (2 + i * 2.5))));
+      const cg = ctx.createRadialGradient(orbX, orbY, 2, orbX, orbY, coreR);
+      cg.addColorStop(0, '#ffffff');
+      cg.addColorStop(0.45, c.col);
+      cg.addColorStop(1, 'rgba(3, 10, 8, 0.2)');
+      ctx.fillStyle = cg;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, coreR, 0, TAU);
+      ctx.fill();
+
+      // Multiplier inside core
+      const mult = Math.pow(1 + c.rate / 100, simYear);
+      ctx.fillStyle = '#030a08';
+      fitFont(`${mult.toFixed(1)}x`, 22 * S, coreR * 1.7, '900', 'monospace');
+      ctx.fillText(`${mult.toFixed(1)}x`, orbX, orbY);
+
+      // Live $10K growth readout
+      const val = 10000 * mult;
+      ctx.fillStyle = '#ffffff';
+      fitFont(fmtMoney(val), 28 * S, cw - 20 * S, '900', 'monospace');
+      ctx.fillText(fmtMoney(val), cx + cw * 0.5, gridY + gridH - 64 * S);
+
+      ctx.fillStyle = COL_MUTED;
+      fitFont(`$10K AT YR ${Math.round(simYear)}`, 12 * S, cw - 16 * S, '700', 'monospace');
+      ctx.fillText(`$10K AT YR ${Math.round(simYear)}`, cx + cw * 0.5, gridY + gridH - 38 * S);
+
+      ctx.fillStyle = c.col;
+      fitFont(c.note, 12 * S, cw - 16 * S, '800', 'monospace');
+      ctx.fillText(c.note, cx + cw * 0.5, gridY + gridH - 18 * S);
+      ctx.restore();
+    }
+  }
+
+  // =========================================================================
+  // ACT 1 — PHASE 3: exponential-knee (Age 50 vertical inflection knee)
+  // =========================================================================
+  function drawExponentialKnee(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'THE EXPONENTIAL INFLECTION KNEE', '$500/MO @ 9%', COL_EMERALD, S);
+
+    const chartX = rx + 68 * S;
+    const chartY = ry + 48 * S;
+    const chartW = rw - 86 * S;
+    const chartH = rh - 108 * S;
+    drawGlassPanel(chartX - 12 * S, chartY - 8 * S, chartW + 24 * S, chartH + 28 * S, 16 * S);
+
+    const maxVal = 2500000;
+    const prog = easeOutCubic(clamp((localT % 10) / 6.8, 0.12, 1));
+    const curAge = lerp(25, 65, prog);
+    const xOf = (age) => chartX + ((age - 25) / 40) * chartW;
+    const yOf = (val) => chartY + chartH - clamp(val / maxVal, 0, 1) * (chartH - 22 * S);
+
+    ctx.save();
+    // Grid
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = 1;
+    for (let g = 0; g <= 5; g++) {
+      const v = (maxVal * g) / 5;
+      const gy = yOf(v);
+      ctx.beginPath();
+      ctx.moveTo(chartX, gy);
+      ctx.lineTo(chartX + chartW, gy);
+      ctx.stroke();
+      ctx.fillStyle = COL_MUTED;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.font = `700 ${Math.round(12 * S)}px monospace`;
+      ctx.fillText(fmtMoney(v), chartX - 16 * S, gy);
+    }
+
+    const steps = 80;
+    // Compound Growth Area Fill (Emerald -> Gold gradient)
+    const areaG = ctx.createLinearGradient(chartX, chartY, chartX, chartY + chartH);
+    areaG.addColorStop(0, 'rgba(245, 158, 11, 0.55)');
+    areaG.addColorStop(0.45, 'rgba(16, 185, 129, 0.42)');
+    areaG.addColorStop(1, 'rgba(16, 185, 129, 0.05)');
+
+    ctx.beginPath();
+    ctx.moveTo(xOf(25), chartY + chartH);
+    for (let i = 0; i <= steps; i++) {
+      const age = lerp(25, curAge, i / steps);
+      const tot = fvMonthly(500, 0.09, age - 25);
+      ctx.lineTo(xOf(age), yOf(tot));
+    }
+    ctx.lineTo(xOf(curAge), chartY + chartH);
+    ctx.closePath();
+    ctx.fillStyle = areaG;
+    ctx.fill();
+
+    // Principal Contributions Fill (Cyan linear wedge)
+    ctx.beginPath();
+    ctx.moveTo(xOf(25), chartY + chartH);
+    for (let i = 0; i <= steps; i++) {
+      const age = lerp(25, curAge, i / steps);
+      const prin = (age - 25) * 6000;
+      ctx.lineTo(xOf(age), yOf(prin));
+    }
+    ctx.lineTo(xOf(curAge), chartY + chartH);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.32)';
+    ctx.fill();
+
+    // Main Total Wealth Stroke
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const age = lerp(25, curAge, i / steps);
+      const tot = fvMonthly(500, 0.09, age - 25);
+      if (i === 0) ctx.moveTo(xOf(age), yOf(tot));
+      else ctx.lineTo(xOf(age), yOf(tot));
+    }
+    ctx.strokeStyle = COL_EMERALD;
+    ctx.lineWidth = Math.max(2.5, 4.5 * S);
+    ctx.shadowColor = COL_EMERALD;
+    ctx.shadowBlur = 14 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Age 50 Vertical Knee Marker
+    const kneeX = xOf(50);
+    const kneeVal = fvMonthly(500, 0.09, 25);
+    const kneeY = yOf(kneeVal);
+
+    ctx.strokeStyle = COL_GOLD;
+    ctx.lineWidth = Math.max(1.5, 2.2 * S);
+    ctx.setLineDash([7 * S, 5 * S]);
+    ctx.beginPath();
+    ctx.moveTo(kneeX, chartY);
+    ctx.lineTo(kneeX, chartY + chartH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Pulsing Golden Knee Reticle
+    const pulseR = safeR((12 + Math.sin(t * 6) * 4) * S);
+    ctx.strokeStyle = COL_GOLD;
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    ctx.beginPath();
+    ctx.arc(kneeX, kneeY, pulseR, 0, TAU);
+    ctx.stroke();
+    ctx.fillStyle = COL_GOLD;
+    ctx.beginPath();
+    ctx.arc(kneeX, kneeY, safeR(5.5 * S), 0, TAU);
+    ctx.fill();
+
+    // Callout Box at Knee
+    const callW = 240 * S;
+    const callH = 54 * S;
+    const callX = clamp(kneeX - callW * 0.85, chartX + 8 * S, chartX + chartW - callW - 8 * S);
+    const callY = chartY + 18 * S;
+    drawGlassPanel(callX, callY, callW, callH, 10 * S, COL_GOLD, 'rgba(30, 20, 4, 0.90)');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL_GOLD;
+    fitFont('AGE 50: THE VERTICAL KNEE', 14 * S, callW - 16 * S, '900');
+    ctx.fillText('AGE 50: THE VERTICAL KNEE', callX + callW * 0.5, callY + 19 * S);
+    ctx.fillStyle = '#fef3c7';
+    fitFont('90% OF FINAL WEALTH IS PURE MATH', 11.5 * S, callW - 16 * S, '700', 'monospace');
+    ctx.fillText('90% OF FINAL WEALTH IS PURE MATH', callX + callW * 0.5, callY + 38 * S);
+
+    // Rising vertical-zone particles past Age 50
+    if (curAge > 50) {
+      for (let i = 0; i < 14; i++) {
+        const pAge = 50 + hash(i * 13.7) * (curAge - 50);
+        const px = xOf(pAge);
+        const topY = yOf(fvMonthly(500, 0.09, pAge - 25));
+        const frac = (hash(i * 5.1) + t * 0.55) % 1;
+        const py = lerp(chartY + chartH - 10 * S, topY + 6 * S, frac);
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(245, 158, 11, 0.75)' : 'rgba(16, 185, 129, 0.75)';
+        ctx.beginPath();
+        ctx.arc(px, py, safeR(2.6 * S), 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    // X ticks
+    for (const age of [25, 35, 45, 50, 55, 65]) {
+      ctx.fillStyle = age === 50 ? COL_GOLD : COL_MUTED;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.font = `700 ${Math.round(12 * S)}px monospace`;
+      ctx.fillText(`AGE ${age}`, xOf(age), chartY + chartH + 6 * S);
+    }
+
+    // Legend Strip at bottom
+    const legY = ry + rh - 24 * S;
+    const totNow = fvMonthly(500, 0.09, curAge - 25);
+    const prinNow = (curAge - 25) * 6000;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL_CYAN;
+    fitFont(`■ CONTRIBUTED: ${fmtMoney(prinNow)}`, 15 * S, rw * 0.45, '800', 'monospace');
+    ctx.fillText(`■ CONTRIBUTED: ${fmtMoney(prinNow)}`, rx + 10 * S, legY);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = COL_EMERALD;
+    fitFont(`■ TOTAL WEALTH: ${fmtMoney(totNow)}`, 16 * S, rw * 0.5, '900', 'monospace');
+    ctx.fillText(`■ TOTAL WEALTH: ${fmtMoney(totNow)}`, rx + rw - 10 * S, legY);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 2 — PHASE 4: inflation-drain ($10,000 eroding at 3.8% over 20 years)
+  // =========================================================================
+  function drawInflationDrain(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'INFLATION PURCHASING POWER DRAIN', '3.8% / YR EROSION', COL_CRIMSON, S);
+
+    const prog = clamp((localT % 9.5) / 7.2, 0.02, 1);
+    const yr = prog * 20;
+    const realVal = 10000 / Math.pow(1.038, yr);
+    const pctLeft = realVal / 10000;
+    const lostPct = (1 - pctLeft) * 100;
+
+    const bodyY = ry + 48 * S;
+    const bodyH = rh - 60 * S;
+    const leftW = rw * 0.42;
+    const rightX = rx + leftW + 18 * S;
+    const rightW = rw - leftW - 18 * S;
+
+    // Left: Glass Cash Tank Leaking Crimson Inflation Droplets
+    drawGlassPanel(rx, bodyY, leftW, bodyH, 16 * S, 'rgba(239, 68, 68, 0.35)');
+    const tankW = Math.min(leftW * 0.58, 170 * S);
+    const tankH = bodyH * 0.58;
+    const tankX = rx + (leftW - tankW) * 0.5;
+    const tankY = bodyY + 46 * S;
+
+    ctx.save();
+    // Tank outer glass
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    roundRect(tankX, tankY, tankW, tankH, 14 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    // Remaining Purchasing Power Liquid
+    const liqH = Math.max(8 * S, tankH * pctLeft);
+    const liqY = tankY + tankH - liqH;
+    const liqG = ctx.createLinearGradient(0, liqY, 0, tankY + tankH);
+    liqG.addColorStop(0, COL_EMERALD);
+    liqG.addColorStop(1, '#047857');
+    ctx.save();
+    roundRect(tankX + 3 * S, tankY + 3 * S, tankW - 6 * S, tankH - 6 * S, 11 * S);
+    ctx.clip();
+    ctx.fillStyle = liqG;
+    ctx.fillRect(tankX, liqY, tankW, liqH);
+
+    // Surface ripple wave
+    ctx.strokeStyle = '#6ee7b7';
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    ctx.beginPath();
+    for (let x = 0; x <= tankW; x += 6) {
+      const wy = liqY + Math.sin(x * 0.06 + t * 5) * 3.5 * S;
+      if (x === 0) ctx.moveTo(tankX + x, wy);
+      else ctx.lineTo(tankX + x, wy);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // Dashed $10,000 Nominal Illusion Line
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
+    ctx.setLineDash([6 * S, 4 * S]);
+    ctx.lineWidth = Math.max(1.2, 2 * S);
+    ctx.beginPath();
+    ctx.moveTo(tankX - 12 * S, tankY + 8 * S);
+    ctx.lineTo(tankX + tankW + 12 * S, tankY + 8 * S);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Crimson Drain Valve & Falling Droplets
+    const valveX = tankX + tankW * 0.5;
+    const valveY = tankY + tankH;
+    ctx.fillStyle = COL_CRIMSON;
+    ctx.fillRect(valveX - 8 * S, valveY, 16 * S, 14 * S);
+    for (let d = 0; d < 6; d++) {
+      const df = (t * 1.4 + d / 6) % 1;
+      const dy = valveY + 14 * S + df * (bodyH * 0.20);
+      ctx.fillStyle = `rgba(239, 68, 68, ${1 - df * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(valveX + Math.sin(d * 2.1) * 3 * S, dy, safeR((4.2 - df * 1.5) * S), 0, TAU);
+      ctx.fill();
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    fitFont(`YEAR ${yr.toFixed(1)}`, 16 * S, leftW - 20 * S, '900', 'monospace');
+    ctx.fillText(`YEAR ${yr.toFixed(1)}`, rx + leftW * 0.5, bodyY + 24 * S);
+
+    ctx.fillStyle = COL_CRIMSON;
+    fitFont(`-${lostPct.toFixed(1)}% LOST`, 22 * S, leftW - 20 * S, '900', 'monospace');
+    ctx.fillText(`-${lostPct.toFixed(1)}% LOST`, rx + leftW * 0.5, bodyY + bodyH - 26 * S);
+
+    // Right: Nominal vs Real Value Decay Chart
+    drawGlassPanel(rightX, bodyY, rightW, bodyH, 16 * S, 'rgba(16, 185, 129, 0.25)');
+    const cX = rightX + 54 * S;
+    const cY = bodyY + 42 * S;
+    const cW = rightW - 72 * S;
+    const cH = bodyH - 134 * S;
+
+    const xOfY = (y) => cX + (y / 20) * cW;
+    const yOfV = (v) => cY + cH - clamp(v / 11000, 0, 1) * cH;
+
+    // Nominal flat line ($10,000)
+    ctx.strokeStyle = COL_GOLD;
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    ctx.setLineDash([8 * S, 6 * S]);
+    ctx.beginPath();
+    ctx.moveTo(xOfY(0), yOfV(10000));
+    ctx.lineTo(xOfY(20), yOfV(10000));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = COL_GOLD;
+    ctx.textAlign = 'left';
+    fitFont('NOMINAL: $10,000 (ILLUSION)', 13 * S, cW, '800', 'monospace');
+    ctx.fillText('NOMINAL: $10,000 (ILLUSION)', cX + 8 * S, yOfV(10000) - 14 * S);
+
+    // Crimson Real Power Decay Curve + Shaded Loss Zone
+    ctx.beginPath();
+    ctx.moveTo(xOfY(0), yOfV(10000));
+    for (let i = 0; i <= 50; i++) {
+      const yy = (yr * i) / 50;
+      const rv = 10000 / Math.pow(1.038, yy);
+      ctx.lineTo(xOfY(yy), yOfV(rv));
+    }
+    ctx.lineTo(xOfY(yr), yOfV(10000));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
+    ctx.fill();
+
+    ctx.beginPath();
+    for (let i = 0; i <= 50; i++) {
+      const yy = (yr * i) / 50;
+      const rv = 10000 / Math.pow(1.038, yy);
+      if (i === 0) ctx.moveTo(xOfY(yy), yOfV(rv));
+      else ctx.lineTo(xOfY(yy), yOfV(rv));
+    }
+    ctx.strokeStyle = COL_CRIMSON;
+    ctx.lineWidth = Math.max(2.5, 4 * S);
+    ctx.stroke();
+
+    // Live dot
+    ctx.fillStyle = COL_CRIMSON;
+    ctx.beginPath();
+    ctx.arc(xOfY(yr), yOfV(realVal), safeR(6.5 * S), 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Bottom readout inside right panel
+    const statY = bodyY + bodyH - 54 * S;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COL_MUTED;
+    fitFont('REAL PURCHASING POWER', 12 * S, rightW * 0.55, '700', 'monospace');
+    ctx.fillText('REAL PURCHASING POWER', rightX + 20 * S, statY - 10 * S);
+
+    ctx.fillStyle = '#ffffff';
+    fitFont(`$${Math.round(realVal).toLocaleString()}`, 30 * S, rightW * 0.55, '900', 'monospace');
+    ctx.fillText(`$${Math.round(realVal).toLocaleString()}`, rightX + 20 * S, statY + 18 * S);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = COL_EMERALD;
+    fitFont('VS 9% INDEX: $56,044', 15 * S, rightW * 0.44, '900', 'monospace');
+    ctx.fillText('VS 9% INDEX: $56,044', rightX + rightW - 20 * S, statY + 10 * S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 2 — PHASE 5: credit-card-vortex ($5K @ 24% APR: 16.2 yrs vs 3.3 yrs)
+  // =========================================================================
+  function drawCreditCardVortex(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, '$5,000 AT 24% APR: THE DEBT VORTEX', 'MINIMUM VS FIXED', COL_CRIMSON, S);
+
+    const bodyY = ry + 48 * S;
+    const bodyH = rh - 58 * S;
+    const halfW = (rw - 18 * S) * 0.5;
+
+    // LEFT: Crimson Minimum-Payment Refill Vortex
+    drawGlassPanel(rx, bodyY, halfW, bodyH, 16 * S, COL_CRIMSON, 'rgba(40, 8, 12, 0.72)');
+    const vx = rx + halfW * 0.5;
+    const vy = bodyY + bodyH * 0.44;
+    const vR = Math.min(halfW * 0.36, bodyH * 0.26);
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL_CRIMSON;
+    fitFont('MINIMUM PAYMENT TRAP', 18 * S, halfW - 24 * S, '900');
+    ctx.fillText('MINIMUM PAYMENT TRAP', vx, bodyY + 26 * S);
+
+    // Spinning crimson spiral arms
+    for (let arm = 0; arm < 4; arm++) {
+      ctx.beginPath();
+      for (let k = 0; k <= 40; k++) {
+        const f = k / 40;
+        const a = t * 2.4 + arm * (TAU / 4) + f * 3.8;
+        const rr = vR * (1 - f * 0.78);
+        const px = vx + Math.cos(a) * rr;
+        const py = vy + Math.sin(a) * rr;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = arm % 2 === 0 ? 'rgba(239, 68, 68, 0.85)' : 'rgba(245, 158, 11, 0.55)';
+      ctx.lineWidth = Math.max(1.8, 3.2 * S);
+      ctx.stroke();
+    }
+
+    // Center debt core
+    ctx.fillStyle = '#450a0a';
+    ctx.strokeStyle = COL_CRIMSON;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    ctx.arc(vx, vy, safeR(vR * 0.44), 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    fitFont('24% APR', 22 * S, vR * 0.8, '900', 'monospace');
+    ctx.fillText('24% APR', vx, vy - 6 * S);
+    ctx.fillStyle = '#fca5a5';
+    fitFont('REFILLS MONTHLY', 10 * S, vR * 0.8, '700', 'monospace');
+    ctx.fillText('REFILLS MONTHLY', vx, vy + 14 * S);
+
+    // Stats at bottom of left panel
+    ctx.fillStyle = '#ffffff';
+    fitFont('16.2 YEARS', 30 * S, halfW - 24 * S, '900', 'monospace');
+    ctx.fillText('16.2 YEARS', vx, bodyY + bodyH - 72 * S);
+    ctx.fillStyle = '#fca5a5';
+    fitFont('TOTAL PAID: $13,400 (+$8,400 INTEREST)', 13 * S, halfW - 24 * S, '800', 'monospace');
+    ctx.fillText('TOTAL PAID: $13,400 (+$8,400 INTEREST)', vx, bodyY + bodyH - 36 * S);
+
+    // RIGHT: Emerald Escape Velocity ($200/mo fixed -> 3.3 yrs)
+    const rx2 = rx + halfW + 18 * S;
+    drawGlassPanel(rx2, bodyY, halfW, bodyH, 16 * S, COL_EMERALD, 'rgba(6, 26, 18, 0.78)');
+    const ex = rx2 + halfW * 0.5;
+    ctx.fillStyle = COL_EMERALD;
+    fitFont('$200 / MO FIXED ESCAPE', 18 * S, halfW - 24 * S, '900');
+    ctx.fillText('$200 / MO FIXED ESCAPE', ex, bodyY + 26 * S);
+
+    // Clean payoff countdown curve
+    const gx = rx2 + 34 * S;
+    const gy = bodyY + 62 * S;
+    const gw = halfW - 68 * S;
+    const gh = bodyH * 0.44;
+    const payProg = clamp((localT % 8) / 5.5, 0.08, 1);
+
+    // Baseline axes
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx, gy + gh);
+    ctx.lineTo(gx + gw, gy + gh);
+    ctx.stroke();
+
+    // Minimum payment slow shadow curve (barely drops in 3.3 yrs)
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+    ctx.setLineDash([6 * S, 5 * S]);
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    ctx.beginPath();
+    ctx.moveTo(gx, gy + 10 * S);
+    ctx.lineTo(gx + gw, gy + gh * 0.34);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Fixed $200/mo emerald payoff curve plunging to $0
+    ctx.beginPath();
+    for (let i = 0; i <= 40; i++) {
+      const f = (payProg * i) / 40;
+      const bal = Math.max(0, 5000 * (1 - Math.pow(f, 1.35)));
+      const px = gx + f * gw;
+      const py = gy + gh - (bal / 5000) * (gh - 10 * S);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = COL_EMERALD;
+    ctx.lineWidth = Math.max(2.5, 4.5 * S);
+    ctx.shadowColor = COL_EMERALD;
+    ctx.shadowBlur = 12 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Debt-Free Badge
+    if (payProg > 0.85) {
+      ctx.fillStyle = COL_EMERALD;
+      ctx.beginPath();
+      ctx.arc(gx + gw, gy + gh, safeR(7 * S), 0, TAU);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = '#ffffff';
+    fitFont('3.3 YEARS', 30 * S, halfW - 24 * S, '900', 'monospace');
+    ctx.fillText('3.3 YEARS', ex, bodyY + bodyH - 72 * S);
+    ctx.fillStyle = '#6ee7b7';
+    fitFont('SAVES 12.9 YEARS & $6,660 CASH', 13 * S, halfW - 24 * S, '800', 'monospace');
+    ctx.fillText('SAVES 12.9 YEARS & $6,660 CASH', ex, bodyY + bodyH - 36 * S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 2 — PHASE 6: tax-buckets-truth (Marginal tax bracket water-buckets)
+  // =========================================================================
+  function drawTaxBucketsTruth(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'MARGINAL TAX BUCKETS — MYTH BUSTED', 'EFFECTIVE: 15.8%', COL_CYAN, S);
+
+    const bodyY = ry + 48 * S;
+    const bodyH = rh - 118 * S;
+    drawGlassPanel(rx, bodyY, rw, bodyH, 16 * S, 'rgba(56, 189, 248, 0.28)');
+
+    const buckets = [
+      { rate: '10%', range: '$0–$11.6K', col: COL_CYAN, cap: 0.25 },
+      { rate: '12%', range: '$11.6K–$47K', col: COL_EMERALD, cap: 0.50 },
+      { rate: '22%', range: '$47K–$100K', col: COL_GOLD, cap: 0.78 },
+      { rate: '24%', range: '$100K+ ONLY', col: COL_CRIMSON, cap: 1.0 },
+    ];
+
+    const fillTotal = clamp((localT % 9) / 6.2, 0.08, 0.88);
+    const padX = 28 * S;
+    const gap = 22 * S;
+    const bw = (rw - padX * 2 - gap * 3) / 4;
+    const bh = bodyH * 0.56;
+    const baseTop = bodyY + bodyH * 0.24;
+
+    ctx.save();
+    for (let i = 0; i < 4; i++) {
+      const b = buckets[i];
+      const prevCap = i === 0 ? 0 : buckets[i - 1].cap;
+      const localFill = clamp((fillTotal - prevCap) / Math.max(0.01, b.cap - prevCap), 0, 1);
+      const bx = rx + padX + i * (bw + gap);
+      const by = baseTop + i * 10 * S;
+
+      // Waterfall overflow stream from previous bucket
+      if (i > 0 && localFill > 0.01) {
+        const prevX = rx + padX + (i - 1) * (bw + gap) + bw;
+        const prevY = baseTop + (i - 1) * 10 * S + 16 * S;
+        ctx.strokeStyle = b.col;
+        ctx.lineWidth = Math.max(3, 6 * S);
+        ctx.beginPath();
+        ctx.moveTo(prevX, prevY);
+        ctx.quadraticCurveTo(prevX + gap * 0.55, prevY - 6 * S, bx + 10 * S, by + bh * (1 - localFill * 0.85));
+        ctx.stroke();
+      }
+
+      // Bucket container
+      ctx.fillStyle = 'rgba(10, 22, 18, 0.85)';
+      ctx.strokeStyle = b.col;
+      ctx.lineWidth = Math.max(1.5, 2.4 * S);
+      roundRect(bx, by, bw, bh, 12 * S);
+      ctx.fill();
+      ctx.stroke();
+
+      // Liquid inside bucket
+      if (localFill > 0.01) {
+        const lh = bh * localFill;
+        ctx.save();
+        roundRect(bx + 2 * S, by + 2 * S, bw - 4 * S, bh - 4 * S, 10 * S);
+        ctx.clip();
+        ctx.fillStyle = b.col;
+        ctx.globalAlpha = 0.52;
+        ctx.fillRect(bx, by + bh - lh, bw, lh);
+        ctx.globalAlpha = 1;
+        // Surface highlight
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = 0.45;
+        ctx.fillRect(bx, by + bh - lh, bw, 3 * S);
+        ctx.restore();
+      }
+
+      // Labels
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffffff';
+      fitFont(b.rate, 28 * S, bw - 12 * S, '900', 'monospace');
+      ctx.fillText(b.rate, bx + bw * 0.5, by + bh * 0.46);
+
+      ctx.fillStyle = b.col;
+      fitFont(b.range, 12 * S, bw - 8 * S, '800', 'monospace');
+      ctx.fillText(b.range, bx + bw * 0.5, by - 16 * S);
+    }
+
+    // Bottom Myth Busted Banner
+    const banY = ry + rh - 56 * S;
+    drawGlassPanel(rx, banY, rw, 50 * S, 12 * S, COL_EMERALD, 'rgba(16, 185, 129, 0.14)');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ecfdf5';
+    fitFont('A $110K SALARY DOES NOT PAY 24% ON ALL INCOME — ONLY THE TOP $9.5K OVERFLOW!', 16 * S, rw - 28 * S, '900');
+    ctx.fillText('A $110K SALARY DOES NOT PAY 24% ON ALL INCOME — ONLY THE TOP $9.5K OVERFLOW!', rx + rw * 0.5, banY + 25 * S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 3 — PHASE 7: paycheck-split-50-30-20 ($5,000/mo glass conduits)
+  // =========================================================================
+  function drawPaycheckSplit(rx, ry, rw, rh, t) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'AUTOMATED 50 / 30 / 20 CASHFLOW ENGINE', '$5,000 / MO NET', COL_EMERALD, S);
+
+    const srcW = Math.min(rw * 0.46, 360 * S);
+    const srcH = 62 * S;
+    const srcX = rx + (rw - srcW) * 0.5;
+    const srcY = ry + 48 * S;
+
+    drawGlassPanel(srcX, srcY, srcW, srcH, 14 * S, COL_GOLD, 'rgba(245, 158, 11, 0.14)');
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL_GOLD;
+    fitFont('$5,000 / MO PAYCHECK', 22 * S, srcW - 24 * S, '900', 'monospace');
+    ctx.fillText('$5,000 / MO PAYCHECK', srcX + srcW * 0.5, srcY + srcH * 0.5);
+
+    const tanks = [
+      { pct: 0.50, title: '50% NEEDS', amt: '$2,500', sub: 'HOUSING · FOOD · BILLS', col: COL_CYAN },
+      { pct: 0.30, title: '30% WANTS', amt: '$1,500', sub: 'LIFESTYLE · TRAVEL', col: COL_GOLD },
+      { pct: 0.20, title: '20% INVEST', amt: '$1,000', sub: '→ $1.83M IN 30 YRS', col: COL_EMERALD },
+    ];
+
+    const gap = 20 * S;
+    const tw = (rw - gap * 2) / 3;
+    const th = rh * 0.48;
+    const ty = ry + rh - th - 12 * S;
+    const startX = srcX + srcW * 0.5;
+    const startY = srcY + srcH;
+
+    for (let i = 0; i < 3; i++) {
+      const tk = tanks[i];
+      const tx = rx + i * (tw + gap);
+      const tcx = tx + tw * 0.5;
+
+      // Curved glass conduit from paycheck manifold to tank
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+      ctx.lineWidth = Math.max(6, 12 * S);
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.bezierCurveTo(startX, startY + 60 * S, tcx, ty - 60 * S, tcx, ty);
+      ctx.stroke();
+
+      ctx.strokeStyle = tk.col;
+      ctx.globalAlpha = 0.42;
+      ctx.lineWidth = Math.max(3, 6 * S);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Animated deterministic flow pulses along the bezier
+      for (let p = 0; p < 5; p++) {
+        const u = (t * 0.65 + p / 5 + i * 0.17) % 1;
+        const inv = 1 - u;
+        const p0x = startX, p0y = startY;
+        const p1x = startX, p1y = startY + 60 * S;
+        const p2x = tcx, p2y = ty - 60 * S;
+        const p3x = tcx, p3y = ty;
+        const bx = inv * inv * inv * p0x + 3 * inv * inv * u * p1x + 3 * inv * u * u * p2x + u * u * u * p3x;
+        const by = inv * inv * inv * p0y + 3 * inv * inv * u * p1y + 3 * inv * u * u * p2y + u * u * u * p3y;
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = tk.col;
+        ctx.shadowBlur = 10 * S;
+        ctx.beginPath();
+        ctx.arc(bx, by, safeR(4.2 * S), 0, TAU);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // Tank Panel
+      drawGlassPanel(tx, ty, tw, th, 16 * S, tk.col, 'rgba(6, 20, 15, 0.84)');
+
+      // Liquid fill proportional to allocation (scaled cleanly so 20% still looks potent)
+      const visualFill = i === 0 ? 0.68 : i === 1 ? 0.50 : 0.42 + 0.06 * Math.sin(t * 4);
+      const lh = (th - 16 * S) * visualFill;
+      ctx.save();
+      roundRect(tx + 4 * S, ty + 4 * S, tw - 8 * S, th - 8 * S, 12 * S);
+      ctx.clip();
+      ctx.fillStyle = tk.col;
+      ctx.globalAlpha = 0.28;
+      ctx.fillRect(tx, ty + th - lh, tw, lh);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = tk.col;
+      fitFont(tk.title, 18 * S, tw - 20 * S, '900');
+      ctx.fillText(tk.title, tcx, ty + 30 * S);
+
+      ctx.fillStyle = '#ffffff';
+      fitFont(tk.amt, 32 * S, tw - 20 * S, '900', 'monospace');
+      ctx.fillText(tk.amt, tcx, ty + th * 0.52);
+
+      ctx.fillStyle = i === 2 ? '#6ee7b7' : COL_MUTED;
+      fitFont(tk.sub, 12.5 * S, tw - 18 * S, '800', 'monospace');
+      ctx.fillText(tk.sub, tcx, ty + th - 26 * S);
+    }
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 3 — PHASE 8: rent-vs-buy-crossover ($400K mortgage vs Rent+Invest)
+  // =========================================================================
+  function drawRentVsBuyCrossover(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, '$400K MORTGAGE VS RENT + INVEST', 'YEAR 8.9 CROSSOVER', COL_GOLD, S);
+
+    const chartX = rx + 64 * S;
+    const chartY = ry + 48 * S;
+    const chartW = rw - 82 * S;
+    const chartH = rh - 144 * S;
+    drawGlassPanel(chartX - 12 * S, chartY - 8 * S, chartW + 24 * S, chartH + 28 * S, 16 * S);
+
+    const prog = easeOutCubic(clamp((localT % 10) / 7.0, 0.1, 1));
+    const curYr = prog * 15;
+    const maxW = 550000;
+    const xOf = (yr) => chartX + (yr / 15) * chartW;
+    const yOf = (v) => chartY + chartH - clamp(v / maxW, 0, 1) * (chartH - 20 * S);
+
+    // Net Worth Curves calibrated to cross cleanly at Year 8.9 (~$268K)
+    const rentInvestNW = (yr) => 80000 * Math.pow(1.072, yr) + 12500 * yr;
+    const buyHomeNW = (yr) => {
+      // Closing cost drag at yr 0, then appreciation + principal paydown accelerating past yr 8.9
+      const raw = 54000 + 18000 * yr + 685 * yr * yr;
+      return Math.max(30000, raw);
+    };
+
+    ctx.save();
+    // Grid
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) {
+      const v = (maxW * g) / 4;
+      const gy = yOf(v);
+      ctx.beginPath();
+      ctx.moveTo(chartX, gy);
+      ctx.lineTo(chartX + chartW, gy);
+      ctx.stroke();
+      ctx.fillStyle = COL_MUTED;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.font = `700 ${Math.round(12 * S)}px monospace`;
+      ctx.fillText(fmtMoney(v), chartX - 16 * S, gy);
+    }
+
+    // Rent + Invest Curve (Cyan)
+    ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const yr = (curYr * i) / 60;
+      const px = xOf(yr), py = yOf(rentInvestNW(yr));
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = COL_CYAN;
+    ctx.lineWidth = Math.max(2.5, 4 * S);
+    ctx.stroke();
+
+    // Buy $400K Home Curve (Emerald)
+    ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const yr = (curYr * i) / 60;
+      const px = xOf(yr), py = yOf(buyHomeNW(yr));
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = COL_EMERALD;
+    ctx.lineWidth = Math.max(2.5, 4 * S);
+    ctx.stroke();
+
+    // Year 8.9 Crossover Beacon
+    const cx = xOf(8.9);
+    const cy = yOf(buyHomeNW(8.9));
+    ctx.strokeStyle = COL_GOLD;
+    ctx.setLineDash([6 * S, 5 * S]);
+    ctx.lineWidth = Math.max(1.5, 2 * S);
+    ctx.beginPath();
+    ctx.moveTo(cx, chartY);
+    ctx.lineTo(cx, chartY + chartH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const pr = safeR((11 + Math.sin(t * 6) * 4) * S);
+    ctx.strokeStyle = COL_GOLD;
+    ctx.lineWidth = 2.5 * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pr, 0, TAU);
+    ctx.stroke();
+    ctx.fillStyle = COL_GOLD;
+    ctx.beginPath();
+    ctx.arc(cx, cy, safeR(5.5 * S), 0, TAU);
+    ctx.fill();
+
+    // Crossover Label
+    const lblW = 210 * S;
+    const lblH = 38 * S;
+    drawGlassPanel(cx - lblW * 0.5, chartY + 10 * S, lblW, lblH, 10 * S, COL_GOLD, 'rgba(30, 20, 4, 0.92)');
+    ctx.fillStyle = COL_GOLD;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont('YEAR 8.9 BREAK-EVEN', 14 * S, lblW - 16 * S, '900', 'monospace');
+    ctx.fillText('YEAR 8.9 BREAK-EVEN', cx, chartY + 29 * S);
+
+    // X ticks
+    for (const yr of [0, 3, 6, 9, 12, 15]) {
+      ctx.fillStyle = yr === 9 ? COL_GOLD : COL_MUTED;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.font = `700 ${Math.round(12 * S)}px monospace`;
+      ctx.fillText(`YR ${yr}`, xOf(yr), chartY + chartH + 6 * S);
+    }
+
+    // Bottom Hidden Costs Pill Strip
+    const botY = ry + rh - 64 * S;
+    drawGlassPanel(rx, botY, rw, 56 * S, 12 * S, 'rgba(239, 68, 68, 0.45)', 'rgba(35, 10, 12, 0.72)');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fca5a5';
+    fitFont('HIDDEN MORTGAGE DRAG: 6% CLOSING · 1.2% PROPERTY TAX · 1% MAINTENANCE · FRONT-LOADED INTEREST', 14 * S, rw - 28 * S, '800', 'monospace');
+    ctx.fillText('HIDDEN MORTGAGE DRAG: 6% CLOSING · 1.2% PROPERTY TAX · 1% MAINTENANCE · FRONT-LOADED INTEREST', rx + rw * 0.5, botY + 28 * S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 3 — PHASE 9: panic-sell-mistake (2000/2008/2020 crashes)
+  // =========================================================================
+  function drawPanicSellMistake(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'S&P 500 30-YEAR CRASHES VS PANIC SELLING', '1995 – 2025', COL_CRIMSON, S);
+
+    const chartX = rx + 64 * S;
+    const chartY = ry + 48 * S;
+    const chartW = rw - 82 * S;
+    const chartH = rh - 144 * S;
+    drawGlassPanel(chartX - 12 * S, chartY - 8 * S, chartW + 24 * S, chartH + 28 * S, 16 * S);
+
+    const prog = easeOutCubic(clamp((localT % 10.5) / 7.5, 0.12, 1));
+    const maxIdx = 30;
+    const curYr = prog * maxIdx; // 0 = 1995, 30 = 2025
+
+    // Deterministic synthetic S&P 500 wealth index with authentic 2000, 2008, 2020 drawdowns
+    const stayVal = (yr) => {
+      const base = 100000 * Math.pow(1.095, yr);
+      const c2000 = 1 - 0.42 * Math.exp(-Math.pow((yr - 6.5) / 1.7, 2));
+      const c2008 = 1 - 0.52 * Math.exp(-Math.pow((yr - 13.5) / 1.4, 2));
+      const c2020 = 1 - 0.30 * Math.exp(-Math.pow((yr - 25.2) / 0.65, 2));
+      return base * c2000 * c2008 * c2020;
+    };
+    const panicVal = (yr) => {
+      if (yr <= 13.5) return stayVal(yr);
+      // Sold at bottom of 2008 crash, parked in cash at 1.5%
+      const bottom = stayVal(13.5);
+      return bottom * Math.pow(1.015, yr - 13.5);
+    };
+
+    const maxV = 1600000;
+    const xOf = (yr) => chartX + (yr / maxIdx) * chartW;
+    const yOf = (v) => chartY + chartH - clamp(v / maxV, 0, 1) * (chartH - 20 * S);
+
+    ctx.save();
+    // 3 Crash Danger Bands (2000, 2008, 2020)
+    const crashes = [
+      { yr: 6.5, w: 2.2, label: '2000 -49%' },
+      { yr: 13.5, w: 2.0, label: '2008 -57%' },
+      { yr: 25.2, w: 1.4, label: '2020 -34%' },
+    ];
+    for (const c of crashes) {
+      const bx = xOf(c.yr - c.w * 0.5);
+      const bw = xOf(c.yr + c.w * 0.5) - bx;
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.14)';
+      ctx.fillRect(bx, chartY, bw, chartH);
+      ctx.fillStyle = '#fca5a5';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      fitFont(c.label, 11 * S, 86 * S, '800', 'monospace');
+      ctx.fillText(c.label, xOf(c.yr), chartY + 8 * S);
+    }
+
+    // Gridlines
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) {
+      const v = (maxV * g) / 4;
+      const gy = yOf(v);
+      ctx.beginPath();
+      ctx.moveTo(chartX, gy);
+      ctx.lineTo(chartX + chartW, gy);
+      ctx.stroke();
+      ctx.fillStyle = COL_MUTED;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.font = `700 ${Math.round(12 * S)}px monospace`;
+      ctx.fillText(fmtMoney(v), chartX - 16 * S, gy);
+    }
+
+    // Stay Invested Curve (Emerald)
+    ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const yr = (curYr * i) / 120;
+      const px = xOf(yr), py = yOf(stayVal(yr));
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = COL_EMERALD;
+    ctx.lineWidth = Math.max(2.5, 4.2 * S);
+    ctx.shadowColor = COL_EMERALD;
+    ctx.shadowBlur = 12 * S;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Panic Seller Curve (Crimson Flatline after 2008)
+    ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const yr = (curYr * i) / 120;
+      const px = xOf(yr), py = yOf(panicVal(yr));
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = COL_CRIMSON;
+    ctx.lineWidth = Math.max(2.2, 3.6 * S);
+    ctx.stroke();
+
+    // Panic sell marker at 2008 bottom
+    if (curYr >= 13.5) {
+      const px = xOf(13.5), py = yOf(panicVal(13.5));
+      ctx.fillStyle = COL_CRIMSON;
+      ctx.beginPath();
+      ctx.arc(px, py, safeR(7 * S), 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Bottom Comparison Cards
+    const botY = ry + rh - 68 * S;
+    const cw = (rw - 18 * S) * 0.5;
+    drawGlassPanel(rx, botY, cw, 60 * S, 12 * S, COL_EMERALD, 'rgba(6, 26, 18, 0.88)');
+    drawGlassPanel(rx + cw + 18 * S, botY, cw, 60 * S, 12 * S, COL_CRIMSON, 'rgba(40, 8, 12, 0.85)');
+
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COL_EMERALD;
+    fitFont('STAYED INVESTED', 15 * S, cw * 0.55, '900');
+    ctx.fillText('STAYED INVESTED', rx + 14 * S, botY + 30 * S);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffffff';
+    fitFont(fmtMoney(stayVal(curYr)), 24 * S, cw * 0.42, '900', 'monospace');
+    ctx.fillText(fmtMoney(stayVal(curYr)), rx + cw - 14 * S, botY + 30 * S);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COL_CRIMSON;
+    fitFont('PANIC SOLD (2008)', 15 * S, cw * 0.55, '900');
+    ctx.fillText('PANIC SOLD (2008)', rx + cw + 32 * S, botY + 30 * S);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#fca5a5';
+    fitFont(fmtMoney(panicVal(curYr)), 24 * S, cw * 0.42, '900', 'monospace');
+    ctx.fillText(fmtMoney(panicVal(curYr)), rx + rw - 14 * S, botY + 30 * S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 4 — PHASE 10: dividend-snowball-drip (30-yr glowing emerald DRIP)
+  // =========================================================================
+  function drawDividendSnowballDrip(rx, ry, rw, rh, t, localT) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'THE 30-YEAR DIVIDEND DRIP SNOWBALL', '$150/YR → $1,550/MO', COL_EMERALD, S);
+
+    const bodyY = ry + 48 * S;
+    const bodyH = rh - 60 * S;
+    drawGlassPanel(rx, bodyY, rw, bodyH, 16 * S, 'rgba(16, 185, 129, 0.35)');
+
+    const prog = easeOutCubic(clamp((localT % 10) / 7.2, 0.08, 1));
+    const curYr = lerp(1, 30, prog);
+
+    // Rising passive dividend bars across bottom half
+    const padX = 30 * S;
+    const barBaseY = bodyY + bodyH - 54 * S;
+    const barAreaW = rw - padX * 2;
+    const barMaxH = bodyH * 0.36;
+    const nBars = 30;
+    const bw = (barAreaW / nBars) * 0.72;
+
+    ctx.save();
+    for (let y = 1; y <= nBars; y++) {
+      const bx = rx + padX + ((y - 1) / nBars) * barAreaW;
+      const annualDiv = 150 * Math.pow(1.175, y - 1); // $150/yr -> ~$18,600/yr ($1,550/mo)
+      const active = y <= curYr;
+      const bh = clamp(annualDiv / 19000, 0.03, 1) * barMaxH;
+      ctx.fillStyle = active
+        ? (y > 22 ? COL_GOLD : COL_EMERALD)
+        : 'rgba(148, 163, 184, 0.14)';
+      roundRect(bx, barBaseY - bh, bw, bh, 3 * S);
+      ctx.fill();
+    }
+
+    // Sloped Snowball Track (upper area, cleanly below top-left dividend counter)
+    const trackX0 = rx + 56 * S;
+    const trackY0 = bodyY + 148 * S;
+    const trackX1 = rx + rw - 110 * S;
+    const trackY1 = bodyY + bodyH * 0.54;
+
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.32)';
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    ctx.moveTo(trackX0, trackY0);
+    ctx.quadraticCurveTo(lerp(trackX0, trackX1, 0.45), trackY0 + 30 * S, trackX1, trackY1);
+    ctx.stroke();
+
+    // Rolling Glowing Emerald Snowball
+    const u = (curYr - 1) / 29;
+    const inv = 1 - u;
+    const cxp = lerp(trackX0, trackX1, 0.45);
+    const cyp = trackY0 + 30 * S;
+    const sx = inv * inv * trackX0 + 2 * inv * u * cxp + u * u * trackX1;
+    const sy = inv * inv * trackY0 + 2 * inv * u * cyp + u * u * trackY1;
+    const ballR = safeR(lerp(18, 66, Math.pow(u, 1.35)) * S);
+
+    // Outer emerald-gold aura
+    const aura = ctx.createRadialGradient(sx, sy - ballR * 0.5, 4, sx, sy - ballR * 0.5, safeR(ballR * 1.9));
+    aura.addColorStop(0, 'rgba(16, 185, 129, 0.55)');
+    aura.addColorStop(0.5, 'rgba(245, 158, 11, 0.18)');
+    aura.addColorStop(1, 'rgba(3, 10, 8, 0)');
+    ctx.fillStyle = aura;
+    ctx.beginPath();
+    ctx.arc(sx, sy - ballR * 0.5, safeR(ballR * 1.9), 0, TAU);
+    ctx.fill();
+
+    // Snowball core with spinning internal compound rings
+    const bCy = sy - ballR * 0.72;
+    const coreG = ctx.createRadialGradient(sx - ballR * 0.25, bCy - ballR * 0.25, 2, sx, bCy, ballR);
+    coreG.addColorStop(0, '#ecfdf5');
+    coreG.addColorStop(0.45, COL_EMERALD);
+    coreG.addColorStop(1, '#064e3b');
+    ctx.fillStyle = coreG;
+    ctx.beginPath();
+    ctx.arc(sx, bCy, ballR, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = COL_GOLD;
+    ctx.lineWidth = Math.max(1.5, 2.5 * S);
+    ctx.stroke();
+
+    // Spinning DRIP spokes inside snowball
+    ctx.save();
+    ctx.translate(sx, bCy);
+    ctx.rotate(u * 14 + t * 1.2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.lineWidth = Math.max(1, 2 * S);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a) * ballR * 0.78, Math.sin(a) * ballR * 0.78);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Orbiting golden dividend droplets fusing into snowball
+    for (let d = 0; d < 8; d++) {
+      const a = t * 2.8 + (d / 8) * TAU;
+      const dr = ballR * (1.28 + 0.12 * Math.sin(t * 4 + d));
+      ctx.fillStyle = COL_GOLD;
+      ctx.beginPath();
+      ctx.arc(sx + Math.cos(a) * dr, bCy + Math.sin(a) * dr, safeR(3.5 * S), 0, TAU);
+      ctx.fill();
+    }
+
+    // Live Dividend Counter
+    const curAnnual = 150 * Math.pow(1.175, curYr - 1);
+    const curMonthly = curAnnual / 12;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL_MUTED;
+    fitFont(`YEAR ${Math.round(curYr)} PASSIVE DIVIDENDS`, 13 * S, rw * 0.5, '800', 'monospace');
+    ctx.fillText(`YEAR ${Math.round(curYr)} PASSIVE DIVIDENDS`, rx + 26 * S, bodyY + 30 * S);
+
+    ctx.fillStyle = COL_GOLD;
+    const divTxt = curMonthly >= 100
+      ? `$${Math.round(curMonthly).toLocaleString()} / MO`
+      : `$${Math.round(curAnnual).toLocaleString()} / YR`;
+    fitFont(divTxt, 34 * S, rw * 0.5, '900', 'monospace');
+    ctx.fillText(divTxt, rx + 26 * S, bodyY + 62 * S);
+
+    // Bottom DRIP Loop Caption
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#6ee7b7';
+    fitFont('DIVIDENDS BUY MORE SHARES → MORE SHARES PAY BIGGER DIVIDENDS → UNSTOPPABLE LOOP', 14 * S, rw - 32 * S, '800', 'monospace');
+    ctx.fillText('DIVIDENDS BUY MORE SHARES → MORE SHARES PAY BIGGER DIVIDENDS → UNSTOPPABLE LOOP', rx + rw * 0.5, bodyY + bodyH - 22 * S);
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ACT 4 — PHASE 11: final-blueprint-scorecard (4-Pillar Wealth Blueprint)
+  // =========================================================================
+  function drawFinalBlueprintScorecard(rx, ry, rw, rh, t) {
+    const S = Math.min(rw / 900, rh / 620);
+    drawStageHeader(rx, ry, rw, 'THE 4-PILLAR WEALTH BLUEPRINT', 'SYSTEM SCORECARD', COL_GOLD, S);
+
+    const gridY = ry + 48 * S;
+    const gridH = rh - 56 * S;
+    const gap = 16 * S;
+    const cw = (rw - gap) * 0.5;
+    const ch = (gridH - gap) * 0.5;
+
+    const pillars = [
+      {
+        num: '01',
+        title: 'START EARLY',
+        metric: '10x TIME EDGE',
+        col: COL_EMERALD,
+        bullets: 'Rule of 72 · Age 50 Vertical Knee',
+        score: 0.96,
+      },
+      {
+        num: '02',
+        title: 'ELIMINATE DRAG',
+        metric: 'ZERO 24% APR',
+        col: COL_CRIMSON,
+        bullets: 'Beat 3.8% Inflation · Know Tax Tiers',
+        score: 0.90,
+      },
+      {
+        num: '03',
+        title: 'AUTOMATE & HOLD',
+        metric: '50 / 30 / 20',
+        col: COL_CYAN,
+        bullets: 'Year 8.9 Rule · Never Panic Sell',
+        score: 0.94,
+      },
+      {
+        num: '04',
+        title: 'REINVEST (DRIP)',
+        metric: '$1,550 / MO',
+        col: COL_GOLD,
+        bullets: '30-Year Compounding Snowball',
+        score: 1.0,
+      },
+    ];
+
+    for (let i = 0; i < 4; i++) {
+      const p = pillars[i];
+      const colIdx = i % 2;
+      const rowIdx = Math.floor(i / 2);
+      const x = rx + colIdx * (cw + gap);
+      const y = gridY + rowIdx * (ch + gap);
+
+      drawGlassPanel(x, y, cw, ch, 16 * S, p.col, 'rgba(6, 20, 15, 0.86)');
+      ctx.save();
+
+      // Pillar badge
+      ctx.fillStyle = p.col;
+      roundRect(x + 16 * S, y + 16 * S, 42 * S, 28 * S, 8 * S);
+      ctx.fill();
+      ctx.fillStyle = '#030a08';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      fitFont(p.num, 15 * S, 36 * S, '900', 'monospace');
+      ctx.fillText(p.num, x + 37 * S, y + 30 * S);
+
+      // Title
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#ffffff';
+      fitFont(p.title, 20 * S, cw - 80 * S, '900');
+      ctx.fillText(p.title, x + 68 * S, y + 30 * S);
+
+      // Hero metric
+      ctx.fillStyle = p.col;
+      fitFont(p.metric, 32 * S, cw - 36 * S, '900', 'monospace');
+      ctx.fillText(p.metric, x + 18 * S, y + ch * 0.50);
+
+      // Subtitle
+      ctx.fillStyle = COL_MUTED;
+      fitFont(p.bullets, 14 * S, cw - 36 * S, '700');
+      ctx.fillText(p.bullets, x + 18 * S, y + ch * 0.72);
+
+      // Animated Impact Bar
+      const bx = x + 18 * S;
+      const bw = cw - 36 * S;
+      const by = y + ch - 24 * S;
+      const pulse = 0.94 + 0.06 * Math.sin(t * 3 + i);
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+      roundRect(bx, by, bw, 9 * S, 999);
+      ctx.fill();
+      ctx.fillStyle = p.col;
+      roundRect(bx, by, bw * p.score * pulse, 9 * S, 999);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // =========================================================================
+  // ACT 4 — PHASE 12: series-outro (Subscribe to Wealth Mechanics)
+  // =========================================================================
+  function drawSeriesOutro(cx, cy, S, t) {
+    ctx.save();
+    const pulse = 0.86 + 0.14 * Math.sin(t * 4.5);
+    const rad = ctx.createRadialGradient(cx, cy, 10, cx, cy, safeR(240 * S));
+    rad.addColorStop(0, `rgba(16, 185, 129, ${0.28 * pulse})`);
+    rad.addColorStop(0.55, `rgba(245, 158, 11, ${0.10 * pulse})`);
+    rad.addColorStop(1, 'rgba(3, 10, 8, 0)');
+    ctx.fillStyle = rad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, safeR(240 * S), 0, TAU);
+    ctx.fill();
+
+    // Rotating Wealth Mechanics Compound Emblem
+    const eY = cy - 58 * S;
+    ctx.save();
+    ctx.translate(cx, eY);
+    ctx.rotate(t * 0.6);
+    ctx.strokeStyle = COL_EMERALD;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    ctx.beginPath();
+    ctx.arc(0, 0, safeR(62 * S), 0, TAU);
+    ctx.stroke();
+
+    ctx.strokeStyle = COL_GOLD;
+    ctx.lineWidth = Math.max(1.5, 2.4 * S);
+    ctx.setLineDash([12 * S, 8 * S]);
+    ctx.beginPath();
+    ctx.arc(0, 0, safeR(46 * S), 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // Rising exponential arrow inside emblem
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(2.5, 4 * S);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - 26 * S, eY + 20 * S);
+    ctx.quadraticCurveTo(cx + 2 * S, eY + 14 * S, cx + 22 * S, eY - 22 * S);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + 10 * S, eY - 20 * S);
+    ctx.lineTo(cx + 22 * S, eY - 22 * S);
+    ctx.lineTo(cx + 24 * S, eY - 9 * S);
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL_EMERALD;
+    fitFont(BRAND, 24 * S, 420 * S, '900');
+    ctx.fillText(BRAND, cx, cy + 44 * S);
+
+    ctx.fillStyle = '#ffffff';
+    fitFont('NEXT: WHY THE FIRST $100K IS HARDEST', 24 * S, 480 * S, '900');
+    ctx.fillText('NEXT: WHY THE FIRST $100K IS HARDEST', cx, cy + 84 * S);
+
+    // Subscribe Gold CTA Pill
+    const pw = 320 * S;
+    const ph = 50 * S;
+    ctx.fillStyle = COL_GOLD;
+    roundRect(cx - pw * 0.5, cy + 120 * S, pw, ph, 999);
+    ctx.fill();
+    ctx.fillStyle = '#030a08';
+    fitFont('SUBSCRIBE TO WEALTH MECHANICS', 16 * S, pw - 24 * S, '900');
+    ctx.fillText('SUBSCRIBE TO WEALTH MECHANICS', cx, cy + 120 * S + ph * 0.5);
+    ctx.restore();
+  }
+
+  // --- Financial Telemetry per Visual Phase ---
+  function getTelemetry(phase) {
+    switch (phase) {
+      case 'time-race-preview':
+        return {
+          status: 'TIME MULTIPLIER',
+          m1: { label: 'EARLY ($100/MO)', val: '$1.05M', frac: 0.93, col: COL_EMERALD },
+          m2: { label: 'LATE ($500/MO)', val: '$1.13M', frac: 1.0, col: COL_GOLD },
+          m3: { label: 'CASH RATIO', val: '3.3x LESS', frac: 0.30, col: COL_CYAN },
+          m4: { label: 'HEAD START', val: '15 YEARS', frac: 0.75, col: COL_EMERALD },
+        };
+      case 'rule-of-72-grid':
+        return {
+          status: 'DOUBLING MATH',
+          m1: { label: '1% SAVINGS', val: '72 YRS', frac: 0.12, col: COL_MUTED },
+          m2: { label: '4% HYSA', val: '18 YRS', frac: 0.44, col: COL_CYAN },
+          m3: { label: '9% INDEX', val: '8 YRS', frac: 0.95, col: COL_EMERALD },
+          m4: { label: '40-YR MULT', val: '31.4x', frac: 0.98, col: COL_GOLD },
+        };
+      case 'exponential-knee':
+        return {
+          status: 'AGE 50 KNEE',
+          m1: { label: 'CONTRIBUTED', val: '$240K', frac: 0.15, col: COL_CYAN },
+          m2: { label: 'COMPOUNDING', val: '$2.10M', frac: 0.92, col: COL_EMERALD },
+          m3: { label: 'MATH SHARE', val: '90%', frac: 0.90, col: COL_GOLD },
+          m4: { label: 'ANNUAL GAIN', val: '$210K/YR', frac: 0.96, col: COL_EMERALD },
+        };
+      case 'inflation-drain':
+        return {
+          status: 'EROSION ALERT',
+          m1: { label: 'INFLATION', val: '3.8% / YR', frac: 0.76, col: COL_CRIMSON },
+          m2: { label: 'REAL VALUE', val: '$4,741', frac: 0.47, col: COL_CRIMSON },
+          m3: { label: 'POWER LOST', val: '-52.6%', frac: 0.53, col: COL_GOLD },
+          m4: { label: 'HORIZON', val: '20 YEARS', frac: 0.67, col: COL_CYAN },
+        };
+      case 'credit-card-vortex':
+        return {
+          status: '24% APR TRAP',
+          m1: { label: 'MIN PAYOFF', val: '16.2 YRS', frac: 0.98, col: COL_CRIMSON },
+          m2: { label: 'FIXED $200', val: '3.3 YRS', frac: 0.22, col: COL_EMERALD },
+          m3: { label: 'INTEREST BURN', val: '$8,400', frac: 0.84, col: COL_CRIMSON },
+          m4: { label: 'CASH SAVED', val: '$6,660', frac: 0.88, col: COL_GOLD },
+        };
+      case 'tax-buckets-truth':
+        return {
+          status: 'MARGINAL TIERS',
+          m1: { label: 'TOP BRACKET', val: '24%', frac: 0.72, col: COL_CRIMSON },
+          m2: { label: 'EFFECTIVE RATE', val: '15.8%', frac: 0.48, col: COL_EMERALD },
+          m3: { label: 'RAISE KEPT', val: '76% NET', frac: 0.76, col: COL_CYAN },
+          m4: { label: 'MYTH STATUS', val: 'BUSTED', frac: 1.0, col: COL_GOLD },
+        };
+      case 'paycheck-split-50-30-20':
+        return {
+          status: 'AUTO-ROUTING',
+          m1: { label: '50% NEEDS', val: '$2,500', frac: 0.50, col: COL_CYAN },
+          m2: { label: '30% WANTS', val: '$1,500', frac: 0.30, col: COL_GOLD },
+          m3: { label: '20% INVEST', val: '$1,000', frac: 0.20, col: COL_EMERALD },
+          m4: { label: '30-YR TARGET', val: '$1.83M', frac: 0.94, col: COL_EMERALD },
+        };
+      case 'rent-vs-buy-crossover':
+        return {
+          status: 'BREAK-EVEN',
+          m1: { label: 'HOME PRICE', val: '$400K', frac: 0.65, col: COL_CYAN },
+          m2: { label: 'CROSSOVER', val: 'YR 8.9', frac: 0.59, col: COL_GOLD },
+          m3: { label: 'HIDDEN DRAG', val: '8.2%+', frac: 0.78, col: COL_CRIMSON },
+          m4: { label: 'LONG HORIZON', val: 'BUY WINS', frac: 0.88, col: COL_EMERALD },
+        };
+      case 'panic-sell-mistake':
+        return {
+          status: 'BEHAVIOR GAP',
+          m1: { label: 'STAY INVESTED', val: '$1.42M', frac: 0.95, col: COL_EMERALD },
+          m2: { label: 'PANIC SELLER', val: '$290K', frac: 0.20, col: COL_CRIMSON },
+          m3: { label: 'EMOTION COST', val: '-$1.13M', frac: 0.88, col: COL_CRIMSON },
+          m4: { label: 'CRASHES BEAT', val: '3 / 3', frac: 1.0, col: COL_GOLD },
+        };
+      case 'dividend-snowball-drip':
+        return {
+          status: 'DRIP SNOWBALL',
+          m1: { label: 'YEAR 1 DIV', val: '$150/YR', frac: 0.08, col: COL_CYAN },
+          m2: { label: 'YEAR 30 DIV', val: '$1,550/MO', frac: 0.96, col: COL_EMERALD },
+          m3: { label: 'GROWTH MULT', val: '124x', frac: 0.98, col: COL_GOLD },
+          m4: { label: 'EFFORT', val: 'AUTO DRIP', frac: 1.0, col: COL_EMERALD },
+        };
+      case 'final-blueprint-scorecard':
+        return {
+          status: '4-PILLAR PLAN',
+          m1: { label: 'TIME EDGE', val: 'ACTIVE', frac: 0.96, col: COL_EMERALD },
+          m2: { label: 'DRAG SEALED', val: '0% APR', frac: 0.90, col: COL_CRIMSON },
+          m3: { label: 'AUTO-INVEST', val: '20% NET', frac: 0.94, col: COL_CYAN },
+          m4: { label: 'DRIP LOOP', val: 'ENABLED', frac: 1.0, col: COL_GOLD },
+        };
+      case 'series-outro':
+      default:
+        return {
+          status: 'WEALTH MECHANICS',
+          m1: { label: 'EPISODE', val: 'DEEP DIVE', frac: 1.0, col: COL_EMERALD },
+          m2: { label: 'NEXT TOPIC', val: 'FIRST $100K', frac: 0.85, col: COL_GOLD },
+          m3: { label: 'FORMULA', val: 'TIME × RATE', frac: 0.92, col: COL_CYAN },
+          m4: { label: 'STATUS', val: 'SUBSCRIBE', frac: 1.0, col: COL_EMERALD },
+        };
+    }
+  }
+
+  // --- Right 30% Glassmorphic Telemetry Card (16:9 Mode) ---
+  function drawRightTelemetryCard(beat, t, tel) {
+    const pad = W * 0.022;
+    const cardX = W * 0.69;
+    const cardY = pad;
+    const cardW = W * 0.288;
+    const cardH = H - pad * 2;
+    const S = H / 1080;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(5, 18, 13, 0.86)';
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.30)';
+    ctx.lineWidth = 1.6;
+    roundRect(cardX, cardY, cardW, cardH, 22 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    const ix = cardX + 24 * S;
+    const iw = cardW - 48 * S;
+    let y = cardY + 28 * S;
+
+    // Brand header + clock
+    ctx.fillStyle = ACCENT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    fitFont(BRAND, 14 * S, iw * 0.72, '900');
+    ctx.fillText(BRAND, ix, y);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = COL_MUTED;
+    const clk = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    fitFont(clk, 14 * S, iw * 0.28, '700', 'monospace');
+    ctx.fillText(clk, ix + iw, y);
+
+    y += 28 * S;
+
+    // 4-Act Progress Bar
+    const actGap = 8 * S;
+    const segW = (iw - actGap * 3) / 4;
+    for (let a = 0; a < 4; a++) {
+      const sx = ix + a * (segW + actGap);
+      const active = a === beat.actIndex;
+      const done = a < beat.actIndex;
+      ctx.fillStyle = active ? ACCENT : done ? 'rgba(16, 185, 129, 0.45)' : 'rgba(51, 65, 85, 0.55)';
+      roundRect(sx, y, segW, 7 * S, 999);
+      ctx.fill();
+
+      ctx.fillStyle = active ? '#ecfdf5' : '#64748b';
+      ctx.textAlign = 'center';
+      ctx.font = `800 ${Math.round(11 * S)}px Inter, sans-serif`;
+      ctx.fillText(`ACT ${a + 1}`, sx + segW * 0.5, y + 20 * S);
+    }
+
+    y += 46 * S;
+
+    // Active Act Title
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ecfdf5';
+    fitFont(beat.actTitle || 'Wealth Blueprint', 21 * S, iw, '800');
+    ctx.fillText(beat.actTitle || 'Wealth Blueprint', ix, y);
+
+    y += 34 * S;
+
+    // Live Caption Pill
+    const isFailure = beat.actKind === 'failure' || beat.visualPhase === 'inflation-drain' || beat.visualPhase === 'credit-card-vortex';
+    const pillCol = isFailure ? COL_CRIMSON : COL_GOLD;
+    const pillBg = isFailure ? 'rgba(239, 68, 68, 0.16)' : 'rgba(245, 158, 11, 0.14)';
+    ctx.fillStyle = pillBg;
+    ctx.strokeStyle = pillCol;
+    ctx.lineWidth = 1.6;
+    roundRect(ix, y, iw, 42 * S, 12 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = pillCol;
+    ctx.textAlign = 'center';
+    fitFont(beat.caption || '', 17 * S, iw - 20 * S, '900');
+    ctx.fillText(beat.caption || '', ix + iw * 0.5, y + 21 * S);
+
+    y += 64 * S;
+
+    // Narration Subtitle Box
+    ctx.fillStyle = 'rgba(3, 12, 9, 0.72)';
+    roundRect(ix, y, iw, 198 * S, 14 * S);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#d1fae5';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const subPx = Math.round(24 * S);
+    ctx.font = `900 ${subPx}px Inter, -apple-system, sans-serif`;
+    const shortTag = (beat.caption || beat.actTitle || 'LIVE MATH').toUpperCase();
+    const lines = wrapLines(shortTag, iw - 28 * S, 2);
+    const lh = Math.round(32 * S);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], ix + 14 * S, y + 18 * S + i * lh);
+    }
+
+    y += 222 * S;
+
+    // Live Financial Telemetry Gauges
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL_MUTED;
+    ctx.font = `800 ${Math.round(12 * S)}px monospace`;
+    ctx.fillText(`TELEMETRY · ${tel.status}`, ix, y);
+    y += 24 * S;
+
+    const gauges = [tel.m1, tel.m2, tel.m3, tel.m4];
+    for (const g of gauges) {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = COL_MUTED;
+      ctx.font = `700 ${Math.round(12 * S)}px Inter, sans-serif`;
+      ctx.fillText(g.label, ix, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `800 ${Math.round(14 * S)}px monospace`;
+      ctx.fillText(g.val, ix + iw, y);
+
+      const by = y + 14 * S;
+      ctx.fillStyle = 'rgba(15, 35, 28, 0.9)';
+      roundRect(ix, by, iw, 9 * S, 999);
+      ctx.fill();
+      ctx.fillStyle = g.col;
+      roundRect(ix, by, Math.max(8 * S, iw * clamp(g.frac, 0, 1)), 9 * S, 999);
+      ctx.fill();
+      y += 48 * S;
+    }
+
+    // Overall progress bar at bottom
+    const progY = cardY + cardH - 22 * S;
+    ctx.fillStyle = 'rgba(15, 35, 28, 0.9)';
+    roundRect(ix, progY, iw, 6 * S, 999);
+    ctx.fill();
+    ctx.fillStyle = ACCENT;
+    roundRect(ix, progY, iw * clamp(t / Math.max(1, DUR), 0, 1), 6 * S, 999);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- Narrative Bridge Banner (16:9, first 2.0s of beat.isBridge) ---
+  function drawBridgeBanner(beat, localT) {
+    if (!beat.isBridge || localT < 0 || localT >= 2.0) return;
+    const S = H / 1080;
+    const enter = smooth(0, 0.28, localT);
+    const exit = 1 - smooth(1.65, 2.0, localT);
+    const alpha = clamp(enter * exit, 0, 1);
+    const slideY = lerp(-40 * S, 24 * S, enter);
+    const bw = W * 0.62;
+    const bh = 54 * S;
+    const bx = W * 0.03;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2;
+    roundRect(bx, slideY, bw, bh, 14 * S);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ecfdf5';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const label = `ACT ${beat.actIndex + 1} · ${(beat.actTitle || '').toUpperCase()}`;
+    fitFont(label, 19 * S, bw - 40 * S, '900');
+    ctx.fillText(label, bx + 22 * S, slideY + bh * 0.5);
+    ctx.restore();
+  }
+
+  // --- 9:16 Native Vertical Safe-Zone Overlay ---
+  function drawVerticalOverlay(beat, t, tel) {
+    // Safe zone: x in [W*0.07, W*0.88], y in [H*0.12, H*0.78]
+    const safeL = W * 0.07;
+    const safeRBound = W * 0.88;
+    const safeW = safeRBound - safeL;
+    const safeCx = (safeL + safeRBound) * 0.5;
+    const S = W / 1080;
+
+    ctx.save();
+    // Top: Part label pill
+    const partLabel = (SHORT_META && SHORT_META.partLabel) || `${BRAND} · ACT ${beat.actIndex + 1}`;
+    const topY = H * 0.125;
+    const pillH = 38 * S;
+    const pillW = Math.min(safeW * 0.88, Math.max(260 * S, safeW * 0.72));
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2 * S;
+    roundRect(safeCx - pillW * 0.5, topY, pillW, pillH, 999);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#d1fae5';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitFont(partLabel, 21 * S, pillW - 26 * S, '800');
+    ctx.fillText(partLabel, safeCx, topY + pillH * 0.5);
+
+    // Top: Huge Hook Headline (strictly clamped inside safeW)
+    const hookText = (SHORT_META && SHORT_META.hook) || (beat.actTitle || TITLE).toUpperCase();
+    const hookY = topY + pillH + 34 * S;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(3, 10, 8, 0.92)';
+    ctx.shadowBlur = 12 * S;
+    fitFont(hookText, 48 * S, safeW - 12 * S, '900');
+    ctx.fillText(hookText, safeCx, hookY);
+    ctx.shadowBlur = 0;
+
+    // Live metric strip under hook
+    const strip = `${tel.m1.label}: ${tel.m1.val}  ·  ${tel.m2.label}: ${tel.m2.val}`;
+    ctx.fillStyle = '#a7f3d0';
+    fitFont(strip, 19 * S, safeW, '700', 'monospace');
+    ctx.fillText(strip, safeCx, hookY + 42 * S);
+
+    // Bottom (above H*0.78): High-contrast Caption Pill (Emerald or Gold)
+    const capPillH = 66 * S;
+    const capPillY = H * 0.78 - capPillH - 12 * S;
+    const useEmerald = beat.actIndex % 2 === 1;
+    ctx.fillStyle = useEmerald ? COL_EMERALD : COL_GOLD;
+    roundRect(safeL, capPillY, safeW, capPillH, 16 * S);
+    ctx.fill();
+
+    ctx.fillStyle = '#030a08';
+    fitFont(beat.caption || '', 34 * S, safeW - 32 * S, '900');
+    ctx.fillText(beat.caption || '', safeCx, capPillY + capPillH * 0.5);
+
+    // Last 1.2s of duration: Crisp high-contrast CTA Subscribe banner
+    const timeRem = DUR - t;
+    if (timeRem <= 1.2 && SHORT_META && SHORT_META.ctaText) {
+      const pop = smooth(0, 0.22, 1.2 - timeRem);
+      const ctaH = 74 * S;
+      const ctaY = capPillY - ctaH - 16 * S;
+      ctx.save();
+      ctx.globalAlpha = pop;
+      ctx.fillStyle = COL_CRIMSON;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3 * S;
+      roundRect(safeL, ctaY, safeW, ctaH, 18 * S);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      fitFont(SHORT_META.ctaText, 30 * S, safeW - 32 * S, '900');
+      ctx.fillText(SHORT_META.ctaText, safeCx, ctaY + ctaH * 0.5);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // --- Beat Lookup ---
+  function findBeat(t) {
+    if (!BEATS.length) {
+      return {
+        id: 'default',
+        actIndex: 0,
+        actKind: 'hook',
+        actTitle: '1. The Time Multiplier',
+        visualPhase: 'time-race-preview',
+        caption: 'WEALTH MECHANICS',
+        text: '',
+        start: 0,
+        end: DUR,
+      };
+    }
+    let active = BEATS[0];
+    for (let i = 0; i < BEATS.length; i++) {
+      if (t >= BEATS[i].start) active = BEATS[i];
+      else break;
+    }
+    return active;
+  }
+
+  // --- Main Frame Renderer ---
+  function renderFrame(frameIdx) {
+    const f = Number.isFinite(frameIdx) ? frameIdx : 0;
+    const t = f / Math.max(1, FPS);
+    const beat = findBeat(t);
+    const localT = Math.max(0, t - beat.start);
+    const phase = beat.visualPhase || 'time-race-preview';
+
+    drawStudioBg(t, beat.actKind);
+
+    const isVert = ASPECT === '9:16';
+    const stageX = isVert ? W * 0.07 : W * 0.028;
+    const stageY = isVert ? H * 0.24 : H * 0.06;
+    const stageW = isVert ? W * 0.81 : W * 0.642;
+    const stageH = isVert ? H * 0.455 : H * 0.88;
+    const stageCx = stageX + stageW * 0.5;
+    const stageCy = stageY + stageH * 0.5;
+    const stageS = Math.min(stageW / 600, stageH / 560);
+
+    if (phase === 'time-race-preview') {
+      drawTimeRacePreview(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'rule-of-72-grid') {
+      drawRuleOf72Grid(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'exponential-knee') {
+      drawExponentialKnee(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'inflation-drain') {
+      drawInflationDrain(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'credit-card-vortex') {
+      drawCreditCardVortex(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'tax-buckets-truth') {
+      drawTaxBucketsTruth(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'paycheck-split-50-30-20') {
+      drawPaycheckSplit(stageX, stageY, stageW, stageH, t);
+    } else if (phase === 'rent-vs-buy-crossover') {
+      drawRentVsBuyCrossover(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'panic-sell-mistake') {
+      drawPanicSellMistake(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'dividend-snowball-drip') {
+      drawDividendSnowballDrip(stageX, stageY, stageW, stageH, t, localT);
+    } else if (phase === 'final-blueprint-scorecard') {
+      drawFinalBlueprintScorecard(stageX, stageY, stageW, stageH, t);
+    } else if (phase === 'series-outro') {
+      drawSeriesOutro(stageCx, stageCy, stageS * 1.12, t);
+    } else {
+      drawTimeRacePreview(stageX, stageY, stageW, stageH, t, localT);
+    }
+
+    const tel = getTelemetry(phase);
+    if (isVert) {
+      drawVerticalOverlay(beat, t, tel);
+    } else {
+      drawRightTelemetryCard(beat, t, tel);
+      drawBridgeBanner(beat, localT);
+    }
+  }
+
+  // --- Deterministic Audio Events ---
+  function buildEvents() {
+    const evs = [];
+    for (let i = 0; i < BEATS.length; i++) {
+      const b = BEATS[i];
+      const t0 = clamp(b.start + 0.08, 0.05, Math.max(0.1, DUR - 0.1));
+      if (b.visualPhase === 'credit-card-vortex' || b.visualPhase === 'panic-sell-mistake' || b.visualPhase === 'inflation-drain') {
+        evs.push({ t: t0, type: 'break', pitchIndex: 2 + (i % 4), intensity: 0.82 });
+      } else if (b.visualPhase === 'series-outro' || b.visualPhase === 'final-blueprint-scorecard') {
+        evs.push({ t: t0, type: 'win', pitchIndex: 9 + (i % 3), intensity: 0.92 });
+      } else if (b.isBridge) {
+        evs.push({ t: t0, type: 'win', pitchIndex: 6 + b.actIndex, intensity: 0.72 });
+      } else {
+        evs.push({ t: t0, type: 'bounce', pitchIndex: 3 + (i % 6), intensity: 0.62 });
+      }
+    }
+    evs.sort((a, b) => a.t - b.t);
+    return evs;
+  }
+
+  // --- Exact Window API Contract ---
+  window.init = (cfg = {}) => {
+    W = Math.max(160, Math.round(cfg.width || 1920));
+    H = Math.max(160, Math.round(cfg.height || 1080));
+    FPS = Math.max(1, Number(cfg.fps) || 60);
+    ASPECT = cfg.aspect === '9:16' || H > W ? '9:16' : '16:9';
+    DUR = Math.max(1, Number(cfg.duration) || 240);
+    TITLE = cfg.title || TITLE;
+    BRAND = cfg.brand || BRAND;
+    ACCENT = cfg.accent || COL_EMERALD;
+    SHORT_META = cfg.shortMeta || null;
+
+    if (Array.isArray(cfg.beats) && cfg.beats.length > 0) {
+      BEATS = cfg.beats.map((b, idx) => ({
+        id: b.id || `b-${idx}`,
+        actIndex: Number.isFinite(b.actIndex) ? b.actIndex : 0,
+        actKind: b.actKind || 'hook',
+        actTitle: b.actTitle || '',
+        visualPhase: b.visualPhase || 'time-race-preview',
+        caption: b.caption || '',
+        text: b.text || '',
+        start: Number.isFinite(b.start) ? b.start : (idx * DUR) / cfg.beats.length,
+        end: Number.isFinite(b.end) ? b.end : ((idx + 1) * DUR) / cfg.beats.length,
+        isBridge: Boolean(b.isBridge),
+      }));
+    } else {
+      const seg = DUR / DEFAULT_BEATS.length;
+      BEATS = DEFAULT_BEATS.map((b, idx) => ({ ...b, start: idx * seg, end: (idx + 1) * seg }));
+    }
+
+    cv.width = W;
+    cv.height = H;
+    EVENTS = buildEvents();
+  };
+
+  window.renderFrame = renderFrame;
+
+  window.renderBatch = (startFrame, count) => {
+    const out = [];
+    const n = Math.max(0, Math.floor(count || 0));
+    const s = Math.max(0, Math.floor(startFrame || 0));
+    for (let i = 0; i < n; i++) {
+      renderFrame(s + i);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.9);
+      out.push(dataUrl.replace(/^data:[^,]+,/, ''));
+    }
+    return out;
+  };
+
+  window.getEvents = () => EVENTS;
+  window.ready = true;
+})();
+</script>

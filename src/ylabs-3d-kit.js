@@ -157,11 +157,25 @@ export function createStudioStage({
     ctx.fillRect(0, 0, W, H);
   }
 
-  return { THREE, theme, glCanvas, renderer, scene, camera, floorGroup, composite };
+  const renderTo = (ctx, w = width, h = height) => composite(ctx, w, h);
+
+  return { THREE, theme, glCanvas, renderer, scene, camera, floorGroup, composite, renderTo };
 }
 
 export function createMaterials(channel = 'explainer') {
   const theme = CHANNEL_THEMES[channel] || CHANNEL_THEMES.explainer;
+  const translucent = (hex, opacity = 0.22) =>
+    new THREE.MeshPhysicalMaterial({
+      color: hex,
+      emissive: hex,
+      emissiveIntensity: 0.12,
+      transparent: true,
+      opacity,
+      roughness: 0.14,
+      metalness: 0.08,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
   return {
     steel: new THREE.MeshStandardMaterial({
       color: 0xc2cedc,
@@ -179,6 +193,34 @@ export function createMaterials(channel = 'explainer') {
       emissiveIntensity: 0.18,
       metalness: 0.92,
       roughness: 0.18,
+    }),
+    emerald: new THREE.MeshStandardMaterial({
+      color: 0x30d158,
+      emissive: 0x065f46,
+      emissiveIntensity: 0.32,
+      metalness: 0.52,
+      roughness: 0.22,
+    }),
+    crimson: new THREE.MeshStandardMaterial({
+      color: 0xff3b30,
+      emissive: 0x991b1b,
+      emissiveIntensity: 0.36,
+      metalness: 0.55,
+      roughness: 0.24,
+    }),
+    bioGreen: new THREE.MeshStandardMaterial({
+      color: 0x34c759,
+      emissive: 0x10b981,
+      emissiveIntensity: 0.34,
+      metalness: 0.38,
+      roughness: 0.26,
+    }),
+    copper: new THREE.MeshStandardMaterial({
+      color: 0xd97706,
+      emissive: 0x7c2d12,
+      emissiveIntensity: 0.22,
+      metalness: 0.88,
+      roughness: 0.24,
     }),
     primary: new THREE.MeshStandardMaterial({
       color: theme.primary,
@@ -212,19 +254,8 @@ export function createMaterials(channel = 'explainer') {
         metalness,
       });
     },
-    translucent(hex, opacity = 0.22) {
-      return new THREE.MeshPhysicalMaterial({
-        color: hex,
-        emissive: hex,
-        emissiveIntensity: 0.12,
-        transparent: true,
-        opacity,
-        roughness: 0.14,
-        metalness: 0.08,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      });
-    },
+    translucent,
+    glass: translucent,
   };
 }
 
@@ -247,17 +278,18 @@ export function fitFont(ctx, text, basePx, maxW, weight = '900', family = '-appl
  * Draws Y-LABS Safe-Zone compliant 2D HUD over a 3D WebGL frame.
  * Strict Safe-Zone: x in [6.5%W, 84%W], y in [12.5%H, 74%H].
  */
-export function drawStudioHud(ctx, {
-  W,
-  H,
-  channel = 'explainer',
-  title = '',
-  subtitle = '',
-  badge = '',
-  caption = '',
-  metrics = [],
-  progress = 0,
-}) {
+export function drawStudioHud(ctx, opts = {}) {
+  const {
+    channel = 'explainer',
+    title = '',
+    subtitle = '',
+    badge = '',
+    caption = '',
+    metrics = [],
+    progress = 0,
+  } = opts;
+  const W = opts.W ?? opts.width ?? 720;
+  const H = opts.H ?? opts.height ?? 1280;
   const theme = CHANNEL_THEMES[channel] || CHANNEL_THEMES.explainer;
   const S = W / 720;
   const safeL = W * 0.065;

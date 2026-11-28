@@ -1,0 +1,165 @@
+<!doctype html>
+<!--
+  Bio Mechanics — 3D PBR: What 60 Seconds of Freezing Water Does to Your Brain
+  Y-LABS 3D Cinema Engine (Three.js PBR Cryo Chamber + Vascular Constriction + +250% Dopamine Surge, 60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#0D1117;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  easeOutCubic,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const SCRIPT = [
+  { id: 'hook', text: 'The instant freezing water hits your skin, your brain thinks you are dying.', caption: '0–5 SEC COLD SHOCK' },
+  { id: 'vessels', text: 'Within ten seconds, skin blood vessels clamp shut to protect your heart and core.', caption: 'VASOCONSTRICTION' },
+  { id: 'norepi', text: 'By thirty seconds, your brain floods with norepinephrine — spiking alertness five hundred percent.', caption: '+500% NOREPINEPHRINE' },
+  { id: 'dopamine', text: 'At sixty seconds, dopamine climbs two hundred fifty percent — matching intense stimulants without crashing.', caption: '+250% DOPAMINE' },
+  { id: 'after', text: 'Unlike coffee or sugar, that dopamine wave stays elevated for up to three hours.', caption: '3-HOUR FOCUS WAVE' },
+  { id: 'verdict', text: 'Sixty seconds of controlled discomfort rewires your baseline focus for the rest of the day.', caption: '60 SEC = 3 HR FOCUS' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 26, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let iceCube, brainSphere, neuroOrbs = [], vesselRings = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, idx) {
+  const f = LINES.find((l) => l.id === id);
+  if (f) return f;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: idx * seg, end: (idx + 1) * seg, caption: SCRIPT[idx].caption };
+}
+
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'bio', fov: 38, fogDensity: 0.022, floorY: -2.6 });
+  const { scene } = stage;
+  const mats = createMaterials('bio');
+
+  // Cryo Glass Cube
+  const cubeGeo = new THREE.BoxGeometry(3.6, 3.6, 3.6);
+  iceCube = new THREE.Group();
+  iceCube.add(new THREE.Mesh(cubeGeo, mats.glass(0x38bdf8, 0.16)));
+  iceCube.add(addXrayEdges(cubeGeo, 0x38bdf8, 0.65));
+  scene.add(iceCube);
+
+  // Central Neuro Core
+  const bGeo = new THREE.IcosahedronGeometry(0.95, 2);
+  brainSphere = new THREE.Group();
+  brainSphere.add(new THREE.Mesh(bGeo, mats.bioGreen));
+  brainSphere.add(addXrayEdges(bGeo, 0x34c759, 0.65));
+  scene.add(brainSphere);
+
+  // Constricting vascular rings
+  for (let i = 0; i < 4; i++) {
+    const r = new THREE.Mesh(new THREE.TorusGeometry(1.55, 0.04, 12, 48), mats.glow(0x38bdf8, 0.85));
+    r.rotation.x = Math.PI / 2;
+    r.position.y = -1.2 + i * 0.8;
+    scene.add(r);
+    vesselRings.push(r);
+  }
+
+  // Dopamine / Norepinephrine burst orbs
+  const orbGeo = new THREE.SphereGeometry(0.11, 14, 14);
+  for (let i = 0; i < 28; i++) {
+    const m = new THREE.Mesh(orbGeo, mats.glow(i % 2 === 0 ? 0x34c759 : 0x38bdf8, 1.0));
+    m.userData = {
+      phi: Math.acos(1 - (2 * (i + 0.5)) / 28),
+      theta: Math.PI * (1 + Math.sqrt(5)) * i,
+      speed: 0.8 + (i % 4) * 0.25,
+    };
+    scene.add(m);
+    neuroOrbs.push(m);
+  }
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 26;
+  LINES = Array.isArray(cfg.lines) ? cfg.lines : [];
+  cv.width = W;
+  cv.height = H;
+  buildScene();
+
+  const lVess = getLine('vessels', 1);
+  const lNorepi = getLine('norepi', 2);
+  const lDopa = getLine('dopamine', 3);
+  EVENTS = [
+    { t: Math.max(0.1, lVess.start - 0.04), type: 'break', intensity: 0.85 },
+    { t: Math.max(0.2, lNorepi.start - 0.04), type: 'bounce', intensity: 0.95 },
+    { t: Math.max(0.3, lDopa.start - 0.04), type: 'win', intensity: 1.0 },
+  ];
+};
+
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
+
+  const lVess = getLine('vessels', 1);
+  const lDopa = getLine('dopamine', 3);
+  const constrict = smooth(t, lVess.start, lVess.end);
+  const dopaSurge = easeOutCubic(smooth(t, lDopa.start, lDopa.end + 2));
+
+  iceCube.rotation.y = t * 0.28;
+  iceCube.rotation.x = Math.sin(t * 0.4) * 0.1;
+
+  brainSphere.rotation.y = -t * 0.65;
+  brainSphere.scale.setScalar(1 + dopaSurge * 0.24 + Math.sin(t * 6) * 0.03);
+
+  vesselRings.forEach((r, i) => {
+    const s = lerp(1.15, 0.72, constrict);
+    r.scale.setScalar(s);
+    r.rotation.z = t * (0.9 + i * 0.2);
+  });
+
+  neuroOrbs.forEach((m) => {
+    const rad = lerp(0.75, 2.25, dopaSurge) + Math.sin(t * m.userData.speed * 3) * 0.14;
+    const th = m.userData.theta + t * m.userData.speed;
+    m.position.set(
+      rad * Math.sin(m.userData.phi) * Math.cos(th),
+      rad * Math.cos(m.userData.phi),
+      rad * Math.sin(m.userData.phi) * Math.sin(th),
+    );
+  });
+
+  const camA = lerp(-0.35, 0.35, p);
+  stage.camera.position.set(Math.sin(camA) * 7.8, 0.65, Math.cos(camA) * 7.8);
+  stage.camera.lookAt(0, 0, 0);
+
+  stage.renderTo(ctx, W, H);
+
+  const active = LINES.find((l) => t >= l.start && t <= l.end) || SCRIPT[Math.min(SCRIPT.length - 1, Math.floor(p * SCRIPT.length))];
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'bio',
+    title: '60-SEC COLD PLUNGE',
+    subtitle: '4°C NEUROCHEMICAL SURGE',
+    progress: p,
+    caption: active.caption,
+    metrics: [
+      { label: 'TIME', value: `${Math.round(p * 60)}s`, color: '#38BDF8' },
+      { label: 'DOPAMINE', value: `+${Math.round(dopaSurge * 250)}%`, color: '#34C759' },
+      { label: 'TEMP', value: '4°C', color: '#FFFFFF' },
+    ],
+  });
+};
+</script>

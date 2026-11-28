@@ -1,449 +1,136 @@
 <!doctype html>
-<!-- Gravity Funnel: 3D perspective particle spacetime gravity well warping into a mirrored Einstein hourglass wormhole -->
+<!--
+  Kinetic Lab HQ — 3D PBR: Spacetime Gravity Funnel (Why Orbits Speed Up Near Gravity Wells)
+  Y-LABS 3D Cinema Engine (Three.js PBR Warped Spacetime Funnel + Orbiting Satellites, 60fps deterministic)
+-->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#0B0F19;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  drawStudioHud,
+  clamp,
+  lerp,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-let W = 720, H = 1280, FPS = 60, DUR = 24, HOOK = 'WATCH SPACETIME COLLAPSE INTO A WORMHOLE';
-const PARTICLE_COUNT = 2200;
+let W = 720, H = 1280, FPS = 60, DUR = 26, EVENTS = [];
+let stage = null, built = false;
+let funnelMesh, coreStar, orbiters = [];
 
-let rng = 1;
-let particles = [];
-let bgStars = [];
-let ripples = [];
-let shockwaves = [];
-let events = [];
+window.getEvents = () => EVENTS;
 
-let climaxTime = 21.12;
-let nextWaveT = 0.45;
-let waveCount = 0;
-let wormholeLocked = false;
-let lockFlash = 0;
+function buildScene() {
+  stage = createStudioStage({ width: W, height: H, channel: 'physics', fov: 40, fogDensity: 0.02, floorY: -3.2 });
+  const { scene } = stage;
+  const mats = createMaterials('physics');
 
-const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; };
-const smoothstep = (x) => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c); };
+  // 3D Spacetime Gravity Funnel (radial logarithmic well)
+  const radSegs = 40, ringSegs = 28;
+  const geo = new THREE.PlaneGeometry(7.2, 7.2, radSegs, ringSegs);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const r = Math.hypot(x, z);
+    const depth = -2.4 / (r + 0.55);
+    pos.setY(i, depth + 0.65);
+  }
+  geo.computeVertexNormals();
+  funnelMesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      emissive: 0x00f0ff,
+      emissiveIntensity: 0.25,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.55,
+    }),
+  );
+  scene.add(funnelMesh);
 
-window.init = (cfg) => {
+  // Central Massive Star / Singularity
+  coreStar = new THREE.Mesh(new THREE.SphereGeometry(0.45, 28, 28), mats.glow(0xff3b30, 1.0));
+  coreStar.position.set(0, -1.55, 0);
+  scene.add(coreStar);
+
+  // 5 Orbiting Planets spiraling down the gravity well (Kepler angular momentum)
+  const colors = [0x00f0ff, 0x38bdf8, 0xfacc15, 0x34d399, 0xff3b30];
+  orbiters = colors.map((col, idx) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.16 + idx * 0.015, 20, 20), mats.glow(col, 0.95));
+    m.userData = {
+      startR: 2.95 - idx * 0.28,
+      startA: idx * 1.25,
+      decay: 0.068 + idx * 0.008,
+    };
+    scene.add(m);
+    return m;
+  });
+
+  built = true;
+}
+
+window.initScene = function (cfg = {}) {
   W = cfg.width || 720;
   H = cfg.height || 1280;
   FPS = cfg.fps || 60;
-  DUR = cfg.seconds || 24;
-  HOOK = cfg.hook || 'WATCH SPACETIME COLLAPSE INTO A WORMHOLE';
+  DUR = cfg.duration || 26;
   cv.width = W;
   cv.height = H;
+  buildScene();
 
-  rng = ((cfg.seed || 1) * 2654435761 + 1013904223) >>> 0;
-  const S = W / 720;
-  climaxTime = DUR * 0.88;
-  nextWaveT = 0.45;
-  waveCount = 0;
-  wormholeLocked = false;
-  lockFlash = 0;
-
-  ripples = [];
-  shockwaves = [];
-  events = [];
-
-  // Subtle cosmic dust stars
-  bgStars = [];
-  for (let i = 0; i < 110; i++) {
-    bgStars.push({
-      x: rand() * W,
-      y: rand() * H,
-      r: (0.6 + rand() * 1.4) * S,
-      phase: rand() * Math.PI * 2,
-      spd: 1.0 + rand() * 2.5
-    });
-  }
-
-  // 2,200 golden-to-crimson particles arranged in concentric Fibonacci / polar rings
-  particles = [];
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  const numRings = 44;
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    const u = (i + 0.5) / PARTICLE_COUNT;
-    const ringIdx = Math.floor(u * numRings);
-    // Blend polar ring structure with golden-angle Fibonacci distribution for hypnotic spiral filaments
-    const rRing = 0.085 + 0.915 * Math.sqrt((ringIdx + 0.5) / numRings);
-    const rFib = 0.085 + 0.915 * Math.sqrt(u);
-    const rNorm = rRing * 0.62 + rFib * 0.38 + (rand() - 0.5) * 0.012;
-    const theta0 = i * goldenAngle + (ringIdx * 0.27);
-
-    // Golden (inner/mid) to deep crimson-orange (outer) palette
-    // Hue: 48 (bright gold) near center -> 28 (amber) -> 6 (crimson) at rim
-    const hueBase = 48 - Math.pow(rNorm, 1.15) * 44 + (rand() - 0.5) * 6;
-    const sat = 94 + rand() * 6;
-    const lum = 68 - rNorm * 16 + (rand() - 0.5) * 6;
-
-    particles.push({
-      rNorm: Math.max(0.06, Math.min(1.0, rNorm)),
-      theta0,
-      hueBase,
-      sat,
-      lum,
-      size: 1.25 + (1 - rNorm) * 1.15 + rand() * 0.75,
-      twinkle: rand() * Math.PI * 2
-    });
-  }
+  EVENTS = [
+    { t: 2.0, type: 'bounce', intensity: 0.7 },
+    { t: 9.0, type: 'bounce', intensity: 0.85 },
+    { t: 16.5, type: 'break', intensity: 0.95 },
+    { t: 22.0, type: 'win', intensity: 1.0 },
+  ];
 };
 
-// Pure 3D perspective projection (Y up, Z toward camera)
-function project3D(x, y, z, cx, cy, S, fov, camDist, sinPitch, cosPitch) {
-  // Pitch rotation around X axis so we look down at an angle onto the disc & funnel
-  const yRot = y * cosPitch - z * sinPitch;
-  const zRot = y * sinPitch + z * cosPitch;
-  const dz = camDist - zRot;
-  const scale = fov / Math.max(80, dz);
-  return {
-    sx: cx + x * scale * S,
-    sy: cy - yRot * scale * S,
-    scale: scale * S,
-    depth: dz
-  };
-}
+window.renderFrame = function (t) {
+  if (!built) window.initScene({ width: W, height: H, fps: FPS, duration: DUR });
+  const p = clamp(t / DUR, 0, 1);
 
-function drawHook(text, S) {
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const maxW = W * 0.82;
-  let fontSize = Math.round(36 * S);
-  ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-  while (ctx.measureText(text).width > maxW && fontSize > Math.round(21 * S)) {
-    fontSize -= 2;
-    ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-  }
-  ctx.shadowColor = 'rgba(250,204,21,0.55)';
-  ctx.shadowBlur = 16 * S;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(text, W * 0.5, H * 0.105, maxW);
-  ctx.restore();
-}
+  let maxVel = 0;
+  orbiters.forEach((m) => {
+    const r = Math.max(0.58, m.userData.startR * (1 - p * 0.72));
+    // Conservation of angular momentum: omega ~ 1 / r^1.5
+    const omega = 1.6 / Math.pow(r, 1.35);
+    const a = m.userData.startA + t * omega;
+    const y = -2.4 / (r + 0.55) + 0.82;
+    m.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
+    maxVel = Math.max(maxVel, omega * r * 14);
+  });
 
-function drawFrame(t) {
-  const S = W / 720;
-  const cx = W * 0.5;
-  const cy = H * 0.49;
+  coreStar.scale.setScalar(1 + Math.sin(t * 5) * 0.06);
+  funnelMesh.rotation.y = t * 0.12;
 
-  const progress = Math.max(0, Math.min(1, t / climaxTime));
-  const G = smoothstep(progress); // 0 -> 1 gravity well warp intensity
-  const postClimax = Math.max(0, t - climaxTime);
+  const camA = t * 0.22;
+  stage.camera.position.set(Math.sin(camA) * 7.8, lerp(3.4, 2.2, p), Math.cos(camA) * 7.8);
+  stage.camera.lookAt(0, -0.55, 0);
 
-  // Trigger accelerating energy wave ripples down the funnel walls synced to pentatonic notes
-  if (!wormholeLocked && t >= nextWaveT && t < climaxTime - 0.15) {
-    waveCount++;
-    const interval = Math.max(0.28, 0.72 - progress * 0.42);
-    nextWaveT = t + interval;
-    ripples.push({ r: 1.04, speed: 0.52 + progress * 0.42, intensity: 0.85 + progress * 0.15, hueShift: waveCount % 2 === 0 ? 1 : 0 });
-    const isBreak = (waveCount % 5 === 0);
-    events.push({
-      t,
-      type: isBreak ? 'break' : 'bounce',
-      pitchIndex: Math.min(18, Math.floor(progress * 15) + (waveCount % 3)),
-      intensity: isBreak ? 0.88 : (0.42 + progress * 0.35)
-    });
-  }
+  stage.renderTo(ctx, W, H);
 
-  // Singularity throat lock at ~88% of DUR
-  if (!wormholeLocked && t >= climaxTime) {
-    wormholeLocked = true;
-    lockFlash = 1.0;
-    shockwaves.push({ r: 14 * S, maxR: 420 * S, alpha: 1.0, col: '#22d3ee' });
-    shockwaves.push({ r: 8 * S, maxR: 320 * S, alpha: 0.95, col: '#fde047' });
-    events.push({ t, type: 'win', pitchIndex: 14, intensity: 1.0 });
-  }
-
-  // Update ripples & shockwaves
-  const dt = 1 / FPS;
-  for (let i = ripples.length - 1; i >= 0; i--) {
-    ripples[i].r -= ripples[i].speed * dt;
-    if (ripples[i].r < -0.15) ripples.splice(i, 1);
-  }
-  for (let i = shockwaves.length - 1; i >= 0; i--) {
-    const sw = shockwaves[i];
-    sw.r += (sw.maxR - sw.r) * Math.min(1, dt * 6.0);
-    sw.alpha -= dt * 1.25;
-    if (sw.alpha <= 0) shockwaves.splice(i, 1);
-  }
-  if (lockFlash > 0) lockFlash = Math.max(0, lockFlash - dt * 1.4);
-
-  // Background
-  ctx.fillStyle = '#050712';
-  ctx.fillRect(0, 0, W, H);
-
-  // Deep radial cosmic glow
-  const bgGrad = ctx.createRadialGradient(cx, cy, 10 * S, cx, cy, 480 * S);
-  bgGrad.addColorStop(0, wormholeLocked ? 'rgba(34,211,238,0.20)' : `rgba(245,158,11,${0.08 + G * 0.10})`);
-  bgGrad.addColorStop(0.5, 'rgba(127,29,29,0.08)');
-  bgGrad.addColorStop(1, 'rgba(5,7,18,0)');
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, W, H);
-
-  // Subtle twinkling stars
-  for (let i = 0; i < bgStars.length; i++) {
-    const st = bgStars[i];
-    const a = 0.18 + 0.42 * (0.5 + 0.5 * Math.sin(t * st.spd + st.phase));
-    ctx.fillStyle = `rgba(226,232,240,${a})`;
-    ctx.beginPath();
-    ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // 3D Camera parameters (subtle breathing pitch as funnel deepens)
-  const fov = 560;
-  const camDist = 760;
-  const pitch = 0.44 + G * 0.08; // ~25-30 deg looking slightly downward
-  const sinP = Math.sin(pitch);
-  const cosP = Math.cos(pitch);
-
-  const discRadius = 295;
-  const halfHeight = 175; // Top disc at +halfHeight*0.75, mirror plane at -halfHeight*0.95 -> meets at throat!
-  const topY = 128;
-  const mirrorY = -148;
-  const throatY = (topY + mirrorY) * 0.5; // -10
-  const maxFunnelDrop = topY - throatY; // 138 units drop so upper funnel touches mirror throat cleanly at G = 1!
-
-  // 1. Sleek Dark-Glass Mirror Reflection Disc below the funnel
-  ctx.save();
-  const mirrorCenter = project3D(0, mirrorY, 0, cx, cy, S, fov, camDist, sinP, cosP);
-  const mirrorEdgeX = project3D(discRadius * 1.06, mirrorY, 0, cx, cy, S, fov, camDist, sinP, cosP);
-  const mirrorEdgeZ = project3D(0, mirrorY, discRadius * 1.06, cx, cy, S, fov, camDist, sinP, cosP);
-  const mRx = Math.abs(mirrorEdgeX.sx - mirrorCenter.sx);
-  const mRy = Math.max(24 * S, Math.abs(mirrorEdgeZ.sy - mirrorCenter.sy));
-
-  const glassGrad = ctx.createRadialGradient(mirrorCenter.sx, mirrorCenter.sy, 8 * S, mirrorCenter.sx, mirrorCenter.sy, mRx);
-  glassGrad.addColorStop(0, wormholeLocked ? 'rgba(34,211,238,0.28)' : `rgba(251,191,36,${0.08 + G * 0.14})`);
-  glassGrad.addColorStop(0.55, 'rgba(15,23,42,0.72)');
-  glassGrad.addColorStop(1, 'rgba(2,6,23,0.92)');
-  ctx.fillStyle = glassGrad;
-  ctx.beginPath();
-  ctx.ellipse(mirrorCenter.sx, mirrorCenter.sy, mRx, mRy, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Concentric dark-glass grid rings on mirror disc
-  ctx.strokeStyle = wormholeLocked ? 'rgba(56,189,248,0.36)' : 'rgba(251,191,36,0.18)';
-  ctx.lineWidth = 1.6 * S;
-  for (let ring = 1; ring <= 4; ring++) {
-    const f = ring / 4;
-    ctx.beginPath();
-    ctx.ellipse(mirrorCenter.sx, mirrorCenter.sy, mRx * f, mRy * f, 0, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // 2. Relativistic singularity beam & throat glow as hourglass locks
-  const throatProj = project3D(0, throatY, 0, cx, cy, S, fov, camDist, sinP, cosP);
-  if (G > 0.35) {
-    const throatGlow = Math.pow((G - 0.35) / 0.65, 1.5);
-    const tg = ctx.createRadialGradient(
-      throatProj.sx, throatProj.sy, 2 * S,
-      throatProj.sx, throatProj.sy, (68 + throatGlow * 80) * S
-    );
-    tg.addColorStop(0, wormholeLocked ? 'rgba(224,242,254,0.95)' : `rgba(254,240,138,${throatGlow * 0.72})`);
-    tg.addColorStop(0.32, wormholeLocked ? 'rgba(34,211,238,0.62)' : `rgba(249,115,22,${throatGlow * 0.35})`);
-    tg.addColorStop(1, 'rgba(5,7,18,0)');
-    ctx.fillStyle = tg;
-    ctx.beginPath();
-    ctx.arc(throatProj.sx, throatProj.sy, (68 + throatGlow * 80) * S, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Vertical singularity axis beam upon wormhole lock
-  if (wormholeLocked) {
-    const beamAlpha = Math.min(0.9, 0.45 + 0.35 * Math.sin(postClimax * 8) + lockFlash * 0.4);
-    const topBeam = project3D(0, topY + 130, 0, cx, cy, S, fov, camDist, sinP, cosP);
-    const botBeam = project3D(0, mirrorY - 80, 0, cx, cy, S, fov, camDist, sinP, cosP);
-    const bGrad = ctx.createLinearGradient(throatProj.sx, topBeam.sy, throatProj.sx, botBeam.sy);
-    bGrad.addColorStop(0, 'rgba(34,211,238,0)');
-    bGrad.addColorStop(0.5, `rgba(103,232,249,${beamAlpha})`);
-    bGrad.addColorStop(1, 'rgba(34,211,238,0)');
-    ctx.save();
-    ctx.strokeStyle = bGrad;
-    ctx.lineWidth = (10 + lockFlash * 16) * S;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(topBeam.sx, topBeam.sy);
-    ctx.lineTo(botBeam.sx, botBeam.sy);
-    ctx.stroke();
-
-    ctx.strokeStyle = `rgba(255,255,255,${beamAlpha})`;
-    ctx.lineWidth = 3.2 * S;
-    ctx.beginPath();
-    ctx.moveTo(topBeam.sx, topBeam.sy);
-    ctx.lineTo(botBeam.sx, botBeam.sy);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // 3. Render 2,200 3D Particles + Mirrored Lower Hourglass Reflection (additive glow!)
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-
-  // Funnel shape parameters
-  const funnelWidth = 0.42 - G * 0.10;
-  const spinBase = t * (0.45 + G * 0.65);
-
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    const pt = particles[i];
-    const r = pt.rNorm;
-
-    // Differential Keplerian rotation: inner throat spins dramatically faster
-    const omega = 0.35 + (1.85 * (0.25 + G * 0.95)) / Math.pow(r + 0.22, 1.32);
-    const ang = pt.theta0 + t * omega + spinBase * 0.25;
-
-    // Subtle throat pinch pulls inner particles inward as wormhole forms
-    const pinch = 1 - G * 0.38 * Math.exp(-r * 3.8);
-    const rWorld = r * discRadius * pinch;
-
-    // Einstein Spacetime Funnel depth equation
-    const funnelProfile = Math.exp(-Math.pow(r / funnelWidth, 1.45));
-    const waveOffset = Math.sin(r * 14 - t * 4.5) * (2.5 + G * 4.5) * (1 - r * 0.6);
-    const yUpper = topY - G * maxFunnelDrop * funnelProfile + waveOffset;
-
-    const x3 = Math.cos(ang) * rWorld;
-    const z3 = Math.sin(ang) * rWorld;
-
-    // Check energy wave ripple boost
-    let rippleBoost = 0;
-    for (let w = 0; w < ripples.length; w++) {
-      const dr = Math.abs(r - ripples[w].r);
-      if (dr < 0.085) {
-        const b = (1 - dr / 0.085) * ripples[w].intensity;
-        if (b > rippleBoost) rippleBoost = b;
-      }
-    }
-
-    // Color shifts from golden-crimson to incandescent cyan-gold at throat during lock
-    let hue = pt.hueBase;
-    let lum = pt.lum + rippleBoost * 24;
-    if (wormholeLocked && r < 0.34) {
-      const blend = 1 - r / 0.34;
-      hue = hue * (1 - blend) + 190 * blend;
-      lum = Math.min(92, lum + blend * 26);
-    } else if (rippleBoost > 0.35) {
-      hue = hue + rippleBoost * 18;
-    }
-
-    // Project Upper Funnel Particle
-    const pUp = project3D(x3, yUpper, z3, cx, cy, S, fov, camDist, sinP, cosP);
-    const depthFade = Math.max(0.28, Math.min(1.0, 620 / pUp.depth));
-    const radUp = Math.max(0.9 * S, pt.size * pUp.scale * (1 + rippleBoost * 0.65));
-    const alphaUp = Math.min(0.95, (0.48 + rippleBoost * 0.45) * depthFade);
-
-    ctx.fillStyle = `hsla(${hue}, ${pt.sat}%, ${Math.min(94, lum)}%, ${alphaUp})`;
-    ctx.beginPath();
-    ctx.arc(pUp.sx, pUp.sy, radUp, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Project Mirrored Lower Hourglass Particle (reflected across throatY / mirror disc!)
-    // As G approaches 1, upper funnel touches mirror throat -> seamless glowing 3D hourglass!
-    const yLower = mirrorY + G * (throatY - mirrorY) * funnelProfile - waveOffset * 0.65;
-    const pLow = project3D(x3, yLower, z3, cx, cy, S, fov, camDist, sinP, cosP);
-    const radLow = radUp * 0.88;
-    const alphaLow = alphaUp * (0.42 + G * 0.32);
-
-    ctx.fillStyle = `hsla(${(hue + 8) % 360}, ${pt.sat}%, ${Math.min(88, lum - 6)}%, ${alphaLow})`;
-    ctx.beginPath();
-    ctx.arc(pLow.sx, pLow.sy, radLow, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.restore(); // end additive particles
-
-  // Shockwaves on wormhole lock
-  for (const sw of shockwaves) {
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, sw.alpha);
-    ctx.strokeStyle = sw.col;
-    ctx.lineWidth = 4.5 * S;
-    ctx.beginPath();
-    ctx.ellipse(throatProj.sx, throatProj.sy, sw.r, sw.r * 0.42, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // Top HOOK text
-  drawHook(HOOK, S);
-
-  // Bottom Spacetime Telemetry HUD
-  const hudY = H * 0.825;
-  const gVal = (G * 100).toFixed(1);
-  const warpPct = Math.round(G * 100);
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.font = `900 ${Math.round(40 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-  ctx.shadowColor = wormholeLocked ? '#22d3ee' : '#f59e0b';
-  ctx.shadowBlur = 18 * S;
-  ctx.fillStyle = wormholeLocked ? '#67e8f9' : '#fde047';
-  ctx.fillText(`GRAVITY WELL: ${gVal} G`, cx, hudY, W * 0.84);
-
-  ctx.shadowBlur = 0;
-  ctx.font = `800 ${Math.round(24 * S)}px monospace`;
-  ctx.fillStyle = '#e2e8f0';
-  ctx.fillText(`SPACETIME WARP: ${warpPct}%`, cx, hudY + 42 * S);
-
-  const barW = W * 0.64;
-  const barH = 14 * S;
-  const barX = cx - barW * 0.5;
-  const barY = hudY + 66 * S;
-  ctx.fillStyle = 'rgba(30,41,59,0.85)';
-  ctx.beginPath();
-  ctx.roundRect(barX, barY, barW, barH, 7 * S);
-  ctx.fill();
-
-  if (G > 0.01) {
-    const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-    grad.addColorStop(0, '#dc2626');
-    grad.addColorStop(0.55, '#facc15');
-    grad.addColorStop(1, '#22d3ee');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(barX, barY, barW * G, barH, 7 * S);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  // Climax Banner at ~88% of DUR
-  if (wormholeLocked) {
-    const finAge = Math.min(1, postClimax / 0.35);
-    const scale = 0.86 + 0.14 * Math.sin(finAge * Math.PI * 0.5);
-    ctx.save();
-    ctx.translate(cx, H * 0.49);
-    ctx.scale(scale, scale);
-    ctx.fillStyle = 'rgba(2,6,18,0.90)';
-    ctx.beginPath();
-    ctx.roundRect(-W * 0.43, -68 * S, W * 0.86, 136 * S, 26 * S);
-    ctx.fill();
-    ctx.strokeStyle = '#22d3ee';
-    ctx.lineWidth = 5 * S;
-    ctx.shadowColor = '#22d3ee';
-    ctx.shadowBlur = 26 * S;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    ctx.textAlign = 'center';
-    ctx.font = `900 ${Math.round(42 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    ctx.fillStyle = '#fde047';
-    ctx.fillText('WORMHOLE FORMED! 🌌', 0, 4 * S, W * 0.8);
-    ctx.font = `800 ${Math.round(22 * S)}px monospace`;
-    ctx.fillStyle = '#67e8f9';
-    ctx.fillText('SINGULARITY THROAT LOCKED  •  100% WARP', 0, 44 * S, W * 0.8);
-    ctx.restore();
-  }
-}
-
-window.renderBatch = (startFrame, count) => {
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
-    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
-  }
-  return out;
+  drawStudioHud(ctx, {
+    width: W,
+    height: H,
+    channel: 'physics',
+    title: 'SPACETIME GRAVITY WELL',
+    subtitle: 'KEPLER ORBITAL ACCELERATION',
+    progress: p,
+    caption: p < 0.35 ? 'CURVED SPACETIME WELL' : p < 0.72 ? 'ANGULAR MOMENTUM SPIKE' : 'EVENT HORIZON VELOCITY',
+    metrics: [
+      { label: 'ORBIT VEL', value: `${maxVel.toFixed(1)} KM/S`, color: '#00F0FF' },
+      { label: 'WELL DEPTH', value: `${(p * 9.8).toFixed(1)} G`, color: '#FF3B30' },
+      { label: 'BODIES', value: '5 LIVE', color: '#FFFFFF' },
+    ],
+  });
 };
-window.getEvents = () => events;
-window.ready = true;
 </script>
