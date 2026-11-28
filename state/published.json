@@ -421,6 +421,21 @@
       },
       "publishedAt": "2026-11-28T14:13:20.023Z",
       "instagramMediaId": "18375525934212143"
+    },
+    {
+      "id": "explainer-fibonacci-gears",
+      "channel": "explainer",
+      "title": "How Do Non-Round Fibonacci Gears Spin Without Jamming? #shorts",
+      "videoId": "ac1wWp2L0hY",
+      "url": "https://youtube.com/shorts/ac1wWp2L0hY",
+      "poll": {
+        "optionAKey": "potential-vs-kinetic",
+        "optionBKey": "countersteering-3d",
+        "optionA": "Potential Vs Kinetic",
+        "optionB": "Countersteering 3d"
+      },
+      "publishedAt": "2026-11-28T14:56:21.047Z",
+      "instagramMediaId": "18112008950219777"
     }
   ],
   "removedVideoIds": [
