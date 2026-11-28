@@ -49,8 +49,8 @@ function runCmd(bin: string, args: string[]): Promise<void> {
 async function main() {
   const episode = parseArg("episode", "pin-tumbler-lock");
   const fps = Math.max(30, Math.min(60, Number(parseArg("fps", "60")) || 60));
-  const width = Number(parseArg("width", "720")) || 720;
-  const height = Number(parseArg("height", "1280")) || 1280;
+  const width = Number(parseArg("width", "1080")) || 1080;
+  const height = Number(parseArg("height", "1920")) || 1920;
   const epBadge = parseArg("ep-badge", "").trim();
   const pollLine = parseArg("poll", "").trim();
 
@@ -279,8 +279,8 @@ async function main() {
       "-y", "-i", rawMp4,
       "-f", "s16le", "-ar", String(SAMPLE_RATE), "-ac", "2", "-i", mixPath,
       "-vf", "scale=1080:1920:flags=lanczos,setsar=1,format=yuv420p",
-      "-c:v", "libx264", "-profile:v", "main", "-level", "4.1", "-preset", "medium", "-crf", "20",
-      "-maxrate", "6M", "-bufsize", "12M", "-g", String(fps * 2), "-keyint_min", String(fps),
+      "-c:v", "libx264", "-profile:v", "high", "-level", "4.2", "-preset", "medium", "-crf", "15",
+      "-maxrate", "16M", "-bufsize", "32M", "-g", String(fps * 2), "-keyint_min", String(fps),
       "-sc_threshold", "0", "-bf", "2", "-r", String(fps),
       // Ses yüksekliği platform standardına (-14 LUFS) normalize
       "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-t", totalSec.toFixed(2), "-movflags", "+faststart",

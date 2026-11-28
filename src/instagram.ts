@@ -92,53 +92,71 @@ export async function uploadReelToInstagram(
   const videoBytes = await readFile(filePath);
 
   // 1) Resumable Reels container başlat
-  const initBody = new URLSearchParams({
-    media_type: "REELS",
-    upload_type: "resumable",
-    caption,
-    share_to_feed: "true",
-    access_token: creds.accessToken,
-  });
+  // 1-3) Container oluştur, binary yükle ve işlemeyi bekle (Meta geçici 400 ProcessingFailedError için 3 deneme)
+  let containerId = "";
+  let lastUploadErr: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const initBody = new URLSearchParams({
+        media_type: "REELS",
+        upload_type: "resumable",
+        caption,
+        share_to_feed: "true",
+        access_token: creds.accessToken,
+      });
 
-  const initRes = await fetch(`${GRAPH_BASE}/${encodeURIComponent(creds.igUserId)}/media`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: initBody,
-    signal: AbortSignal.timeout(30_000),
-  });
-  const initText = await initRes.text();
-  if (!initRes.ok) {
-    throw new Error(`Instagram Reels init hatası (${initRes.status}): ${initText.slice(0, 500)}`);
+      const initRes = await fetch(`${GRAPH_BASE}/${encodeURIComponent(creds.igUserId)}/media`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: initBody,
+        signal: AbortSignal.timeout(30_000),
+      });
+      const initText = await initRes.text();
+      if (!initRes.ok) {
+        throw new Error(`Instagram Reels init hatası (${initRes.status}): ${initText.slice(0, 500)}`);
+      }
+
+      const initJson = JSON.parse(initText) as { id?: string; uri?: string };
+      if (!initJson.id || !initJson.uri) {
+        throw new Error(`Instagram init yanıtında id/uri eksik: ${initText.slice(0, 300)}`);
+      }
+
+      const uploadRes = await fetch(initJson.uri, {
+        method: "POST",
+        headers: {
+          Authorization: `OAuth ${creds.accessToken}`,
+          offset: "0",
+          file_size: String(fileStat.size),
+          "content-type": "application/octet-stream",
+        },
+        body: videoBytes,
+        signal: AbortSignal.timeout(300_000),
+      });
+      const uploadText = await uploadRes.text();
+      if (!uploadRes.ok) {
+        throw new Error(`Instagram Reels binary yükleme hatası (${uploadRes.status}): ${uploadText.slice(0, 500)}`);
+      }
+
+      await waitForContainerReady(initJson.id, creds.accessToken);
+      containerId = initJson.id;
+      lastUploadErr = null;
+      break;
+    } catch (err) {
+      lastUploadErr = err;
+      if (attempt < 3) {
+        const waitMs = attempt * 6000;
+        console.warn(`[instagram] Deneme ${attempt}/3 başarısız, ${waitMs / 1000}s sonra yeni container ile tekrar deneniyor...`);
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    }
   }
-
-  const initJson = JSON.parse(initText) as { id?: string; uri?: string };
-  if (!initJson.id || !initJson.uri) {
-    throw new Error(`Instagram init yanıtında id/uri eksik: ${initText.slice(0, 300)}`);
+  if (!containerId) {
+    throw lastUploadErr instanceof Error ? lastUploadErr : new Error(String(lastUploadErr));
   }
-
-  // 2) MP4 baytlarını doğrudan rupload.facebook.com adresine yükle
-  const uploadRes = await fetch(initJson.uri, {
-    method: "POST",
-    headers: {
-      Authorization: `OAuth ${creds.accessToken}`,
-      offset: "0",
-      file_size: String(fileStat.size),
-      "content-type": "application/octet-stream",
-    },
-    body: videoBytes,
-    signal: AbortSignal.timeout(300_000),
-  });
-  const uploadText = await uploadRes.text();
-  if (!uploadRes.ok) {
-    throw new Error(`Instagram Reels binary yükleme hatası (${uploadRes.status}): ${uploadText.slice(0, 500)}`);
-  }
-
-  // 3) Meta video işlemesinin bitmesini bekle
-  await waitForContainerReady(initJson.id, creds.accessToken);
 
   // 4) Reels'i yayınla
   const pubBody = new URLSearchParams({
-    creation_id: initJson.id,
+    creation_id: containerId,
     access_token: creds.accessToken,
   });
   const pubRes = await fetch(`${GRAPH_BASE}/${encodeURIComponent(creds.igUserId)}/media_publish`, {
@@ -156,7 +174,7 @@ export async function uploadReelToInstagram(
     throw new Error(`Instagram publish yanıtında media ID yok: ${pubText.slice(0, 300)}`);
   }
 
-  return { mediaId: pubJson.id, containerId: initJson.id };
+  return { mediaId: pubJson.id, containerId };
 }
 
 /**

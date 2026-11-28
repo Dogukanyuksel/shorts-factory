@@ -75,7 +75,7 @@ export function createStudioStage({
   channel = 'explainer',
   fov = 40,
   fogDensity = 0.032,
-  bufferScale = 0.75,
+  bufferScale = 1.0,
   floorY = -2.4,
   addGrid = true,
 } = {}) {
@@ -88,7 +88,7 @@ export function createStudioStage({
 
   const renderer = new THREE.WebGLRenderer({
     canvas: glCanvas,
-    antialias: false,
+    antialias: true,
     powerPreference: 'high-performance',
     preserveDrawingBuffer: true,
   });

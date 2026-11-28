@@ -91,7 +91,7 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
   if (!existsSync(scenePath)) throw new Error(`Expansion bölümü bulunamadı: ${scenePath}`);
 
   const meta = EXPANSION_CHANNEL_META[job.channel];
-  const fps = 60, width = 720, height = 1280;
+  const fps = 60, width = 1080, height = 1920;
   const outDir = resolve("out");
   await mkdir(outDir, { recursive: true });
   const tmpDir = await mkdtemp(join(tmpdir(), `shorts-exp2-${job.episode}-`));
@@ -272,10 +272,10 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
       "-y", "-i", rawMp4,
       "-f", "s16le", "-ar", String(SAMPLE_RATE), "-ac", "2", "-i", mixPath,
       "-vf", "scale=1080:1920:flags=lanczos,setsar=1,format=yuv420p",
-      "-c:v", "libx264", "-profile:v", "main", "-level", "4.1", "-preset", "medium", "-crf", "20",
-      "-maxrate", "6M", "-bufsize", "12M", "-g", String(fps * 2), "-keyint_min", String(fps),
+      "-c:v", "libx264", "-profile:v", "high", "-level", "4.2", "-preset", "medium", "-crf", "15",
+      "-maxrate", "16M", "-bufsize", "32M", "-g", String(fps * 2), "-keyint_min", String(fps),
       "-sc_threshold", "0", "-bf", "2", "-r", String(fps),
-      "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+      "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
       "-t", totalSec.toFixed(2), "-movflags", "+faststart",
       finalMp4,
     ]);
