@@ -123,19 +123,19 @@ async function main() {
                   const winStart = durVal * 0.66, winEnd = durVal * 0.84;
                   const alpha = t < winStart + 0.3 ? (t - winStart) / 0.3 : t > winEnd - 0.3 ? (winEnd - t) / 0.3 : 1;
                   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-                  const boxW = W * 0.78, boxH = 104 * S, bx = (W - boxW) * 0.5, by = H * 0.755;
-                  ctx.fillStyle = "rgba(5, 10, 24, 0.90)";
+                  const boxW = W * 0.78, boxH = 96 * S, bx = (W - boxW) * 0.5, by = H * 0.655;
+                  ctx.fillStyle = "rgba(6, 10, 20, 0.97)";
                   ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 20 * S); ctx.fill();
-                  ctx.strokeStyle = "#facc15"; ctx.lineWidth = 2.5 * S; ctx.stroke();
-                  fitText(ctx, "NEXT VIDEO? VOTE IN COMMENTS", boxW - 28 * S, 18, 12, S, 900);
+                  ctx.strokeStyle = "#facc15"; ctx.lineWidth = 2.6 * S; ctx.stroke();
+                  fitText(ctx, "NEXT VIDEO? VOTE IN COMMENTS", boxW - 28 * S, 17, 12, S, 900);
                   ctx.fillStyle = "#fde047";
-                  ctx.fillText("NEXT VIDEO? VOTE IN COMMENTS", W * 0.5, by + 30 * S);
-                  fitText(ctx, pollText, boxW - 28 * S, 20, 12, S, 800);
+                  ctx.fillText("NEXT VIDEO? VOTE IN COMMENTS", W * 0.5, by + 28 * S);
+                  fitText(ctx, pollText, boxW - 28 * S, 19, 12, S, 800);
                   ctx.fillStyle = "#ffffff";
-                  ctx.fillText(pollText, W * 0.5, by + 62 * S);
-                  fitText(ctx, "SUBSCRIBE FOR TOMORROW'S WINNER 🔔", boxW - 28 * S, 15, 11, S, 800);
+                  ctx.fillText(pollText, W * 0.5, by + 58 * S);
+                  fitText(ctx, "SUBSCRIBE FOR TOMORROW'S WINNER 🔔", boxW - 28 * S, 14, 11, S, 800);
                   ctx.fillStyle = "#38bdf8";
-                  ctx.fillText("SUBSCRIBE FOR TOMORROW'S WINNER 🔔", W * 0.5, by + 88 * S);
+                  ctx.fillText("SUBSCRIBE FOR TOMORROW'S WINNER 🔔", W * 0.5, by + 82 * S);
                 }
                 // 2026 Viewed-vs-Swiped-Away Kancası: ilk 1.75 sn sessiz kanca pill'i
                 if (t <= 1.75) {
@@ -157,12 +157,12 @@ async function main() {
                   ctx.fillText("WAIT FOR THE ENDING 👀", 0, 7 * S);
                   ctx.restore();
                 }
-                // Kesintisiz Loop Dostu Yüzer Cam Rozet (son 2.4 sn)
+                // Kesintisiz Loop Dostu Opak Cam Rozet (son 2.4 sn — alttaki yazıyı örter, sıfır overlap)
                 if (t >= durVal - 2.4) {
                   const alpha = Math.min(1, (t - (durVal - 2.4)) / 0.28);
-                  ctx.globalAlpha = Math.max(0, alpha * 0.92);
-                  const boxW = W * 0.80, boxH = 44 * S, bx = (W - boxW) * 0.5, by = H * 0.735;
-                  ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
+                  ctx.globalAlpha = Math.max(0, alpha);
+                  const boxW = W * 0.80, boxH = 48 * S, bx = (W - boxW) * 0.5, by = H * 0.705;
+                  ctx.fillStyle = "rgba(6, 10, 20, 0.96)";
                   ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 22 * S); ctx.fill();
                   ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.2 * S; ctx.stroke();
                   ctx.textAlign = "center";

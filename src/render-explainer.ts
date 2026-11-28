@@ -185,14 +185,16 @@ async function main() {
                   ctx.fillText("HOW IT ACTUALLY WORKS 👀", 0, 7 * S);
                   ctx.restore();
                 }
-                // 2-3 Kelimelik Aktif Vurgulu Yaylı Dinamik Altyazı (Clear Mechanics #FF9500 Turuncu)
-                drawWordPopCaption(ctx, tSec, W, H, S);
-                // Kesintisiz Loop Dostu Yüzer Cam Rozet (son 2.4 sn)
+                // 2-3 Kelimelik Aktif Vurgulu Yaylı Dinamik Altyazı (son 2.4 sn rozetiyle çakışmaz)
+                if (tSec < durVal - 2.4) {
+                  drawWordPopCaption(ctx, tSec, W, H, S);
+                }
+                // Kesintisiz Loop Dostu Opak Cam Rozet (son 2.4 sn — alttaki yazıyı tamamen örter, sıfır overlap)
                 if (tSec >= durVal - 2.4) {
                   const alpha = Math.min(1, (tSec - (durVal - 2.4)) / 0.28);
-                  ctx.globalAlpha = Math.max(0, alpha * 0.92);
-                  const boxW = W * 0.80, boxH = 44 * S, bx = (W - boxW) * 0.5, by = H * 0.715;
-                  ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
+                  ctx.globalAlpha = Math.max(0, alpha);
+                  const boxW = W * 0.80, boxH = 48 * S, bx = (W - boxW) * 0.5, by = H * 0.705;
+                  ctx.fillStyle = "rgba(6, 10, 20, 0.96)";
                   ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 22 * S); ctx.fill();
                   ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.2 * S; ctx.stroke();
                   ctx.textAlign = "center";

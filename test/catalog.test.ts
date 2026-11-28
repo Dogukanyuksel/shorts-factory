@@ -119,22 +119,18 @@ test("parseFfmpegProbe (QC Gate) ve teknik birim doğruluğu kontrolü", () => {
   }
 });
 
-test("Sessiz viral formatlar robotik anlatım almaz, diğer fizik videoları anlatımlı kalır", async () => {
+test("Tüm fizik videoları anlatımlı olmalı (sessiz Short yasak)", async () => {
   const { pickNextJob, SILENT_NICHES } = await import("../src/catalog.js");
+  assert.equal(SILENT_NICHES.size, 0, "SILENT_NICHES boş olmalı — sessiz Short üretilmez");
   const published = new Set<string>();
-  let silentCount = 0;
   let voicedCount = 0;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < CURATED_PHYSICS_JOBS.length; i++) {
     const job = pickNextJob("physics", published);
     if (!job || job.channel !== "physics") break;
-    if (SILENT_NICHES.has(job.niche)) {
-      assert.equal(job.silent, true, `${job.id} sessiz olmalı`);
-      silentCount++;
-    } else {
-      assert.ok(!job.silent, `${job.id} anlatımlı olmalı`);
-      voicedCount++;
-    }
+    assert.ok(!job.silent, `${job.id} sessiz olmamalı`);
+    assert.ok(job.narration.trim().length >= 30, `${job.id} yeterli seslendirme metnine sahip olmalı`);
+    voicedCount++;
     published.add(job.id);
   }
-  assert.ok(silentCount >= 6 && voicedCount > silentCount, `sessiz=${silentCount}, anlatımlı=${voicedCount}`);
+  assert.equal(voicedCount, CURATED_PHYSICS_JOBS.length, `Tüm küratörlü fizik işleri anlatımlı olmalı: ${voicedCount}`);
 });

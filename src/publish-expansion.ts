@@ -196,15 +196,17 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
                 ctx.restore();
               }
 
-              // 2-3 Kelimelik Aktif Vurgulu Yaylı Dinamik Altyazı (60fps Word-Pop)
-              drawWordPopCaption(ctx, tSec, W, H, S);
+              // 2-3 Kelimelik Aktif Vurgulu Yaylı Dinamik Altyazı (son 2.4 sn rozetiyle çakışmaz)
+              if (tSec < durVal - 2.4) {
+                drawWordPopCaption(ctx, tSec, W, H, S);
+              }
 
-              // Kesintisiz Loop Dostu Yüzer Rozet (son 2.4 sn — animasyonu kesmeden hafif cam pill)
+              // Kesintisiz Loop Dostu Opak Cam Rozet (son 2.4 sn — alttaki yazıyı tamamen örter, sıfır overlap)
               if (tSec >= durVal - 2.4) {
                 const alpha = Math.min(1, (tSec - (durVal - 2.4)) / 0.28);
-                ctx.globalAlpha = Math.max(0, alpha * 0.92);
-                const cw = W * 0.78, ch = 44 * S, cx = (W - cw) * 0.5, cy = H * 0.715;
-                ctx.fillStyle = "rgba(8, 15, 34, 0.86)";
+                ctx.globalAlpha = Math.max(0, alpha);
+                const cw = W * 0.78, ch = 48 * S, cx = (W - cw) * 0.5, cy = H * 0.705;
+                ctx.fillStyle = "rgba(6, 10, 20, 0.96)";
                 ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 22 * S); ctx.fill();
                 ctx.strokeStyle = accent; ctx.lineWidth = 2.2 * S; ctx.stroke();
                 fitText(ctx, handleText, cw - 28 * S, 16, 11, S, 900);

@@ -50,8 +50,8 @@ export type PhysicsJob = {
   categoryId: string;
 };
 
-/** Sessiz (anlatımsız) çalışan nişler — referans hesaplarda da seslendirme yok, sadece müzik/efekt. */
-export const SILENT_NICHES: ReadonlySet<PhysicsNiche> = new Set<PhysicsNiche>(["spin-illusion", "doubling-ladder"]);
+/** Tüm Shorts videoları ilk 0.1 sn'den itibaren dinamik nöral seslendirme alır (sessiz Short üretilmez). */
+export const SILENT_NICHES: ReadonlySet<PhysicsNiche> = new Set<PhysicsNiche>();
 
 export type ExplainerJob = {
   id: string;
@@ -355,7 +355,6 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     seconds: 16,
     hook: "REVERSE THE SPIN WITH YOUR MIND",
     narration: "There is no right answer. Your brain picks the direction. Stare at the center, blink, and make it reverse.",
-    silent: true,
     title: "Your Mind Can Reverse This Spinning Cylinder #shorts",
     description: "Your mind is powerful: reverse the spin of the gray cylinder. ✨ Without depth cues your brain has to guess the direction, so with focus you can flip it. Comment if you made it spin both ways!\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
     tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
@@ -384,7 +383,6 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     seconds: 30,
     hook: "HOW MANY FOLDS TO REACH THE MOON?",
     narration: "Fold a sheet of paper in half, again and again. Every fold doubles it. Guess the number before it lands.",
-    silent: true,
     title: "How Many Paper Folds to Reach the Moon? #shorts",
     description: "Fold a 0.1 mm sheet of paper in half. Again. And again. Past a dice, a cat, you, the Burj Khalifa, Everest, space, the Space Station… Guess before it lands: how many folds for the Moon? 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
     tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
@@ -413,7 +411,6 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     seconds: 16,
     hook: "CAN YOU MAKE IT SPIN BOTH WAYS?",
     narration: "Your visual system has no depth cues here. Watch the cone and try to flip its direction with your mind.",
-    silent: true,
     title: "Can You Make This Cone Spin BOTH Ways? #shorts",
     description: "Only your brain decides which way this pink cone spins. Try to reverse it: stare at the tip, blink, try again. Most people need 3 tries.\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
     tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
@@ -442,7 +439,6 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     seconds: 30,
     hook: "ONE BACTERIUM LINED UP… HOW LONG TO THE SUN?",
     narration: "One bacterium divides. Then again. Line them up and watch exponential growth race past the Moon toward the Sun.",
-    silent: true,
     title: "One Bacterium Doubling… When Does It Reach the Sun? #shorts",
     description: "Start with a single 2 µm bacterium. Every division doubles the line. Guess how many divisions until it reaches the Sun 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
     tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
@@ -471,7 +467,6 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     seconds: 16,
     hook: "WHICH WAY IS THE SPHERE SPINNING?",
     narration: "Left or right? There is no correct answer. Your brain chooses, and you can switch it.",
-    silent: true,
     title: "Which Way Is This Sphere Spinning? (Your Brain Decides) #shorts",
     description: "Left or right? This green sphere has no depth cues, so your brain picks a direction. Can you switch it? Comment LEFT or RIGHT.\n\n✨ Follow for a new one every day\n\n#shorts #illusion #brain #opticalillusion #science",
     tags: ["optical illusion", "brain test", "spinning illusion", "perception", "shorts"],
@@ -500,7 +495,6 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     seconds: 30,
     hook: "HOW MANY FOLDS TO OUTGROW THE UNIVERSE?",
     narration: "Every fold doubles the thickness. Past the Sun, past Pluto, across the Milky Way, and beyond the observable universe.",
-    silent: true,
     title: "How Many Paper Folds to Outgrow the Universe? #shorts",
     description: "Fold a sheet of paper in half over and over. Past the Moon, the Sun, Pluto, the Milky Way, Andromeda… Guess before it lands: how many folds to outgrow the observable universe? 👇\n\n✨ Follow for a new one every day\n\n#shorts #math #space #exponentialgrowth #science",
     tags: ["exponential growth", "paper folding", "math", "space", "shorts"],
@@ -1622,7 +1616,7 @@ export function pickJobByKey(
         seconds: 24,
         hook,
         narration,
-        title: `YOU VOTED FOR THIS: ${meta.titlePrefix} #shorts`.slice(0, 100),
+        title: `${meta.titlePrefix}: ${hook} #shorts`.slice(0, 100),
         description: `Requested by your comments! Deterministic 60fps visualization exploring ${meta.topic}.\n\n#shorts #physics #simulation #science`,
         tags: ["physics simulation", "science", "math", niche.replace("-", " "), "shorts"],
         categoryId: "28",
