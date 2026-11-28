@@ -62,12 +62,14 @@ test("release-audit: longform HTML dosyalarinda findBeat boslukta son beat'e (SU
   }
 });
 
-test("release-audit: 4 Short publish workflow'unun tamaminda TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID tanimli", () => {
+test("release-audit: tum publish workflow'larinda TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID tanimli", () => {
   const wfFiles = [
     "auto-publish-physics.yml",
     "auto-publish-explainer.yml",
     "auto-publish-wealth.yml",
     "auto-publish-bio.yml",
+    "auto-publish-longform.yml",
+    "publish-longform-expansion.yml",
   ];
   for (const wf of wfFiles) {
     const yml = readFileSync(resolve(".github", "workflows", wf), "utf8");

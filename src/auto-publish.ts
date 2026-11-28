@@ -319,6 +319,15 @@ async function main() {
       }
       console.log(`✅ [qc] GEÇTİ: ${qc.width}x${qc.height}, ${qc.durationSec.toFixed(1)}s, ${(qc.fileSizeBytes / 1024 / 1024).toFixed(1)} MB`);
       const funnel = buildFunnelMetadata(derivedItem);
+      const derivedPolicy = runPolicyGuard({
+        channel,
+        title: derivedItem.title,
+        description: funnel.description,
+        recentTitles: state.published.filter((r) => r.channel === channel).slice(-60).map((r) => r.title),
+      });
+      if (!derivedPolicy.ok) {
+        throw new Error(`[policy-guard] Türetilmiş short reddedildi (${derivedItem.id}): ${derivedPolicy.errors.join(" | ")}`);
+      }
       if (dryRun) {
         console.log(`[auto-publish] DRY-RUN Vitrin Short tamamlandı: ${mp4Path}`);
         console.log(`  Açıklama:\n${funnel.description}`);

@@ -228,12 +228,14 @@ export async function synthesizeVoice(
   }
 
   try {
+    const fallbackCfg = role === "cohost" ? KOKORO_COHOST_VOICES[channel] : KOKORO_CHANNEL_VOICES[channel];
+    const fallbackSes = fallbackCfg.voice.startsWith("af_") ? "kadin" : "erkek";
     const r = await fetchWithRetry(
       "https://haber.yukselmedya.com/api/v1/ses",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ metin: text, ses: "erkek", dil: "en" }),
+        body: JSON.stringify({ metin: text, ses: fallbackSes, dil: "en" }),
       },
       { retries: 3, baseDelayMs: 2000, timeoutMs: 25_000 },
     );
