@@ -1,18 +1,18 @@
 {
-  "updatedAt": "2026-11-28T01:30:40.648Z",
+  "updatedAt": "2026-11-28T05:20:28.087Z",
   "physics": {
     "boostedNiches": [
+      "spin-illusion",
       "chladni-sand",
-      "pendulum-chaos-100",
-      "spin-illusion"
+      "pi-collisions"
     ],
     "cooledNiches": [
-      "doubling-ladder",
-      "physics-ring"
+      "giant-vs-swarm",
+      "doubling-ladder"
     ],
     "topWinningTitles": [
       "100 Pendulums Dropped 0.001° Apart: Watch Second 7 #shorts",
-      "The Math Wall That Breaks Every Weather Forecast #shorts",
+      "Your Mind Can Reverse This Spinning Cylinder #shorts",
       "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts"
     ]
   },
