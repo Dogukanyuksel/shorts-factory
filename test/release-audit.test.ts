@@ -61,3 +61,17 @@ test("release-audit: longform HTML dosyalarinda findBeat boslukta son beat'e (SU
     assert.equal(buggyGap1.test(html) || buggyGap2.test(html), false, `${f} icinde boslukta son beat'i donduren bug bulundu`);
   }
 });
+
+test("release-audit: 4 Short publish workflow'unun tamaminda TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID tanimli", () => {
+  const wfFiles = [
+    "auto-publish-physics.yml",
+    "auto-publish-explainer.yml",
+    "auto-publish-wealth.yml",
+    "auto-publish-bio.yml",
+  ];
+  for (const wf of wfFiles) {
+    const yml = readFileSync(resolve(".github", "workflows", wf), "utf8");
+    assert.ok(yml.includes("TELEGRAM_BOT_TOKEN"), `${wf} icinde TELEGRAM_BOT_TOKEN eksik`);
+    assert.ok(yml.includes("TELEGRAM_CHAT_ID"), `${wf} icinde TELEGRAM_CHAT_ID eksik`);
+  }
+});

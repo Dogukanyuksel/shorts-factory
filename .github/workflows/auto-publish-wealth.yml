@@ -64,6 +64,8 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_WEALTH: ${{ secrets.YOUTUBE_REFRESH_TOKEN_WEALTH }}
           IG_USER_ID_WEALTH: ${{ secrets.IG_USER_ID_WEALTH }}
           META_ACCESS_TOKEN_WEALTH: ${{ secrets.META_ACCESS_TOKEN_WEALTH }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           # Zamanlayıcı + gecikmiş cron aynı slotta 2 short yayınlamasın
           MIN_PUBLISH_GAP_HOURS: "2"
@@ -75,4 +77,16 @@ jobs:
         run: |
           if [ -f state/published-expansion.json ]; then
             npx tsx src/safe-git-push.ts state/published-expansion.json "chore(publish): wealth mechanics short yayinlandi"
+          fi
+
+      - name: Hata durumunda Telegram bildirimi
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID_YOUTUBE }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=❌ [Y-LABS] Wealth Mechanics Short yayını başarısız oldu: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null || true
           fi
