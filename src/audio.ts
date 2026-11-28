@@ -29,7 +29,8 @@ export function synthesizeEventsPcm(
   const mixR = new Float32Array(totalFrames);
 
   for (const ev of events) {
-    const start = Math.floor(ev.t * sampleRate);
+    const leadSec = ev.type === "break" ? 0.05 : ev.type === "bounce" ? 0.025 : 0;
+    const start = Math.floor(Math.max(0, ev.t - leadSec) * sampleRate);
     if (start < 0 || start >= totalFrames) continue;
     const gain = clamp(ev.intensity ?? 0.75, 0.2, 1.0);
     const idx = Math.abs(ev.pitchIndex ?? 0) % PENTATONIC_HZ.length;

@@ -301,10 +301,65 @@ export async function renderNarrativeLongformVideo(
         { t: climaxT, headline: thumbHeadline, accent: spec.accentHex },
       );
       await writeFile(thumbnailPath, Buffer.from(thumbB64, "base64"));
-      console.log(`🖼️ [narrative-longform] 1280x720 yüksek-CTR kapak üretildi: ${thumbnailPath}`);
+      // Studio Test & Compare için 2 ek kapak varyantı (B: Act 1 Kanca, C: Act 4 Karşılaştırma)
+      const extraVariants = [
+        { suffix: "-thumb-B.jpg", t: Number((totalSec * 0.14).toFixed(2)), headline: (spec.derivedShorts[1]?.hook || spec.beats[0]?.caption || thumbHeadline).toUpperCase() },
+        { suffix: "-thumb-C.jpg", t: Number((totalSec * 0.84).toFixed(2)), headline: (spec.derivedShorts[2]?.hook || spec.beats[spec.beats.length - 2]?.caption || thumbHeadline).toUpperCase() },
+      ];
+      for (const v of extraVariants) {
+        const vB64: string = await page.evaluate(
+          (cfg) => {
+            const g = globalThis as unknown as { renderFrame: (t: number) => void };
+            g.renderFrame(cfg.t);
+            const src = document.getElementById("c") as HTMLCanvasElement;
+            const th = document.createElement("canvas");
+            th.width = 1280;
+            th.height = 720;
+            const tc = th.getContext("2d")!;
+            tc.drawImage(src, 0, 0, 1280, 720);
+            const grad = tc.createLinearGradient(0, 720, 0, 260);
+            grad.addColorStop(0, "rgba(2, 6, 23, 0.92)");
+            grad.addColorStop(0.55, "rgba(2, 6, 23, 0.42)");
+            grad.addColorStop(1, "rgba(2, 6, 23, 0.0)");
+            tc.fillStyle = grad;
+            tc.fillRect(0, 0, 1280, 720);
+            let px = 84;
+            while (px > 42) {
+              tc.font = `900 ${px}px -apple-system, BlinkMacSystemFont, sans-serif`;
+              if (tc.measureText(cfg.headline).width <= 1160) break;
+              px -= 3;
+            }
+            tc.textAlign = "left";
+            tc.lineJoin = "round";
+            tc.lineWidth = 14;
+            tc.strokeStyle = "rgba(2, 6, 23, 0.96)";
+            tc.strokeText(cfg.headline, 54, 646);
+            tc.fillStyle = "#fde047";
+            tc.fillText(cfg.headline, 54, 646);
+            return th.toDataURL("image/jpeg", 0.92).slice("data:image/jpeg;base64,".length);
+          },
+          { t: v.t, headline: v.headline },
+        );
+        await writeFile(join(outDir, `${spec.id}${v.suffix}`), Buffer.from(vB64, "base64"));
+      }
+      console.log(`🖼️ [narrative-longform] 3 kapak varyantı üretildi (A+B+C — Test & Compare hazır): ${thumbnailPath}`);
     } catch (thErr) {
       console.warn("[narrative-longform] Kapak görseli üretim uyarısı:", thErr);
     }
+
+    // Kapalı Altyazı (CC — .srt) dosyası (kota harcamadan yerel arşiv + Studio yüklemesine hazır)
+    const srtLines = timed.map((b, i) => {
+      const fmtSrt = (sec: number) => {
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = Math.floor(sec % 60);
+        const ms = Math.round((sec % 1) * 1000);
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+      };
+      return `${i + 1}\n${fmtSrt(b.start)} --> ${fmtSrt(b.end)}\n${b.text}\n`;
+    });
+    const srtPath = join(outDir, `${spec.id}.srt`);
+    await writeFile(srtPath, srtLines.join("\n"), "utf8");
 
     // 4 Perde YouTube chapter zaman damgaları
     const chapters: Array<{ timestamp: string; title: string }> = [];
@@ -331,13 +386,14 @@ export async function renderNarrativeLongformVideo(
           resolution: "1920x1080",
           fps,
           chapters,
+          srtPath,
           derivedShortsCount: spec.derivedShorts.length,
         },
         null,
         2,
       ),
     );
-    console.log(`✅ [narrative-longform] TAMAM: ${mp4Path} (${fmtTimestamp(totalSec)}, 1920x1080)`);
+    console.log(`✅ [narrative-longform] TAMAM: ${mp4Path} (${fmtTimestamp(totalSec)}, 1920x1080, CC: ${srtPath})`);
 
     return {
       episodeId: spec.id,

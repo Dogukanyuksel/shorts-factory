@@ -22,6 +22,7 @@ import {
   buildYouTubeNetworkFooter,
 } from "./network-links.js";
 import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
+import { ensureSensitiveDisclaimer, runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import { synthesizeVoice } from "./voice.js";
@@ -102,7 +103,7 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
     const timed: TimedLine[] = [];
     let t = 0.12;
     for (let i = 0; i < script.length; i++) {
-      const audioIn = await synthesizeVoice(script[i].text, join(tmpDir, `v${i}.mp3`));
+      const audioIn = await synthesizeVoice(script[i].text, join(tmpDir, `v${i}.mp3`), job.channel);
       const rawMono = join(tmpDir, `v${i}.raw`);
       await runCmd(ffmpegPath, ["-y", "-i", audioIn, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", rawMono]);
       const buf = await readFile(rawMono);
@@ -335,6 +336,20 @@ async function main() {
     }
   }
 
+  const safeDesc = ensureSensitiveDisclaimer(channel, job.description);
+  const policy = runPolicyGuard({
+    channel,
+    title: job.title,
+    description: safeDesc,
+    recentTitles: published.slice(-20).map((r) => r.title),
+  });
+  if (!policy.ok) {
+    throw new Error(`Politika/Benzerlik Kapısı REDDETTİ: ${policy.errors.join(" | ")}`);
+  }
+  if (policy.warnings.length > 0) {
+    console.warn(`[policy-guard] Uyarılar: ${policy.warnings.join(" | ")}`);
+  }
+
   const epNum = published.filter((r) => r.channel === channel).length + 1;
   const mp4Path = await renderExpansionEpisode(job, epNum);
   const qc = await runVideoQc(mp4Path);
@@ -346,7 +361,7 @@ async function main() {
     return;
   }
 
-  const ytDescription = `${job.description}\n\n${buildYouTubeNetworkFooter(channel)}`;
+  const ytDescription = `${safeDesc}\n\n${buildYouTubeNetworkFooter(channel)}`;
   const uploaded = await uploadVideoToYouTube(
     mp4Path,
     { title: job.title, description: ytDescription, tags: job.tags, categoryId: job.categoryId, privacyStatus: privacy },
