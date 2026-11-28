@@ -72,3 +72,20 @@ export async function assertThreeJsScene(scenePath: string, label: string): Prom
     );
   }
 }
+
+/** Uygun 3D PBR sahne kalmadığında kanalın sessizce durmasını önlemek için Telegram'a uyarı gönderir. */
+export async function notifyTelegram3DQueueEmpty(channel: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const chatId = (process.env.TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID_YOUTUBE)?.trim();
+  if (!token || !chatId) return;
+  const text = `⚠️ [Y-LABS 3D-GATE] "${channel}" kanalında yayına hazır 3D PBR sahne kalmadı! Yeni sahneleri 3D'ye çevirince yayın otomatik devam edecek.`;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+  } catch {
+    // Bildirim hatası iş akışını bozmamalı
+  }
+}

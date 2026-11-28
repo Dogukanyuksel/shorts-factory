@@ -278,12 +278,12 @@
         }
       };
     }
+    let activeIdx = 0;
     for (let i = 0; i < BEATS.length; i++) {
-      const b = BEATS[i];
-      if (t >= b.start && t < b.end) return { idx: i, beat: b };
+      if (t >= BEATS[i].start) activeIdx = i;
+      else break;
     }
-    if (t < BEATS[0].start) return { idx: 0, beat: BEATS[0] };
-    return { idx: BEATS.length - 1, beat: BEATS[BEATS.length - 1] };
+    return { idx: activeIdx, beat: BEATS[activeIdx] };
   }
 
   // ---------- Initialization ----------

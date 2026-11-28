@@ -38,7 +38,13 @@ import {
 import { getNarrativeLongformBySlug } from "./longform-narrative.js";
 import { runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
-import { assertThreeJsScene, isLegacy2DAllowed, isThreeJsSceneFile, isThreeJsSceneFileSync } from "./webgl-helper.js";
+import {
+  assertThreeJsScene,
+  isLegacy2DAllowed,
+  isThreeJsSceneFile,
+  isThreeJsSceneFileSync,
+  notifyTelegram3DQueueEmpty,
+} from "./webgl-helper.js";
 import { renderDerivedShortVideo } from "./render-narrative.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import {
@@ -533,6 +539,7 @@ async function main() {
 
   if (!job) {
     console.log(`[auto-publish] ⏸️ "${channel}" kanalı için uygun (3D PBR + politika uyumlu) yeni video kalmadı — yeni 3D sahne eklenene kadar bekleniyor.`);
+    if (!dryRun) await notifyTelegram3DQueueEmpty(channel);
     return;
   }
 

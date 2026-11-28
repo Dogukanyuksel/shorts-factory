@@ -1,19 +1,25 @@
 <!doctype html>
 <!--
-  Bio Mechanics — How Lifting Weights Actually Rebuilds Bigger Muscles
-  60fps, deterministic, audio-synced HTML5 Canvas medical cutaway
+  Bio Mechanics — How Lifting Weights Actually Rebuilds Bigger Muscles (3D PBR Myofibril Bundle + Micro-Tears + Satellite Stem Cells)
+  Y-LABS 3D Cinema Engine (Three.js PBR, 60fps deterministic)
 -->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#0D1117;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  microShake,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 const SCRIPT = [
   { id: 'hook', text: 'Muscles do not grow while you lift weights. They actually grow while you repair the damage.', caption: 'THE GROWTH PARADOX' },
@@ -25,6 +31,8 @@ const SCRIPT = [
 ];
 
 let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let bundleGroup, fibers = [], zRings = [], tearSparks = [], satCells = [];
 
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
@@ -34,6 +42,93 @@ function getLine(id, fallbackIdx) {
   if (found) return found;
   const seg = DUR / SCRIPT.length;
   return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+function buildScene() {
+  stage = createStudioStage({
+    width: W,
+    height: H,
+    channel: 'bio',
+    fov: 38,
+    fogDensity: 0.028,
+    addGrid: false,
+  });
+  const { scene } = stage;
+  const mats = createMaterials('bio');
+
+  bundleGroup = new THREE.Group();
+  scene.add(bundleGroup);
+
+  // Translucent outer sarcolemma sheath
+  const sheath = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.75, 1.75, 5.4, 32, 1, true),
+    mats.translucent(0xff2d55, 0.16),
+  );
+  sheath.rotation.z = Math.PI / 2;
+  bundleGroup.add(sheath);
+
+  // 19 packed 3D PBR striated myofibril cylinders
+  fibers = [];
+  const fiberGeo = new THREE.CylinderGeometry(0.24, 0.24, 5.2, 18);
+  fiberGeo.rotateZ(Math.PI / 2);
+  const coords = [[0, 0]];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    coords.push([Math.cos(a) * 0.58, Math.sin(a) * 0.58]);
+  }
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    coords.push([Math.cos(a) * 1.15, Math.sin(a) * 1.15]);
+  }
+  for (let i = 0; i < coords.length; i++) {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xe11d48,
+      emissive: 0x881337,
+      emissiveIntensity: 0.35,
+      roughness: 0.28,
+      metalness: 0.22,
+    });
+    const m = new THREE.Mesh(fiberGeo, mat);
+    m.position.set(0, coords[i][0], coords[i][1]);
+    bundleGroup.add(m);
+    fibers.push({ mesh: m, mat, baseY: coords[i][0], baseZ: coords[i][1] });
+  }
+
+  // Z-Disc striation rings along the muscle bundle
+  zRings = [];
+  const zGeo = new THREE.TorusGeometry(1.62, 0.045, 10, 40);
+  zGeo.rotateY(Math.PI / 2);
+  for (let i = -2; i <= 2; i++) {
+    const mat = mats.glow(0xfda4af, 0.45);
+    const r = new THREE.Mesh(zGeo, mat);
+    r.position.x = i * 1.05;
+    bundleGroup.add(r);
+    zRings.push({ mesh: r, mat, baseX: i * 1.05 });
+  }
+
+  // Glowing golden/crimson micro-tear sparks along Z-discs
+  tearSparks = [];
+  const spGeo = new THREE.OctahedronGeometry(0.14, 0);
+  const spMat = mats.glow(0xffd60a, 1.5);
+  for (let i = 0; i < 20; i++) {
+    const m = new THREE.Mesh(spGeo, spMat);
+    m.visible = false;
+    bundleGroup.add(m);
+    tearSparks.push({ mesh: m, ang: i * 2.1, x: ((i % 5) - 2) * 1.05 });
+  }
+
+  // Luminous emerald Satellite Stem Cells swarming in to repair & thicken fibers
+  satCells = [];
+  const satGeo = new THREE.SphereGeometry(0.22, 18, 18);
+  const satMat = mats.glow(0x34c759, 1.25);
+  for (let i = 0; i < 18; i++) {
+    const m = new THREE.Mesh(satGeo, satMat);
+    m.visible = false;
+    bundleGroup.add(m);
+    satCells.push({ mesh: m, ang: (i / 18) * Math.PI * 2, x: lerp(-2.1, 2.1, (i % 6) / 5), phase: i * 0.4 });
+  }
+
+  built = true;
 }
 
 window.init = (cfg = {}) => {
@@ -60,619 +155,109 @@ window.init = (cfg = {}) => {
     { t: lSa.start + 1.05, type: 'bounce', pitchIndex: 8, intensity: 0.74 },
     { t: Math.min(DUR - 0.25, lHy.start + 0.95), type: 'win', pitchIndex: 10, intensity: 0.95 },
   ];
+
+  if (!built) buildScene();
 };
 
-function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
-  let px = Math.round(basePx);
-  ctx.font = `${weight} ${px}px ${family}`;
-  const m = ctx.measureText(text).width || 1;
-  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
-  ctx.font = `${weight} ${px}px ${family}`;
-  return px;
-}
+function renderSceneAt(t) {
+  if (!built) buildScene();
 
-function getActivePhase(t) {
-  for (let i = SCRIPT.length - 1; i >= 0; i--) {
-    const ln = getLine(SCRIPT[i].id, i);
-    if (t >= ln.start) return { idx: i, line: ln };
-  }
-  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
-}
-
-// Draw a luminous cyan satellite stem cell with glowing nucleus & pseudopods
-function drawSatelliteCell(x, y, r, alpha, fuseGlow, rot, S) {
-  if (alpha <= 0.01) return;
-  ctx.save();
-  ctx.globalAlpha = clamp(alpha, 0, 1);
-  ctx.translate(x, y);
-  ctx.rotate(rot);
-
-  // Outer bioluminescent aura
-  const auraR = r * (2.3 + 0.6 * fuseGlow);
-  const ag = ctx.createRadialGradient(0, 0, r * 0.15, 0, 0, auraR);
-  ag.addColorStop(0, 'rgba(56,189,248,0.75)');
-  ag.addColorStop(0.45, 'rgba(52,211,153,0.32)');
-  ag.addColorStop(1, 'rgba(56,189,248,0)');
-  ctx.fillStyle = ag;
-  ctx.beginPath();
-  ctx.arc(0, 0, auraR, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Organic spindle-shaped stem cell membrane
-  const bodyG = ctx.createRadialGradient(-r * 0.25, -r * 0.2, r * 0.1, 0, 0, r * 1.4);
-  bodyG.addColorStop(0, '#e0f2fe');
-  bodyG.addColorStop(0.45, '#38bdf8');
-  bodyG.addColorStop(1, '#0369a1');
-  ctx.fillStyle = bodyG;
-  ctx.strokeStyle = '#7dd3fc';
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, r * 1.38, r * 0.78, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // Bright emerald-white nucleus
-  ctx.fillStyle = '#ecfeff';
-  ctx.beginPath();
-  ctx.ellipse(r * 0.08, 0, r * 0.48, r * 0.34, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-// Draw golden amino-acid protein bead
-function drawProteinBead(x, y, r, alpha, S) {
-  if (alpha <= 0.01) return;
-  ctx.save();
-  ctx.globalAlpha = clamp(alpha, 0, 1);
-  const g = ctx.createRadialGradient(x, y, r * 0.1, x, y, r * 2.1);
-  g.addColorStop(0, '#fef3c7');
-  g.addColorStop(0.4, '#fbbf24');
-  g.addColorStop(1, 'rgba(251,191,36,0)');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(x, y, r * 2.1, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = '#fde68a';
-  ctx.beginPath();
-  ctx.arc(x, y, r * 0.65, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawFrame(t) {
-  const S = W / 720;
-  const safeLeft = W * 0.075;
-  const safeRight = W * 0.835;
-  const safeW = safeRight - safeLeft;
-  const cx = (safeLeft + safeRight) * 0.5;
-
-  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
-  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
-
-  const lBu = getLine('bundle', 1);
   const lTe = getLine('tension', 2);
   const lTr = getLine('tears', 3);
   const lSa = getLine('satellite', 4);
   const lHy = getLine('hypertrophy', 5);
 
-  // Key animation envelopes (100% deterministic functions of t)
-  const zoomIn = smooth(lBu.start, lBu.end - 0.3, t);
-  const tensionAmt = smooth(lTe.start, lTe.start + 0.9, t) * (1 - smooth(lSa.start, lSa.start + 0.7, t));
-  const tearOpen = smooth(lTr.start + 0.1, lTr.start + 1.0, t) * (1 - smooth(lSa.start + 1.2, lHy.start + 0.5, t));
-  const stemSwarm = smooth(lSa.start, lSa.start + 1.35, t);
-  const stemFuse = smooth(lSa.start + 1.1, lHy.start + 0.65, t);
-  const hypertrophy = smooth(lHy.start, lHy.end - 0.35, t);
-
-  // Subtle vibration under peak mechanical tension & tear snap
-  const tearImpact = Math.exp(-Math.pow((t - (lTr.start + 0.35)) / 0.28, 2));
-  const strainVib = tensionAmt * 1.9 * S * Math.sin(t * 78) + tearImpact * 4.5 * S * Math.sin(t * 115);
-
-  // === 1. DEEP MIDNIGHT #050712 MEDICAL STUDIO BACKGROUND ===
-  ctx.fillStyle = '#050712';
-  ctx.fillRect(0, 0, W, H);
-
-  const bgGlow = ctx.createRadialGradient(cx, H * 0.40, 20 * S, cx, H * 0.40, H * 0.46);
-  if (hypertrophy > 0.25) {
-    bgGlow.addColorStop(0, `rgba(52,211,153,${(0.16 * hypertrophy + 0.08).toFixed(3)})`);
-  } else if (stemSwarm > 0.25) {
-    bgGlow.addColorStop(0, `rgba(56,189,248,${(0.18 * stemSwarm + 0.06).toFixed(3)})`);
-  } else if (tearOpen > 0.2 || tensionAmt > 0.2) {
-    bgGlow.addColorStop(0, `rgba(251,113,133,${(0.22 * Math.max(tearOpen, tensionAmt) + 0.06).toFixed(3)})`);
-  } else {
-    bgGlow.addColorStop(0, 'rgba(225,29,72,0.14)');
-  }
-  bgGlow.addColorStop(0.55, 'rgba(15,23,42,0.16)');
-  bgGlow.addColorStop(1, 'rgba(5,7,18,0)');
-  ctx.fillStyle = bgGlow;
-  ctx.fillRect(0, 0, W, H);
-
-  // Diagnostic background grid strictly inside safe zone
-  ctx.strokeStyle = 'rgba(56,189,248,0.045)';
-  ctx.lineWidth = 1 * S;
-  for (let x = safeLeft; x <= safeRight; x += 42 * S) {
-    ctx.beginPath(); ctx.moveTo(x, H * 0.14); ctx.lineTo(x, H * 0.74); ctx.stroke();
-  }
-  for (let y = H * 0.14; y <= H * 0.74; y += 42 * S) {
-    ctx.beginPath(); ctx.moveTo(safeLeft, y); ctx.lineTo(safeRight, y); ctx.stroke();
+  let activeCaption = SCRIPT[0].caption;
+  for (let i = 0; i < SCRIPT.length; i++) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) activeCaption = ln.caption || SCRIPT[i].caption;
   }
 
-  // === 2. MAIN STAGE: CROSS-SECTION BUNDLE -> ZOOM INTO 3 STRIATED MYOFIBRILS ===
-  const stageY = H * 0.405;
-  const fiberLeft = lerp(safeLeft + 108 * S, safeLeft + 18 * S, zoomIn);
-  const fiberRight = safeRight - 22 * S;
-  const fiberW = fiberRight - fiberLeft;
-  const stretchPx = tensionAmt * 18 * S;
+  const pTension = smooth(lTe.start, lTe.end, t) * (1 - smooth(lSa.start, lSa.start + 0.8, t));
+  const pTears = smooth(lTr.start, lTr.start + 0.8, t) * (1 - smooth(lHy.start, lHy.start + 0.9, t));
+  const pSat = smooth(lSa.start, lSa.start + 1.1, t);
+  const pHyper = smooth(lHy.start, lHy.end, t);
 
-  // Muscle fiber diameter visibly thickens during hypertrophy!
-  const baseFiberH = lerp(42 * S, 54 * S, zoomIn);
-  const fiberH = baseFiberH * (1 + 0.42 * hypertrophy);
-  const rowGap = lerp(20 * S, 24 * S, zoomIn) * (1 - 0.12 * hypertrophy);
+  // Mechanical stretch under tension + hypertrophy thickening!
+  const stretchX = 1 + 0.16 * pTension;
+  const thickYZ = lerp(1.0, 1.32, pHyper) * (1 - 0.06 * pTension);
+  bundleGroup.scale.set(stretchX, thickYZ, thickYZ);
+  bundleGroup.rotation.set(t * 0.32, Math.sin(t * 0.4) * 0.28, 0.18);
 
-  // 2A. Cross-section of muscle bundle on left (prominent in hook/bundle, smoothly recedes on zoom)
-  const crossAlpha = 1 - smooth(lTe.start - 0.2, lTe.start + 0.6, t);
-  if (crossAlpha > 0.02) {
-    ctx.save();
-    ctx.globalAlpha = crossAlpha;
-    const bx = safeLeft + 62 * S;
-    const by = stageY;
-    const br = lerp(56 * S, 44 * S, zoomIn);
-
-    // Epimysium outer sheath
-    const epiG = ctx.createRadialGradient(bx - 12 * S, by - 14 * S, 4 * S, bx, by, br);
-    epiG.addColorStop(0, '#fb7185');
-    epiG.addColorStop(0.55, '#9f1239');
-    epiG.addColorStop(1, '#4c0519');
-    ctx.fillStyle = epiG;
-    ctx.strokeStyle = '#fda4af';
-    ctx.lineWidth = 2.4 * S;
-    ctx.beginPath();
-    ctx.ellipse(bx, by, br * 0.82, br * 1.45, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Nested fascicle circles inside cross-section
-    const fascicles = [
-      { ox: 0, oy: -0.78, r: 0.34 },
-      { ox: -0.30, oy: -0.22, r: 0.32 },
-      { ox: 0.28, oy: -0.18, r: 0.33 },
-      { ox: -0.26, oy: 0.42, r: 0.32 },
-      { ox: 0.28, oy: 0.45, r: 0.31 },
-      { ox: 0, oy: 0.92, r: 0.28 },
-    ];
-    for (let f = 0; f < fascicles.length; f++) {
-      const fc = fascicles[f];
-      const fx = bx + fc.ox * br;
-      const fy = by + fc.oy * br;
-      const fr = fc.r * br;
-      ctx.fillStyle = '#be123c';
-      ctx.strokeStyle = 'rgba(253,164,175,0.65)';
-      ctx.lineWidth = 1.4 * S;
-      ctx.beginPath();
-      ctx.ellipse(fx, fy, fr * 0.78, fr * 1.05, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      // Tiny myofibril dots
-      ctx.fillStyle = '#ffe4e6';
-      for (let d = 0; d < 4; d++) {
-        const ang = d * Math.PI * 0.5 + 0.4;
-        ctx.beginPath();
-        ctx.arc(fx + Math.cos(ang) * fr * 0.34, fy + Math.sin(ang) * fr * 0.42, 2.2 * S, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    fitFont('FASCICLE', 13 * S, 96 * S, '800');
-    ctx.fillStyle = '#fda4af';
-    ctx.fillText('FASCICLE', bx, by + br * 1.72);
-    ctx.restore();
-  }
-
-  // 2B. Three Longitudinal Striated Myofibrils with Sarcomeres & Z-Discs
-  const tearNodes = []; // Store tear coordinates so stem cells target them accurately!
-  const rowOffsets = [-1, 0, 1];
-  const zCount = 5;
-
-  ctx.save();
-  ctx.translate(strainVib * 0.4, 0);
-
-  for (let rIdx = 0; rIdx < 3; rIdx++) {
-    const rOff = rowOffsets[rIdx];
-    const fy = stageY + rOff * (fiberH + rowGap);
-    const fx0 = fiberLeft - stretchPx * 0.5;
-    const fx1 = fiberRight + stretchPx * 0.5;
-    const fw = fx1 - fx0;
-
-    // Outer hypertrophy emerald-coral halo when thickened
-    if (hypertrophy > 0.05) {
-      ctx.save();
-      ctx.shadowColor = 'rgba(52,211,153,0.55)';
-      ctx.shadowBlur = 18 * S * hypertrophy;
-      ctx.strokeStyle = `rgba(52,211,153,${(0.45 * hypertrophy).toFixed(2)})`;
-      ctx.lineWidth = 2.5 * S;
-      ctx.beginPath();
-      ctx.roundRect(fx0 - 2 * S, fy - fiberH * 0.5 - 2 * S, fw + 4 * S, fiberH + 4 * S, 16 * S);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Main cylindrical myofibril body gradient (3D shaded)
-    const bodyG = ctx.createLinearGradient(0, fy - fiberH * 0.5, 0, fy + fiberH * 0.5);
-    if (hypertrophy > 0.35) {
-      bodyG.addColorStop(0, '#fb7185');
-      bodyG.addColorStop(0.28, '#e11d48');
-      bodyG.addColorStop(0.72, '#881337');
-      bodyG.addColorStop(1, '#310818');
+  // Z-disc rings flash bright gold/red during micro-tears, then emerald on repair
+  for (const zr of zRings) {
+    if (pTears > 0.1) {
+      zr.mat.color.setHex(0xffd60a);
+      zr.mat.emissive.setHex(0xff3b30);
+      zr.mat.emissiveIntensity = 0.7 + 0.7 * Math.sin(t * 14);
+    } else if (pSat > 0.2) {
+      zr.mat.color.setHex(0x34c759);
+      zr.mat.emissive.setHex(0x34c759);
+      zr.mat.emissiveIntensity = 0.85;
     } else {
-      bodyG.addColorStop(0, '#f43f5e');
-      bodyG.addColorStop(0.32, '#be123c');
-      bodyG.addColorStop(0.75, '#7f1d1d');
-      bodyG.addColorStop(1, '#2d0a14');
-    }
-    ctx.fillStyle = bodyG;
-    ctx.strokeStyle = hypertrophy > 0.35 ? '#34d399' : (tensionAmt > 0.3 ? '#fbbf24' : '#fda4af');
-    ctx.lineWidth = 2.2 * S;
-    ctx.beginPath();
-    ctx.roundRect(fx0, fy - fiberH * 0.5, fw, fiberH, 14 * S);
-    ctx.fill();
-    ctx.stroke();
-
-    // Clip interior for actin/myosin striations & Z-discs
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(fx0 + 1 * S, fy - fiberH * 0.5 + 1 * S, fw - 2 * S, fiberH - 2 * S, 13 * S);
-    ctx.clip();
-
-    // Sarcomere alternating A-bands (myosin) and I-bands (actin)
-    const segW = fw / zCount;
-    for (let z = 0; z < zCount; z++) {
-      const sx = fx0 + z * segW;
-      // Dark A-band center
-      ctx.fillStyle = 'rgba(15,23,42,0.34)';
-      ctx.fillRect(sx + segW * 0.20, fy - fiberH * 0.5, segW * 0.60, fiberH);
-
-      // Horizontal myosin & actin protein filaments (more filaments weave in during hypertrophy!)
-      const strandCount = 5 + Math.round(3 * hypertrophy);
-      for (let st = 0; st < strandCount; st++) {
-        const sy = lerp(fy - fiberH * 0.36, fy + fiberH * 0.36, st / Math.max(1, strandCount - 1));
-        ctx.strokeStyle = st % 2 === 0 ? 'rgba(255,228,230,0.45)' : 'rgba(56,189,248,0.28)';
-        ctx.lineWidth = (1.3 + 0.4 * hypertrophy) * S;
-        ctx.beginPath();
-        ctx.moveTo(sx + segW * 0.14, sy);
-        ctx.lineTo(sx + segW * 0.86, sy);
-        ctx.stroke();
-      }
-      // Extra emerald newly woven strands during hypertrophy
-      if (hypertrophy > 0.08) {
-        ctx.strokeStyle = `rgba(52,211,153,${(0.75 * hypertrophy).toFixed(2)})`;
-        ctx.lineWidth = 1.8 * S;
-        for (let ns = 0; ns < 2; ns++) {
-          const nsy = fy + (ns === 0 ? -fiberH * 0.38 : fiberH * 0.38);
-          ctx.beginPath();
-          ctx.moveTo(sx + 6 * S, nsy);
-          ctx.lineTo(sx + segW - 6 * S, nsy);
-          ctx.stroke();
-        }
-      }
-    }
-
-    // Crisp vertical Z-discs + glowing micro-tears along them!
-    for (let z = 1; z < zCount; z++) {
-      const zx = fx0 + z * segW;
-      const isTearSite = (rIdx + z) % 2 === 1;
-
-      if (isTearSite) {
-        tearNodes.push({ x: zx, y: fy, rIdx, z });
-      }
-
-      // Base Z-disc zigzag line
-      ctx.strokeStyle = isTearSite && tearOpen > 0.15 ? '#fbbf24' : 'rgba(254,205,211,0.85)';
-      ctx.lineWidth = (2.6 + 1.2 * tearOpen) * S;
-      ctx.beginPath();
-      const steps = 6;
-      for (let k = 0; k <= steps; k++) {
-        const ky = lerp(fy - fiberH * 0.48, fy + fiberH * 0.48, k / steps);
-        const zig = (k % 2 === 0 ? -3.5 : 3.5) * S;
-        const crackSplit = isTearSite ? tearOpen * 7 * S * (k % 2 === 0 ? -1 : 1) : 0;
-        if (k === 0) ctx.moveTo(zx + zig + crackSplit, ky);
-        else ctx.lineTo(zx + zig + crackSplit, ky);
-      }
-      ctx.stroke();
-
-      // Glowing micro-tear fissure & amber-crimson aura
-      if (isTearSite && tearOpen > 0.04) {
-        ctx.save();
-        const tg = ctx.createRadialGradient(zx, fy, 2 * S, zx, fy, 28 * S * tearOpen);
-        tg.addColorStop(0, `rgba(254,240,138,${(0.95 * tearOpen).toFixed(2)})`);
-        tg.addColorStop(0.45, `rgba(251,113,133,${(0.75 * tearOpen).toFixed(2)})`);
-        tg.addColorStop(1, 'rgba(251,113,133,0)');
-        ctx.fillStyle = tg;
-        ctx.beginPath();
-        ctx.arc(zx, fy, 28 * S * tearOpen, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Dark fracture cleft with bright rim
-        ctx.fillStyle = '#050712';
-        ctx.strokeStyle = '#fde047';
-        ctx.lineWidth = 1.8 * S;
-        const gapW = 9 * S * tearOpen;
-        ctx.beginPath();
-        ctx.moveTo(zx, fy - fiberH * 0.44);
-        ctx.lineTo(zx + gapW, fy - fiberH * 0.12);
-        ctx.lineTo(zx - gapW * 0.5, fy + fiberH * 0.10);
-        ctx.lineTo(zx + gapW * 0.8, fy + fiberH * 0.36);
-        ctx.lineTo(zx - gapW * 0.7, fy + fiberH * 0.12);
-        ctx.lineTo(zx - gapW, fy - fiberH * 0.16);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Emerald repair weld glow as stem cells fuse the Z-disc
-      if (isTearSite && stemFuse > 0.08 && hypertrophy < 0.92) {
-        const weldAlpha = stemFuse * (1 - hypertrophy * 0.7);
-        const wg = ctx.createRadialGradient(zx, fy, 2 * S, zx, fy, 26 * S);
-        wg.addColorStop(0, `rgba(52,211,153,${(0.85 * weldAlpha).toFixed(2)})`);
-        wg.addColorStop(0.5, `rgba(56,189,248,${(0.45 * weldAlpha).toFixed(2)})`);
-        wg.addColorStop(1, 'rgba(56,189,248,0)');
-        ctx.fillStyle = wg;
-        ctx.beginPath();
-        ctx.arc(zx, fy, 26 * S, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Specular highlight bar along top edge of cylindrical fiber
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    ctx.fillRect(fx0, fy - fiberH * 0.42, fw, fiberH * 0.14);
-
-    ctx.restore(); // end clip
-  }
-  ctx.restore(); // end vibration
-
-  // === 3. MECHANICAL TENSION FORCE ARROWS (Phase 2 & early Phase 3) ===
-  if (tensionAmt > 0.05) {
-    ctx.save();
-    ctx.globalAlpha = tensionAmt;
-    const arrowY = stageY - (fiberH + rowGap) - fiberH * 0.5 - 30 * S;
-    const pulseShift = Math.sin(t * 9) * 6 * S;
-
-    ctx.strokeStyle = '#fbbf24';
-    ctx.fillStyle = '#fbbf24';
-    ctx.lineWidth = 3.2 * S;
-    ctx.shadowColor = 'rgba(251,191,36,0.65)';
-    ctx.shadowBlur = 12 * S;
-
-    // Left outward force arrow
-    const lx1 = cx - 72 * S;
-    const lx2 = safeLeft + 34 * S - pulseShift;
-    ctx.beginPath(); ctx.moveTo(lx1, arrowY); ctx.lineTo(lx2, arrowY); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(lx2 - 12 * S, arrowY);
-    ctx.lineTo(lx2 + 4 * S, arrowY - 8 * S);
-    ctx.lineTo(lx2 + 4 * S, arrowY + 8 * S);
-    ctx.closePath(); ctx.fill();
-
-    // Right outward force arrow
-    const rx1 = cx + 72 * S;
-    const rx2 = safeRight - 34 * S + pulseShift;
-    ctx.beginPath(); ctx.moveTo(rx1, arrowY); ctx.lineTo(rx2, arrowY); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(rx2 + 12 * S, arrowY);
-    ctx.lineTo(rx2 - 4 * S, arrowY - 8 * S);
-    ctx.lineTo(rx2 - 4 * S, arrowY + 8 * S);
-    ctx.closePath(); ctx.fill();
-
-    ctx.shadowBlur = 0;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    fitFont('MECHANICAL LOAD', 16 * S, 136 * S, '900');
-    ctx.fillStyle = '#fde68a';
-    ctx.fillText('MECHANICAL LOAD', cx, arrowY);
-    ctx.restore();
-  }
-
-  // === 4. REPAIR ALARM PULSE RINGS ON MICRO-TEARS (Phase 3) ===
-  if (tearOpen > 0.15) {
-    ctx.save();
-    for (let i = 0; i < tearNodes.length; i++) {
-      const tn = tearNodes[i];
-      const wave = ((t * 1.4 + i * 0.23) % 1 + 1) % 1;
-      const ringR = lerp(8 * S, 44 * S, wave);
-      ctx.strokeStyle = `rgba(251,113,133,${((1 - wave) * 0.72 * tearOpen).toFixed(2)})`;
-      ctx.lineWidth = 2.2 * S;
-      ctx.beginPath();
-      ctx.arc(tn.x, tn.y, ringR, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // === 5. SATELLITE STEM CELLS + PROTEIN AMINO ACIDS SWARMING IN (Phase 4 -> 5) ===
-  if (stemSwarm > 0.01) {
-    // 18 Golden amino-acid protein molecules streaming into the fibers during sleep
-    for (let p = 0; p < 18; p++) {
-      const target = tearNodes[p % Math.max(1, tearNodes.length)] || { x: cx, y: stageY };
-      const fromTop = p % 2 === 0;
-      const startX = lerp(safeLeft + 30 * S, safeRight - 30 * S, hash(p * 17 + 5));
-      const startY = fromTop ? H * 0.205 : H * 0.595;
-      const u = clamp(smooth(lSa.start + (p % 6) * 0.12, lSa.start + 1.55 + (p % 6) * 0.12, t), 0, 1);
-      const px = lerp(startX, target.x + Math.sin(p * 3.1) * 20 * S, u);
-      const py = lerp(startY, target.y + Math.cos(p * 2.7) * 14 * S, u);
-      const pAlpha = smooth(0, 0.2, u) * (1 - smooth(0.82, 1.0, u)) * (1 - hypertrophy * 0.65);
-      drawProteinBead(px, py, (4.5 + hash(p * 11) * 2.5) * S, pAlpha, S);
-    }
-
-    // 12 Luminous Cyan Satellite Stem Cells docking & fusing into the Z-disc micro-tears!
-    const cellCount = 12;
-    for (let c = 0; c < cellCount; c++) {
-      const target = tearNodes[c % Math.max(1, tearNodes.length)] || { x: cx, y: stageY };
-      const fromTop = c % 2 === 0;
-      const startX = lerp(safeLeft + 44 * S, safeRight - 44 * S, hash(c * 29 + 3));
-      const startY = fromTop ? H * 0.215 - hash(c * 7) * 18 * S : H * 0.585 + hash(c * 13) * 18 * S;
-
-      const delay = (c / cellCount) * 0.55;
-      const travelU = smooth(lSa.start + delay, lSa.start + 1.15 + delay, t);
-      const mergeU = smooth(lSa.start + 1.35 + delay * 0.5, lHy.start + 0.55, t);
-
-      const midX = lerp(startX, target.x, travelU) + Math.sin(t * 3 + c) * 6 * S * (1 - mergeU);
-      const midY = lerp(startY, target.y, travelU);
-      const angle = Math.atan2(target.y - startY, target.x - startX) * (1 - mergeU);
-
-      const cellR = lerp(11.5 * S, 6.5 * S, mergeU);
-      const alpha = smooth(lSa.start + delay - 0.15, lSa.start + delay + 0.25, t) * (1 - hypertrophy * 0.82);
-      drawSatelliteCell(midX, midY, cellR, alpha, travelU * (1 - mergeU * 0.5), angle, S);
+      zr.mat.color.setHex(0xfda4af);
+      zr.mat.emissive.setHex(0xf43f5e);
+      zr.mat.emissiveIntensity = 0.45;
     }
   }
 
-  // === 6. HYPERTROPHY CALIPER & STAGE ANNOTATIONS ===
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  if (phaseIdx === 1) {
-    fitFont('Z-DISCS & SARCOMERES', 16 * S, 260 * S, '800');
-    ctx.fillStyle = '#fda4af';
-    ctx.fillText('Z-DISCS & SARCOMERES', cx + 30 * S, H * 0.228);
-  } else if (phaseIdx === 3) {
-    fitFont('MICRO-TEARS DETECTED • REPAIR ALARM', 16 * S, safeW - 20 * S, '900');
-    ctx.fillStyle = '#fde047';
-    ctx.fillText('MICRO-TEARS DETECTED • REPAIR ALARM', cx, H * 0.225);
-  } else if (phaseIdx === 4) {
-    fitFont('SLEEP + PROTEIN → SATELLITE STEM FUSION', 15 * S, safeW - 20 * S, '900');
-    ctx.fillStyle = '#7dd3fc';
-    ctx.fillText('SLEEP + PROTEIN → SATELLITE STEM FUSION', cx, H * 0.205);
-  } else if (phaseIdx === 5) {
-    // Glowing emerald hypertrophy growth badge at top of stage
-    const badgeAlpha = smooth(lHy.start, lHy.start + 0.5, t);
-    ctx.globalAlpha = badgeAlpha;
-    fitFont('+38% FIBER CROSS-SECTIONAL AREA', 17 * S, safeW - 24 * S, '900');
-    ctx.fillStyle = '#34d399';
-    ctx.fillText('+38% FIBER CROSS-SECTIONAL AREA', cx, H * 0.210);
-
-    // Caliper bracket on middle myofibril showing thickened diameter
-    const calX = safeRight - 10 * S;
-    const midTop = stageY - fiberH * 0.5;
-    const midBot = stageY + fiberH * 0.5;
-    ctx.strokeStyle = '#34d399';
-    ctx.lineWidth = 2.6 * S;
-    ctx.beginPath();
-    ctx.moveTo(calX - 8 * S, midTop);
-    ctx.lineTo(calX, midTop);
-    ctx.lineTo(calX, midBot);
-    ctx.lineTo(calX - 8 * S, midBot);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // === 7. TELEMETRY CARDS (y: H*0.630 to H*0.682) ===
-  const cardY = H * 0.630;
-  const cardH = H * 0.052;
-  const gap = 12 * S;
-  const cardW = (safeW - gap) * 0.5;
-
-  const diamUm = Math.round(lerp(52, 72, hypertrophy));
-  let statusText = 'RESTING';
-  let statusColor = '#94a3b8';
-  if (phaseIdx === 1) { statusText = 'STRIATED'; statusColor = '#fda4af'; }
-  else if (phaseIdx === 2) { statusText = 'HIGH TENSION'; statusColor = '#fbbf24'; }
-  else if (phaseIdx === 3) { statusText = 'MICRO-TEARS'; statusColor = '#fb7185'; }
-  else if (phaseIdx === 4) { statusText = 'STEM FUSION'; statusColor = '#38bdf8'; }
-  else if (phaseIdx === 5) { statusText = 'HYPERTROPHY'; statusColor = '#34d399'; }
-
-  function drawCard(x, label, val, accent, valColor) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(15,23,42,0.9)';
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.6 * S;
-    ctx.beginPath();
-    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    fitFont(label, 13 * S, cardW - 18 * S, '800');
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
-
-    fitFont(val, 22 * S, cardW - 18 * S, '900');
-    ctx.fillStyle = valColor;
-    ctx.fillText(val, x + cardW * 0.5, cardY + cardH * 0.70);
-    ctx.restore();
+  // Micro-tear sparks
+  for (let i = 0; i < tearSparks.length; i++) {
+    const sp = tearSparks[i];
+    sp.mesh.visible = pTears > 0.08;
+    if (!sp.mesh.visible) continue;
+    const pulse = 0.6 + 0.6 * Math.sin(t * 12 + i);
+    sp.mesh.position.set(sp.x, Math.cos(sp.ang + t * 2) * 1.45, Math.sin(sp.ang + t * 2) * 1.45);
+    sp.mesh.scale.setScalar(pTears * pulse);
   }
 
-  const diamStr = hypertrophy > 0.3 ? `${diamUm} µm (+${Math.round(hypertrophy * 38)}%)` : `${diamUm} µm`;
-  drawCard(
-    safeLeft,
-    'FIBER DIAMETER',
-    diamStr,
-    hypertrophy > 0.3 ? 'rgba(52,211,153,0.72)' : 'rgba(251,113,133,0.55)',
-    hypertrophy > 0.3 ? '#34d399' : '#f8fafc'
-  );
-  drawCard(
-    safeLeft + cardW + gap,
-    'CELLULAR STATE',
-    statusText,
-    phaseIdx === 4 ? 'rgba(56,189,248,0.72)' : (phaseIdx === 5 ? 'rgba(52,211,153,0.72)' : 'rgba(251,113,133,0.60)'),
-    statusColor
-  );
-
-  // === 8. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL (y in [14%H, 74%H]) ===
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  fitFont('BIO MECHANICS • MUSCLE HYPERTROPHY', 21 * S, safeW, '800');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('BIO MECHANICS • MUSCLE HYPERTROPHY', cx, H * 0.155);
-
-  const pillW = Math.min(safeW, 430 * S);
-  const pillH = 52 * S;
-  const pillY = H * 0.715;
-  const pop = 1 + 0.05 * Math.exp(-phaseProg * 14);
-
-  ctx.save();
-  ctx.translate(cx, pillY);
-  ctx.scale(pop, pop);
-
-  let pillFill = '#f43f5e';
-  let pillShadow = 'rgba(251,113,133,0.45)';
-  let pillText = '#ffffff';
-  if (phaseIdx === 2) {
-    pillFill = '#fbbf24'; pillShadow = 'rgba(251,191,36,0.45)'; pillText = '#0a0a0a';
-  } else if (phaseIdx === 4) {
-    pillFill = '#38bdf8'; pillShadow = 'rgba(56,189,248,0.45)'; pillText = '#050712';
-  } else if (phaseIdx === 5) {
-    pillFill = '#34d399'; pillShadow = 'rgba(52,211,153,0.45)'; pillText = '#050712';
+  // Satellite stem cells swarming inward and fusing
+  for (const sc of satCells) {
+    sc.mesh.visible = pSat > 0.05;
+    if (!sc.mesh.visible) continue;
+    const rad = lerp(3.4, 1.18, clamp(pSat * 1.2 - 0.1 * Math.sin(sc.phase), 0, 1));
+    sc.mesh.position.set(sc.x, Math.cos(sc.ang + t * 1.3) * rad, Math.sin(sc.ang + t * 1.3) * rad);
+    sc.mesh.scale.setScalar(lerp(1.15, 0.55, pHyper));
   }
 
-  ctx.shadowColor = pillShadow;
-  ctx.shadowBlur = 20 * S;
-  ctx.fillStyle = pillFill;
-  ctx.beginPath();
-  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
-  ctx.fill();
-  ctx.shadowBlur = 0;
+  // Camera + impact micro-shake on Z-disc tears
+  const shake = microShake(t, lTr.start + 0.18, 0.18, 0.22);
+  const { camera } = stage;
+  camera.position.set(Math.sin(t * 0.42) * 2.2 + shake, 0.85 + shake * 0.6, lerp(8.8, 7.6, pHyper));
+  camera.lookAt(0, -0.1, 0);
 
-  fitFont(activeLine.caption, 26 * S, pillW - 34 * S, '900');
-  ctx.fillStyle = pillText;
-  ctx.fillText(activeLine.caption, 0, 1 * S);
-  ctx.restore();
-  ctx.restore();
+  stage.composite(ctx, W, H);
+
+  drawStudioHud(ctx, {
+    W,
+    H,
+    channel: 'bio',
+    badge: pHyper > 0.3 ? 'HYPERTROPHY · +32% CROSS-SECTION' : pTears > 0.2 ? 'Z-DISC MICRO-TEARS DETECTED' : '3D MYOFIBRIL CUTAWAY',
+    title: 'HOW MUSCLES ACTUALLY GROW',
+    subtitle: 'TENSION → MICRO-TEARS → SATELLITE CELL FUSION',
+    caption: activeCaption,
+    metrics: [
+      { label: 'FIBER DIAMETER', value: `+${Math.round(lerp(0, 32, pHyper))}%`, color: '#34C759' },
+      { label: 'REPAIR STATE', value: pHyper > 0.4 ? 'REBUILT' : pSat > 0.2 ? 'FUSING' : pTears > 0.2 ? 'MICRO-TEAR' : 'STRAIN', color: pTears > 0.2 ? '#FFD60A' : '#FF2D55' },
+      { label: 'STEM CELLS', value: pSat > 0.1 ? 'ACTIVE ↑' : 'STANDBY', color: '#38BDF8' },
+    ],
+    progress: t / Math.max(1, DUR),
+  });
 }
 
-window.renderFrame = (t) => drawFrame(t);
+window.renderFrame = (t) => {
+  renderSceneAt(t);
+  return cv.toDataURL('image/jpeg', 0.92).slice(23);
+};
+
 window.renderBatch = (startFrame, count) => {
   const out = [];
   for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
+    renderSceneAt((startFrame + i) / FPS);
     out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
   }
   return out;
 };
+
 window.ready = true;
 </script>

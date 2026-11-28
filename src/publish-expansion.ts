@@ -32,6 +32,7 @@ import {
   CHROMIUM_RENDER_ARGS,
   isLegacy2DAllowed,
   isThreeJsSceneFileSync,
+  notifyTelegram3DQueueEmpty,
 } from "./webgl-helper.js";
 import { buildWordCaptionCanvasSnippet } from "./word-captions.js";
 import {
@@ -323,6 +324,7 @@ async function main() {
   });
   if (!job) {
     console.log(`[expansion] ⏸️ "${channel}" için uygun (3D PBR + politika uyumlu) yeni bölüm kalmadı — yeni 3D sahne eklenene kadar bekleniyor.`);
+    if (!dryRun) await notifyTelegram3DQueueEmpty(channel);
     return;
   }
   const jobScenePath = resolve("niches", "expansion", `${job.episode}.html`);

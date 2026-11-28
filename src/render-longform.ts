@@ -8,7 +8,7 @@ import { chromium, type Browser } from "playwright-core";
 import { applyIntroSubBass, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
 import { EXPLAINER_JOBS, PHYSICS_LABELS, PHYSICS_ROTATION, type ChannelId as ChannelKind, type PhysicsNiche } from "./catalog.js";
 import { synthesizeVoice } from "./voice.js";
-import { CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
+import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
 
 const require = createRequire(import.meta.url);
 const ffmpegPath: string = require("ffmpeg-static");
@@ -958,6 +958,7 @@ export async function renderLongformVideo(opts: {
       if (!existsSync(scenePath)) throw new Error(`Eksik sahne: ${scenePath}`);
 
       const page = await browser.newPage({ viewport: { width: 720, height: 1280 } });
+      await attachLocalEngines(page);
       await page.setContent(await readFile(scenePath, "utf8"));
       await page.waitForFunction(() => (globalThis as unknown as { ready?: boolean }).ready === true);
       await page.addScriptTag({ content: STUDIO_OVERLAY_JS });

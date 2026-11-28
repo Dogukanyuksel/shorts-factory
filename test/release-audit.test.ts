@@ -56,11 +56,8 @@ test("release-audit: longform HTML dosyalarinda findBeat boslukta son beat'e (SU
   const files = readdirSync(dir).filter((f) => f.endsWith(".html"));
   for (const f of files) {
     const html = readFileSync(resolve(dir, f), "utf8");
-    const buggyGap = /return\s+t\s*<\s*BEATS\[0\]\.start\s*\?\s*BEATS\[0\]\s*:\s*BEATS\[BEATS\.length\s*-\s*1\]/;
-    assert.equal(
-      buggyGap.test(html),
-      false,
-      `${f} icinde boslukta son beat'i donduren eski findBeat bug'i bulundu`,
-    );
+    const buggyGap1 = /return\s+t\s*<\s*BEATS\[0\]\.start\s*\?\s*BEATS\[0\]\s*:\s*BEATS\[BEATS\.length\s*-\s*1\]/;
+    const buggyGap2 = /return\s*\{\s*idx:\s*BEATS\.length\s*-\s*1,\s*beat:\s*BEATS\[BEATS\.length\s*-\s*1\]\s*\}/;
+    assert.equal(buggyGap1.test(html) || buggyGap2.test(html), false, `${f} icinde boslukta son beat'i donduren bug bulundu`);
   }
 });
