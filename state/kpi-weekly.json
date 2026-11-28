@@ -1,0 +1,34 @@
+{
+  "generatedAt": "2026-11-28T07:23:32.482Z",
+  "daysUntilFeb1_2027": 65,
+  "channels": {
+    "physics": {
+      "channel": "physics",
+      "label": "Kinetic Lab HQ",
+      "scopeStatus": "missing_yt_analytics_readonly",
+      "error": "Token'a yt-analytics.readonly izni eklenmeli",
+      "topWatchHourVideos": []
+    },
+    "explainer": {
+      "channel": "explainer",
+      "label": "Clear Mechanics",
+      "scopeStatus": "missing_yt_analytics_readonly",
+      "error": "Token'a yt-analytics.readonly izni eklenmeli",
+      "topWatchHourVideos": []
+    },
+    "wealth": {
+      "channel": "wealth",
+      "label": "Wealth Mechanics",
+      "scopeStatus": "missing_yt_analytics_readonly",
+      "error": "Token'a yt-analytics.readonly izni eklenmeli",
+      "topWatchHourVideos": []
+    },
+    "bio": {
+      "channel": "bio",
+      "label": "Bio Mechanics",
+      "scopeStatus": "missing_yt_analytics_readonly",
+      "error": "Token'a yt-analytics.readonly izni eklenmeli",
+      "topWatchHourVideos": []
+    }
+  }
+}
