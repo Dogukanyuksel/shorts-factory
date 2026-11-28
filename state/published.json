@@ -406,6 +406,21 @@
       "url": "https://youtube.com/shorts/sRY5SXw860c",
       "publishedAt": "2026-11-28T01:30:09.464Z",
       "instagramMediaId": "18122430617598698"
+    },
+    {
+      "id": "gyroscope-3d-seed125",
+      "channel": "physics",
+      "title": "Why a Spinning Gyroscope Defies Gravity (3D Physics) #shorts",
+      "videoId": "c6WOPSro6Rg",
+      "url": "https://youtube.com/shorts/c6WOPSro6Rg",
+      "poll": {
+        "optionAKey": "pendulum-chaos-100",
+        "optionBKey": "gear-gauntlet-1000",
+        "optionA": "100 Pendulums Chaos",
+        "optionB": "1,000 Balls vs Gears"
+      },
+      "publishedAt": "2026-11-28T14:13:20.023Z",
+      "instagramMediaId": "18375525934212143"
     }
   ],
   "removedVideoIds": [
