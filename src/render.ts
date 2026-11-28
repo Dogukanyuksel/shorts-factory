@@ -233,7 +233,7 @@ async function main() {
       const voiceTmp = await mkdtemp(join(tmpdir(), `shorts-voice-${niche}-`));
       try {
         console.log("[shorts-factory] İngilizce sesli anlatım ekleniyor (YPP özgünlük katmanı)...");
-        const voiceIn = await synthesizeVoice(narration, join(voiceTmp, "narration.mp3"));
+        const voiceIn = await synthesizeVoice(narration, join(voiceTmp, "narration.mp3"), "physics");
         const voiceRaw = join(voiceTmp, "narration.raw");
         await runFfmpeg(["-y", "-i", voiceIn, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", voiceRaw]);
         const vBuf = await readFile(voiceRaw);

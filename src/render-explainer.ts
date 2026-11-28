@@ -83,7 +83,7 @@ async function main() {
 
     for (let i = 0; i < script.length; i++) {
       const line = script[i];
-      const audioIn = await synthesizeVoice(line.text, join(tmpDir, `v${i}.mp3`));
+      const audioIn = await synthesizeVoice(line.text, join(tmpDir, `v${i}.mp3`), "explainer");
       const rawMono = join(tmpDir, `v${i}.raw`);
       await runCmd(ffmpegPath, ["-y", "-i", audioIn, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", rawMono]);
       const buf = await readFile(rawMono);

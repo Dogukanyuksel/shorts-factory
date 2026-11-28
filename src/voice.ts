@@ -1,8 +1,63 @@
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { fetchWithRetry } from "./devops.js";
 
 export type VoiceChannelId = "physics" | "explainer" | "wealth" | "bio";
+
+export interface KokoroVoiceConfig {
+  voice:
+    | "af_heart"
+    | "af_alloy"
+    | "af_aoede"
+    | "af_bella"
+    | "af_jessica"
+    | "af_kore"
+    | "af_nicole"
+    | "af_nova"
+    | "af_river"
+    | "af_sarah"
+    | "af_sky"
+    | "am_adam"
+    | "am_echo"
+    | "am_eric"
+    | "am_fenrir"
+    | "am_liam"
+    | "am_michael"
+    | "am_onyx"
+    | "am_puck"
+    | "am_santa";
+  speed: number;
+  label: string;
+}
+
+/**
+ * 4 kanal = 4 tamamen farklı ABD İngilizcesi nöral ses (Kokoro-82M, Apache-2.0, $0/ay).
+ * YouTube'un "şablon / seri üretim" riskini kırmak için her kanalın kendi özgün ses kimliği vardır.
+ */
+export const KOKORO_CHANNEL_VOICES: Record<VoiceChannelId, KokoroVoiceConfig> = {
+  physics: {
+    voice: "am_fenrir",
+    speed: 1.04,
+    label: "Fenrir (US Male — Energetic Science)",
+  },
+  explainer: {
+    voice: "am_michael",
+    speed: 1.0,
+    label: "Michael (US Male — Engineering Documentary)",
+  },
+  wealth: {
+    voice: "am_onyx",
+    speed: 0.98,
+    label: "Onyx (US Male — Deep Financial Analyst)",
+  },
+  bio: {
+    voice: "af_heart",
+    speed: 1.0,
+    label: "Heart (US Female — Warm Medical Narrator)",
+  },
+};
 
 const OPENAI_CHANNEL_VOICES: Record<VoiceChannelId, { voice: string; instructions: string }> = {
   physics: {
@@ -23,6 +78,46 @@ const OPENAI_CHANNEL_VOICES: Record<VoiceChannelId, { voice: string; instruction
   },
 };
 
+type KokoroInstance = {
+  generate: (
+    text: string,
+    opts: { voice: KokoroVoiceConfig["voice"]; speed?: number },
+  ) => Promise<{ save: (path: string) => Promise<void> }>;
+};
+
+let kokoroSingleton: Promise<KokoroInstance> | null = null;
+
+async function getKokoro(): Promise<KokoroInstance> {
+  if (!kokoroSingleton) {
+    kokoroSingleton = (async () => {
+      const cacheDir = process.env.KOKORO_CACHE_DIR?.trim() || join(homedir(), ".cache", "kokoro-82m");
+      await mkdir(cacheDir, { recursive: true });
+      const transformers = await import("@huggingface/transformers");
+      transformers.env.cacheDir = cacheDir;
+      const { KokoroTTS } = await import("kokoro-js");
+      const tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+        dtype: "q8",
+        device: "cpu",
+      });
+      return tts as unknown as KokoroInstance;
+    })().catch((err) => {
+      kokoroSingleton = null;
+      throw err;
+    });
+  }
+  return kokoroSingleton;
+}
+
+function resolveKokoroConfig(channel: VoiceChannelId): KokoroVoiceConfig {
+  const base = KOKORO_CHANNEL_VOICES[channel] || KOKORO_CHANNEL_VOICES.explainer;
+  const envKey = `KOKORO_VOICE_${channel.toUpperCase()}`;
+  const override = process.env[envKey]?.trim();
+  if (override) {
+    return { ...base, voice: override as KokoroVoiceConfig["voice"] };
+  }
+  return base;
+}
+
 function runBin(bin: string, args: string[]): Promise<void> {
   return new Promise((ok, no) => {
     const p = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
@@ -36,8 +131,9 @@ function runBin(bin: string, args: string[]): Promise<void> {
 /**
  * Y-LABS OS v2.1 Çoklu Nöral Seslendirme Motoru:
  * 1) OPENAI_API_KEY tanımlıysa: kanal başına 4 farklı OpenAI nöral belgesel sesi (ash / onyx / echo / nova)
- * 2) Varsayılan ücretsiz birincil: haber.yukselmedya.com doğal nöral TTS API (3 deneme + üstel bekleme)
- * 3) Üretimde robotik `espeak-ng` YASAKTIR (yalnızca DRY_RUN=true veya ALLOW_ROBOTIC_TTS=true yerel testte).
+ * 2) Varsayılan $0/ay birincil: Kokoro-82M (Apache-2.0, 4 farklı ABD İngilizcesi nöral ses: am_fenrir / am_michael / am_onyx / af_heart)
+ * 3) Yedek nöral API: haber.yukselmedya.com (3 deneme + üstel bekleme)
+ * 4) Üretimde robotik `espeak-ng` YASAKTIR (yalnızca DRY_RUN=true veya ALLOW_ROBOTIC_TTS=true yerel testte).
  */
 export async function synthesizeVoice(
   text: string,
@@ -74,7 +170,23 @@ export async function synthesizeVoice(
         }
       }
     } catch (err) {
-      console.warn(`[voice] OpenAI TTS uyarısı (${channel}), birincil nöral API'ye geçiliyor:`, err instanceof Error ? err.message : String(err));
+      console.warn(`[voice] OpenAI TTS uyarısı (${channel}), Kokoro-82M'e geçiliyor:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  if (process.env.DISABLE_KOKORO !== "true") {
+    try {
+      const tts = await getKokoro();
+      const cfg = resolveKokoroConfig(channel);
+      const audio = await tts.generate(text, { voice: cfg.voice, speed: cfg.speed });
+      const wavOut = outFile.endsWith(".wav") ? outFile : `${outFile}.wav`;
+      await audio.save(wavOut);
+      return wavOut;
+    } catch (err) {
+      console.warn(
+        `[voice] Kokoro-82M uyarısı (${channel}), yedek nöral API'ye geçiliyor:`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
@@ -96,7 +208,7 @@ export async function synthesizeVoice(
       }
     }
   } catch (err) {
-    console.warn(`[voice] Birincil nöral TTS başarısız (${channel}): ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[voice] Yedek nöral TTS başarısız (${channel}): ${err instanceof Error ? err.message : String(err)}`);
   }
 
   if (process.platform === "darwin") {

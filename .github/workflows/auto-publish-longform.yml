@@ -88,6 +88,12 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
           npx playwright-core install chromium --with-deps
 
+      - name: Kokoro-82M nöral ses modelini önbellekle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/kokoro-82m
+          key: kokoro-82m-onnx-q8-v1
+
       - name: Clear Mechanics 16:9 uzun video üret ve YouTube'a yükle
         id: publish
         env:
@@ -187,6 +193,12 @@ jobs:
           npm ci
           sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
           npx playwright-core install chromium --with-deps
+
+      - name: Kokoro-82M nöral ses modelini önbellekle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/kokoro-82m
+          key: kokoro-82m-onnx-q8-v1
 
       - name: Kinetic Lab 16:9 uzun video üret ve YouTube'a yükle
         id: publish

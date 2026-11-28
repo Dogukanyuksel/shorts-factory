@@ -301,7 +301,7 @@ async function renderBrandCardSegment(
   previewOutPath?: string,
 ): Promise<{ mp4Path: string; durationSec: number }> {
   const voiceText = mode === "intro" ? plan.introVoice : plan.outroVoice;
-  const voiceFile = await synthesizeVoice(voiceText, join(tmpDir, `${mode}_voice.mp3`));
+  const voiceFile = await synthesizeVoice(voiceText, join(tmpDir, `${mode}_voice.mp3`), plan.channel);
   const rawMono = join(tmpDir, `${mode}_voice.raw`);
   await runCmd(ffmpegPath, ["-y", "-i", voiceFile, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", rawMono]);
   const buf = await readFile(rawMono);
@@ -973,7 +973,7 @@ export async function renderLongformVideo(opts: {
         const chunks: Int16Array[] = [new Int16Array(Math.round(0.2 * SAMPLE_RATE))];
         let t = 0.2;
         for (let i = 0; i < script.length; i++) {
-          const audioIn = await synthesizeVoice(script[i].text, join(tmpDir, `c${idx}_v${i}.mp3`));
+          const audioIn = await synthesizeVoice(script[i].text, join(tmpDir, `c${idx}_v${i}.mp3`), plan.channel);
           const rawMono = join(tmpDir, `c${idx}_v${i}.raw`);
           await runCmd(ffmpegPath, ["-y", "-i", audioIn, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", rawMono]);
           const buf = await readFile(rawMono);
@@ -1001,6 +1001,7 @@ export async function renderLongformVideo(opts: {
         const voiceIn = await synthesizeVoice(
           `Round ${idx + 1}: ${ch.title.replace(/^Round \d+:\s*/, "")}. Watch closely — the physics escalates fast.`,
           join(tmpDir, `p${idx}_v.mp3`),
+          plan.channel,
         );
         const rawMono = join(tmpDir, `p${idx}_v.raw`);
         await runCmd(ffmpegPath, ["-y", "-i", voiceIn, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", rawMono]);

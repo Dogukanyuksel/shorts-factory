@@ -60,6 +60,12 @@ jobs:
       - name: Bağımlılıkları kur
         run: npm ci
 
+      - name: Kokoro-82M nöral ses modelini önbellekle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/kokoro-82m
+          key: kokoro-82m-onnx-q8-v1
+
       - name: Chromium & espeak-ng kur
         run: |
           sudo apt-get update -qq
