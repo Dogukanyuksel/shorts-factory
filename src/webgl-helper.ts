@@ -22,9 +22,15 @@ export const CHROMIUM_RENDER_ARGS = [
  */
 export async function attachLocalEngines(page: Page): Promise<void> {
   const threeBuildDir = resolve("node_modules", "three", "build");
+  const kitPath = resolve("src", "ylabs-3d-kit.js");
   await page.route("https://local.shorts/**", async (route) => {
     const url = route.request().url();
     const rel = url.replace("https://local.shorts/", "").replace(/\?.*$/, "");
+    if (rel === "ylabs-3d-kit.js" && existsSync(kitPath)) {
+      const body = await readFile(kitPath, "utf8");
+      await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body });
+      return;
+    }
     if (rel === "three.module.js" || rel === "three.core.js") {
       const target = resolve(threeBuildDir, rel);
       if (existsSync(target)) {

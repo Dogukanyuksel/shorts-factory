@@ -1,28 +1,46 @@
 <!doctype html>
 <!--
-  Wealth Mechanics — Why a Raise NEVER Makes You Take Home Less Money (Marginal Tax Brackets, 60fps deterministic)
+  Wealth Mechanics — Why a Raise NEVER Makes You Take Home Less Money
+  Y-LABS 3D Cinema Engine (Three.js PBR X-Ray Glass Tax Buckets + 2D Safe-Zone HUD, 60fps deterministic)
 -->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#090D16;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  easeOutCubic,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-
 const SCRIPT = [
-  { id: 'hook', text: 'Think a raise can push you into a higher tax bracket and shrink your paycheck? That\'s one of finance\'s biggest myths.', caption: 'THE TAX BRACKET MYTH' },
-  { id: 'myth', text: 'People think crossing into the twenty-four percent bracket taxes their entire salary at twenty-four percent. It doesn\'t.', caption: 'NOT ON ALL YOUR INCOME' },
+  { id: 'hook', text: "Think a raise can push you into a higher tax bracket and shrink your paycheck? That's one of finance's biggest myths.", caption: 'THE TAX BRACKET MYTH' },
+  { id: 'myth', text: "People think crossing into the twenty-four percent bracket taxes their entire salary at twenty-four percent. It doesn't.", caption: 'NOT ON ALL YOUR INCOME' },
   { id: 'fill', text: 'Instead, your income fills four separate buckets in order — ten percent, twelve percent, then twenty-two percent up to one hundred thousand.', caption: 'BUCKETS FILL IN ORDER' },
   { id: 'raise', text: 'Now you get a five thousand dollar raise. Notice the first three buckets stay completely locked. Only the new five thousand spills into twenty-four percent!', caption: 'ONLY TOP DOLLARS TAXED' },
   { id: 'math', text: 'You pay twelve hundred in tax on that raise and pocket three thousand eight hundred extra. Your real tax rate is just seventeen point three percent.', caption: '+$3,800 EXTRA TAKE-HOME' },
   { id: 'law', text: 'A higher bracket only taxes the dollars inside that bucket. Never turn down a raise — you always take home more.', caption: 'ALWAYS TAKE THE RAISE' },
 ];
 
+const BUCKETS = [
+  { rate: 0.10, rateLbl: '10%', rangeLbl: '$0–$12K', lo: 0, hi: 12000, cap: 12000, hex: 0x30d158, css: '#30D158', h: 1.5 },
+  { rate: 0.12, rateLbl: '12%', rangeLbl: '$12–$48K', lo: 12000, hi: 48000, cap: 36000, hex: 0x2dd4bf, css: '#2DD4BF', h: 2.0 },
+  { rate: 0.22, rateLbl: '22%', rangeLbl: '$48–$100K', lo: 48000, hi: 100000, cap: 52000, hex: 0xffd60a, css: '#FFD60A', h: 2.5 },
+  { rate: 0.24, rateLbl: '24%', rangeLbl: '$100K+', lo: 100000, hi: 120000, cap: 20000, hex: 0xff6b35, css: '#FF6B35', h: 2.8 },
+];
+
 let W = 720, H = 1280, FPS = 60, DUR = 24, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let bucketObjs = [], coins = [], streamMesh = null, mythOverlayRing = null;
 
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
@@ -34,7 +52,131 @@ function getLine(id, fallbackIdx) {
   return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
 }
 
-window.init = (cfg) => {
+function computeTaxStats(income) {
+  let totalTax = 0;
+  const fills = BUCKETS.map((b) => {
+    const dollars = clamp(income - b.lo, 0, b.cap);
+    const tax = dollars * b.rate;
+    totalTax += tax;
+    return { dollars, pct: dollars / b.cap, tax };
+  });
+  const effRate = income > 0 ? (totalTax / income) * 100 : 0;
+  return { totalTax, effRate, takeHome: income - totalTax, fills };
+}
+
+function buildScene() {
+  stage = createStudioStage({
+    width: W,
+    height: H,
+    channel: 'wealth',
+    fov: 38,
+    fogDensity: 0.028,
+    floorY: -2.05,
+  });
+  const { scene } = stage;
+  const mats = createMaterials('wealth');
+
+  // Heavy machined base platform
+  const baseGeo = new THREE.BoxGeometry(7.2, 0.28, 2.4);
+  const base = new THREE.Mesh(baseGeo, mats.darkMetal);
+  base.position.set(0, -1.9, 0);
+  scene.add(base);
+  scene.add(addXrayEdges(baseGeo, 0xffd60a, 0.32));
+
+  // Build 4 X-Ray Glass PBR Tax Buckets arranged left-to-right
+  bucketObjs = [];
+  const xs = [-2.25, -0.75, 0.75, 2.25];
+  for (let i = 0; i < BUCKETS.length; i++) {
+    const b = BUCKETS[i];
+    const g = new THREE.Group();
+    g.position.set(xs[i], -1.75, 0);
+
+    const r = 0.54;
+    const h = b.h;
+
+    // Metallic bottom & top rim collars
+    const collarGeo = new THREE.TorusGeometry(r, 0.045, 14, 36);
+    const botCollar = new THREE.Mesh(collarGeo, mats.steel);
+    botCollar.rotation.x = Math.PI / 2;
+    botCollar.position.y = 0.03;
+    g.add(botCollar);
+
+    const topCollar = new THREE.Mesh(collarGeo, mats.glow(b.hex, 0.45, 0.2, 0.7));
+    topCollar.rotation.x = Math.PI / 2;
+    topCollar.position.y = h;
+    g.add(topCollar);
+
+    // Translucent X-Ray glass cylinder wall
+    const wallGeo = new THREE.CylinderGeometry(r, r, h, 32, 1, true);
+    const wall = new THREE.Mesh(wallGeo, mats.xrayGlass);
+    wall.position.y = h * 0.5;
+    g.add(wall);
+
+    const edges = addXrayEdges(new THREE.CylinderGeometry(r + 0.008, r + 0.008, h, 16, 1, true), b.hex, 0.42);
+    edges.position.y = h * 0.5;
+    g.add(edges);
+
+    // Glowing PBR liquid fill column inside bucket
+    const liqGeo = new THREE.CylinderGeometry(r * 0.86, r * 0.86, 1.0, 28);
+    const liqMat = new THREE.MeshStandardMaterial({
+      color: b.hex,
+      emissive: b.hex,
+      emissiveIntensity: 0.42,
+      metalness: 0.55,
+      roughness: 0.18,
+    });
+    const liq = new THREE.Mesh(liqGeo, liqMat);
+    liq.position.y = 0.02;
+    liq.scale.set(1, 0.001, 1);
+    g.add(liq);
+
+    // Lock ring (illuminates when bucket is locked during raise phase)
+    const lockRing = new THREE.Mesh(
+      new THREE.TorusGeometry(r * 1.14, 0.03, 12, 36),
+      mats.glow(0x30d158, 0.85, 0.2, 0.5),
+    );
+    lockRing.rotation.x = Math.PI / 2;
+    lockRing.position.y = h * 0.5;
+    lockRing.visible = false;
+    g.add(lockRing);
+
+    scene.add(g);
+    bucketObjs.push({ group: g, liq, liqMat, topCollar, lockRing, h, x: xs[i], hex: b.hex });
+  }
+
+  // Flowing golden coins / droplets pouring into active bucket
+  coins = [];
+  const coinGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.045, 18);
+  for (let i = 0; i < 24; i++) {
+    const m = new THREE.Mesh(coinGeo, mats.gold);
+    m.visible = false;
+    scene.add(m);
+    coins.push(m);
+  }
+
+  // Luminous pouring beam above active bucket
+  const streamGeo = new THREE.CylinderGeometry(0.06, 0.12, 3.2, 16);
+  const streamMat = mats.glow(0xffd60a, 0.9, 0.15, 0.4);
+  streamMat.transparent = true;
+  streamMat.opacity = 0.72;
+  streamMesh = new THREE.Mesh(streamGeo, streamMat);
+  streamMesh.visible = false;
+  scene.add(streamMesh);
+
+  // Red "MYTH" warning torus that pulses in myth phase
+  mythOverlayRing = new THREE.Mesh(
+    new THREE.TorusGeometry(3.15, 0.045, 12, 64),
+    mats.glow(0xff3b30, 1.1, 0.2, 0.3),
+  );
+  mythOverlayRing.rotation.x = Math.PI / 2;
+  mythOverlayRing.position.y = 0.6;
+  mythOverlayRing.visible = false;
+  scene.add(mythOverlayRing);
+
+  built = true;
+}
+
+window.init = (cfg = {}) => {
   W = cfg.width || 720;
   H = cfg.height || 1280;
   FPS = cfg.fps || 60;
@@ -56,481 +198,187 @@ window.init = (cfg) => {
     { t: lMath.start + 0.18, type: 'win', pitchIndex: 11, intensity: 0.94 },
     { t: lLaw.start + 0.22, type: 'win', pitchIndex: 12, intensity: 0.9 },
   ];
+
+  if (!built) buildScene();
 };
 
-// 4 Progressive Marginal Tax Buckets
-const BUCKETS = [
-  { rate: 0.10, rateLbl: '10%', rangeLbl: '$0–$12K', lo: 0, hi: 12000, cap: 12000, color: '#10b981', glow: '#10b981' },
-  { rate: 0.12, rateLbl: '12%', rangeLbl: '$12–$48K', lo: 12000, hi: 48000, cap: 36000, color: '#2dd4bf', glow: '#14b8a6' },
-  { rate: 0.22, rateLbl: '22%', rangeLbl: '$48–$100K', lo: 48000, hi: 100000, cap: 52000, color: '#facc15', glow: '#eab308' },
-  { rate: 0.24, rateLbl: '24%', rangeLbl: '$100K+', lo: 100000, hi: 120000, cap: 20000, color: '#fb923c', glow: '#f97316' },
-];
+function renderSceneAt(t) {
+  if (!built) buildScene();
 
-function computeTaxStats(income) {
-  let totalTax = 0;
-  const fills = [];
-  for (const b of BUCKETS) {
-    const dollars = clamp(income - b.lo, 0, b.cap);
-    const tax = dollars * b.rate;
-    totalTax += tax;
-    fills.push({ dollars, frac: dollars / b.cap, tax, kept: dollars - tax });
-  }
-  const takeHome = Math.max(0, income - totalTax);
-  const effRate = income > 1 ? (totalTax / income) * 100 : 0;
-  return { totalTax, takeHome, effRate, fills };
-}
-
-function fmtExact(v) {
-  return '$' + Math.max(0, Math.round(v)).toLocaleString('en-US');
-}
-
-function fmtShort(v) {
-  if (v >= 1000) return '$' + (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'K';
-  return '$' + Math.round(v);
-}
-
-function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
-  let px = Math.round(basePx);
-  ctx.font = `${weight} ${px}px ${family}`;
-  const m = ctx.measureText(text).width || 1;
-  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
-  ctx.font = `${weight} ${px}px ${family}`;
-  return px;
-}
-
-// Deterministic income progression synced to the 6 narration phases
-function computeIncome(t) {
   const lHook = getLine('hook', 0);
   const lMyth = getLine('myth', 1);
   const lFill = getLine('fill', 2);
   const lRaise = getLine('raise', 3);
   const lMath = getLine('math', 4);
-
-  if (t < lMyth.start) {
-    // Gentle teaser fill up to $28K
-    return lerp(0, 28000, smooth(lHook.start, lMyth.start, t));
-  }
-  if (t < lFill.start) {
-    // Pause near $28K while myth is introduced
-    return lerp(28000, 32000, smooth(lMyth.start, lFill.start, t));
-  }
-  if (t < lRaise.start) {
-    // Fill Buckets 1, 2, 3 sequentially to $100,000
-    return lerp(32000, 100000, smooth(lFill.start, lRaise.start - 0.15, t));
-  }
-  if (t < lMath.start) {
-    // +$5,000 raise spills into Bucket 4 (24%) -> $105,000
-    return lerp(100000, 105000, smooth(lRaise.start + 0.15, lRaise.start + 1.8, t));
-  }
-  return 105000;
-}
-
-function drawCoin(x, y, r, S) {
-  ctx.save();
-  const cg = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
-  cg.addColorStop(0, '#fef08a');
-  cg.addColorStop(0.55, '#facc15');
-  cg.addColorStop(1, '#ca8a04');
-  ctx.fillStyle = cg;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#a16207';
-  ctx.lineWidth = 1.2 * S;
-  ctx.stroke();
-  ctx.fillStyle = '#713f12';
-  ctx.font = `900 ${Math.round(r * 1.15)}px -apple-system, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('$', x, y + 0.5 * S);
-  ctx.restore();
-}
-
-function drawFrame(t) {
-  const S = W / 720;
-  // Safe zone: x in [W*0.07, W*0.86], y in [H*0.14, H*0.74]
-  const safeL = W * 0.07;
-  const safeR = W * 0.86;
-  const safeW = safeR - safeL;
-  const cx = (safeL + safeR) * 0.5;
-
-  // Deep obsidian #030a08 background
-  ctx.fillStyle = '#030a08';
-  ctx.fillRect(0, 0, W, H);
-
-  // Warm gold & emerald ambient glow
-  const bgG = ctx.createRadialGradient(cx, H * 0.42, 20 * S, cx, H * 0.44, W * 0.62);
-  bgG.addColorStop(0, 'rgba(250, 204, 21, 0.09)');
-  bgG.addColorStop(0.55, 'rgba(16, 185, 129, 0.06)');
-  bgG.addColorStop(1, 'rgba(3, 10, 8, 0)');
-  ctx.fillStyle = bgG;
-  ctx.fillRect(0, 0, W, H);
-
-  // Subtle grid
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.042)';
-  ctx.lineWidth = 1 * S;
-  for (let x = 0; x < W; x += 42 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 42 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-
-  const lMyth = getLine('myth', 1);
-  const lRaise = getLine('raise', 3);
-  const lMath = getLine('math', 4);
   const lLaw = getLine('law', 5);
 
-  const income = computeIncome(t);
-  const stats = computeTaxStats(income);
-  const mythHl = smooth(lMyth.start, lMyth.start + 0.35, t) * (1 - smooth(lRaise.start, lRaise.start + 0.35, t));
-  const raiseActive = smooth(lRaise.start, lRaise.start + 0.45, t);
-  const mathReveal = smooth(lMath.start, lMath.start + 0.45, t);
-  const lawGlow = smooth(lLaw.start, lLaw.start + 0.4, t);
+  // Active caption
+  let activeCaption = SCRIPT[0].caption;
+  for (let i = 0; i < SCRIPT.length; i++) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) activeCaption = ln.caption || SCRIPT[i].caption;
+  }
 
-  // === 1. HEADER TITLE (y: H*0.145 .. H*0.184) ===
+  // Deterministic simulated income
+  let income = 68000;
+  let mythFlash = 0;
+  if (t < lMyth.start) {
+    income = lerp(42000, 96000, smooth(0, lMyth.start, t));
+  } else if (t < lFill.start) {
+    income = 100000;
+    mythFlash = 0.5 + 0.5 * Math.sin((t - lMyth.start) * 9.0);
+  } else if (t < lRaise.start) {
+    income = lerp(0, 100000, easeOutCubic(clamp((t - lFill.start) / Math.max(0.1, lRaise.start - lFill.start), 0, 1)));
+  } else {
+    const pRaise = smooth(lRaise.start + 0.2, lRaise.start + 2.2, t);
+    income = lerp(100000, 105000, pRaise);
+  }
+
+  const stats = computeTaxStats(income);
+  const inRaise = t >= lRaise.start;
+
+  // Update 3D buckets
+  let activeBucketIdx = 0;
+  for (let i = 0; i < bucketObjs.length; i++) {
+    const bo = bucketObjs[i];
+    const pct = clamp(stats.fills[i].pct, 0, 1);
+    if (pct > 0.005) activeBucketIdx = i;
+
+    const fillH = Math.max(0.02, pct * (bo.h - 0.1));
+    bo.liq.scale.set(1, fillH, 1);
+    bo.liq.position.y = fillH * 0.5 + 0.04;
+
+    if (mythFlash > 0.01) {
+      bo.liqMat.color.setHex(0xff3b30);
+      bo.liqMat.emissive.setHex(0xff3b30);
+      bo.liqMat.emissiveIntensity = 0.45 + 0.45 * mythFlash;
+    } else {
+      bo.liqMat.color.setHex(bo.hex);
+      bo.liqMat.emissive.setHex(bo.hex);
+      const spotlight = inRaise ? (i === 3 ? 0.95 : 0.24) : (i === activeBucketIdx ? 0.72 : 0.35);
+      bo.liqMat.emissiveIntensity = spotlight;
+    }
+
+    // Lock rings on first 3 buckets during raise phase
+    bo.lockRing.visible = inRaise && i < 3;
+    if (bo.lockRing.visible) {
+      bo.lockRing.rotation.z = t * 1.6 + i;
+    }
+  }
+
+  // Myth warning torus
+  mythOverlayRing.visible = mythFlash > 0.01;
+  if (mythOverlayRing.visible) {
+    const sc = 1 + 0.06 * mythFlash;
+    mythOverlayRing.scale.set(sc, sc, sc);
+  }
+
+  // Pouring gold stream + cascading 3D coins into active bucket
+  const pouring = (t >= lFill.start && t < lMath.start) || t < lMyth.start;
+  const targetBo = bucketObjs[inRaise ? 3 : activeBucketIdx];
+  streamMesh.visible = pouring && mythFlash < 0.01;
+  if (streamMesh.visible) {
+    streamMesh.position.set(targetBo.x, targetBo.h + 1.35, 0);
+  }
+
+  for (let i = 0; i < coins.length; i++) {
+    const c = coins[i];
+    if (!pouring || mythFlash > 0.01) {
+      c.visible = false;
+      continue;
+    }
+    c.visible = true;
+    const phase = (t * 2.2 + i / coins.length) % 1;
+    const spreadX = Math.sin(i * 4.3 + t * 2) * 0.26;
+    const spreadZ = Math.cos(i * 3.1 + t * 2) * 0.22;
+    c.position.set(
+      targetBo.x + spreadX * phase,
+      lerp(targetBo.h + 2.6, -1.5 + targetBo.h * 0.45, phase * phase),
+      spreadZ * phase,
+    );
+    c.rotation.set(t * 5 + i, t * 3.5, i * 0.7);
+  }
+
+  // Camera Choreography: wide establishing -> smooth orbit -> macro zoom onto Bucket 4 during raise -> heroic pullback
+  const { camera } = stage;
+  let camX = Math.sin(t * 0.35) * 1.65;
+  let camY = 1.95 + Math.sin(t * 0.5) * 0.25;
+  let camZ = 9.4;
+  let lookX = 0;
+  let lookY = -0.35;
+
+  if (t >= lRaise.start && t < lLaw.start) {
+    const pz = smooth(lRaise.start, lRaise.start + 1.1, t) * (1 - smooth(lLaw.start - 0.8, lLaw.start, t));
+    camX = lerp(camX, 2.55 + Math.sin(t * 0.9) * 0.45, pz);
+    camY = lerp(camY, 1.35, pz);
+    camZ = lerp(camZ, 6.2, pz);
+    lookX = lerp(0, 1.85, pz);
+    lookY = lerp(-0.35, -0.1, pz);
+  }
+  camera.position.set(camX, camY, camZ);
+  camera.lookAt(lookX, lookY, 0);
+
+  stage.composite(ctx, W, H);
+
+  // 3D-projected bucket rate tags directly above each bucket (inside Safe-Zone)
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  fitFont('WHY A RAISE ALWAYS PAYS', 29 * S, safeW, '900');
-  ctx.fillStyle = '#fefce8';
-  ctx.fillText('WHY A RAISE ALWAYS PAYS', cx, H * 0.155);
-
-  fitFont('PROGRESSIVE MARGINAL TAX BUCKETS', 13.5 * S, safeW, '700', 'ui-monospace, monospace');
-  ctx.fillStyle = '#6ee7b7';
-  ctx.fillText('PROGRESSIVE MARGINAL TAX BUCKETS', cx, H * 0.178);
-  ctx.restore();
-
-  // === 2. LIVE DASHBOARD PILLS (y: H*0.194 .. H*0.266) ===
-  const pillGap = 10 * S;
-  const pillW = (safeW - pillGap * 2) / 3;
-  const pillY = H * 0.194;
-  const pillH = H * 0.070;
-
-  const cards = [
-    {
-      label: income > 100500 ? 'INCOME (+$5K)' : 'INCOME',
-      val: fmtExact(income),
-      col: '#facc15',
-      bg: 'rgba(66, 32, 6, 0.38)',
-      border: income > 100500 ? '#facc15' : 'rgba(250, 204, 21, 0.4)',
-    },
-    {
-      label: income > 100500 ? 'KEEP (+$3.8K)' : 'TAKE-HOME',
-      val: fmtExact(stats.takeHome),
-      col: '#34d399',
-      bg: 'rgba(6, 78, 59, 0.38)',
-      border: mathReveal > 0.2 ? '#34d399' : 'rgba(16, 185, 129, 0.45)',
-    },
-    {
-      label: 'REAL TAX RATE',
-      val: `${stats.effRate.toFixed(1)}%`,
-      col: '#38bdf8',
-      bg: 'rgba(12, 74, 110, 0.35)',
-      border: 'rgba(56, 189, 248, 0.42)',
-    },
-  ];
-
-  for (let i = 0; i < 3; i++) {
-    const c = cards[i];
-    const px = safeL + i * (pillW + pillGap);
-    ctx.save();
-    ctx.fillStyle = c.bg;
-    ctx.strokeStyle = c.border;
-    ctx.lineWidth = 1.6 * S;
-    ctx.beginPath(); ctx.roundRect(px, pillY, pillW, pillH, 12 * S); ctx.fill(); ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    fitFont(c.label, 11.5 * S, pillW - 10 * S, '800', 'ui-monospace, monospace');
-    ctx.fillStyle = c.col;
-    ctx.fillText(c.label, px + pillW * 0.5, pillY + 9 * S);
-
-    ctx.textBaseline = 'bottom';
-    fitFont(c.val, 22 * S, pillW - 10 * S, '900', 'ui-monospace, monospace');
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillText(c.val, px + pillW * 0.5, pillY + pillH - 9 * S);
-    ctx.restore();
-  }
-
-  // === 3. FOUR GLOWING GLASS TAX BUCKETS (y: H*0.280 .. H*0.586) ===
-  const stageY = H * 0.280;
-  const stageH = H * 0.306;
-  ctx.save();
-  ctx.fillStyle = 'rgba(5, 18, 15, 0.72)';
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.20)';
-  ctx.lineWidth = 1.4 * S;
-  ctx.beginPath(); ctx.roundRect(safeL, stageY, safeW, stageH, 16 * S); ctx.fill(); ctx.stroke();
-  ctx.restore();
-
-  // Determine which bucket is currently actively receiving coins
-  let activeIdx = 0;
+  const S = W / 720;
   for (let i = 0; i < BUCKETS.length; i++) {
-    if (income > BUCKETS[i].lo) activeIdx = i;
-  }
-  const isPouring = income < 104980;
+    const bo = bucketObjs[i];
+    const wp = new THREE.Vector3(bo.x, -1.75 + bo.h + 0.55, 0);
+    wp.project(camera);
+    const sx = (wp.x * 0.5 + 0.5) * W;
+    const sy = (-wp.y * 0.5 + 0.5) * H;
+    if (sx > W * 0.06 && sx < W * 0.86 && sy > H * 0.22 && sy < H * 0.60) {
+      const b = BUCKETS[i];
+      ctx.font = `900 ${Math.round(17 * S)}px ui-monospace, monospace`;
+      ctx.lineWidth = 4 * S;
+      ctx.strokeStyle = 'rgba(5, 8, 16, 0.92)';
+      ctx.strokeText(b.rateLbl, sx, sy);
+      ctx.fillStyle = mythFlash > 0.01 ? '#FF3B30' : b.css;
+      ctx.fillText(b.rateLbl, sx, sy);
 
-  const bGap = 14 * S;
-  const padX = 16 * S;
-  const bW = (safeW - padX * 2 - bGap * 3) / 4;
-  const bTop = stageY + 62 * S;
-  const bBot = stageY + stageH - 56 * S;
-  const bH = bBot - bTop;
-
-  // Overhead golden coin pipe feeding the active bucket
-  const activeCX = safeL + padX + activeIdx * (bW + bGap) + bW * 0.5;
-  const pipeY = stageY + 20 * S;
-  ctx.save();
-  ctx.strokeStyle = 'rgba(250, 204, 21, 0.38)';
-  ctx.lineWidth = 4 * S;
-  ctx.beginPath();
-  ctx.moveTo(safeL + padX + bW * 0.5, pipeY);
-  ctx.lineTo(safeR - padX - bW * 0.5, pipeY);
-  ctx.stroke();
-
-  // Sliding gold spout above active bucket
-  ctx.fillStyle = '#eab308';
-  ctx.strokeStyle = '#fef08a';
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  ctx.roundRect(activeCX - 16 * S, pipeY - 7 * S, 32 * S, 18 * S, 5 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  // Falling golden coins into active bucket
-  const activeFillY = bBot - stats.fills[activeIdx].frac * bH;
-  if (isPouring || raiseActive > 0.1) {
-    const streamIntensity = isPouring ? 1 : 0.45;
-    for (let k = 0; k < 4; k++) {
-      const p = (t * 2.2 + k * 0.25) % 1;
-      const cy = lerp(pipeY + 14 * S, Math.max(bTop + 10 * S, activeFillY - 6 * S), p);
-      const cxOff = Math.sin(k * 2.7 + t * 5) * 4 * S;
-      ctx.globalAlpha = Math.sin(p * Math.PI) * streamIntensity;
-      drawCoin(activeCX + cxOff, cy, 7.5 * S, S);
+      ctx.font = `700 ${Math.round(10.5 * S)}px ui-monospace, monospace`;
+      ctx.strokeText(b.rangeLbl, sx, sy + 16 * S);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText(b.rangeLbl, sx, sy + 16 * S);
     }
-    ctx.globalAlpha = 1;
   }
   ctx.restore();
 
-  // Draw overflow bridges between full buckets
-  for (let i = 0; i < 3; i++) {
-    if (stats.fills[i].frac >= 0.995 && stats.fills[i + 1].frac > 0.005) {
-      const x1 = safeL + padX + i * (bW + bGap) + bW;
-      const x2 = x1 + bGap;
-      const oy = bTop + 14 * S;
-      ctx.save();
-      ctx.strokeStyle = '#facc15';
-      ctx.shadowColor = '#facc15';
-      ctx.shadowBlur = 8 * S;
-      ctx.lineWidth = 3.2 * S;
-      ctx.beginPath();
-      ctx.moveTo(x1 - 2 * S, oy);
-      ctx.quadraticCurveTo((x1 + x2) * 0.5, oy - 10 * S, x2 + 2 * S, oy + 4 * S);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-
-  // Draw each of the 4 Glowing Glass Tax Buckets
-  for (let i = 0; i < 4; i++) {
-    const b = BUCKETS[i];
-    const f = stats.fills[i];
-    const bx = safeL + padX + i * (bW + bGap);
-    const bcx = bx + bW * 0.5;
-    const isFourth = i === 3;
-    const isLocked = raiseActive > 0.25 && i < 3;
-    const highlight4 = isFourth && raiseActive > 0.1;
-
-    ctx.save();
-
-    // Rate badge above bucket
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.font = `900 ${Math.round(21 * S)}px -apple-system, sans-serif`;
-    ctx.fillStyle = b.color;
-    ctx.shadowColor = b.glow;
-    ctx.shadowBlur = highlight4 ? 14 * S : 6 * S;
-    ctx.fillText(b.rateLbl, bcx, bTop - 7 * S);
-    ctx.shadowBlur = 0;
-
-    // Glass bucket interior clip
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(bx, bTop, bW, bH, [4 * S, 4 * S, 14 * S, 14 * S]);
-    ctx.clip();
-
-    // Subtle dark glass back wall
-    const glassBg = ctx.createLinearGradient(bx, bTop, bx + bW, bTop);
-    glassBg.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
-    glassBg.addColorStop(0.3, 'rgba(15, 23, 42, 0.35)');
-    glassBg.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
-    ctx.fillStyle = glassBg;
-    ctx.fillRect(bx, bTop, bW, bH);
-
-    // Golden liquid + stacked coins fill
-    const fillH = f.frac * bH;
-    if (fillH > 1.5 * S) {
-      const fillTopY = bBot - fillH;
-      const taxSliceH = fillH * b.rate;
-      const keepTopY = fillTopY + taxSliceH;
-
-      // Golden "YOU KEEP" body fill
-      const goldG = ctx.createLinearGradient(0, keepTopY, 0, bBot);
-      goldG.addColorStop(0, 'rgba(250, 204, 21, 0.85)');
-      goldG.addColorStop(1, 'rgba(180, 83, 9, 0.92)');
-      ctx.fillStyle = goldG;
-      ctx.fillRect(bx, keepTopY, bW, bBot - keepTopY);
-
-      // Crimson-tinted "TAX" top slice inside bucket
-      const taxG = ctx.createLinearGradient(0, fillTopY, 0, keepTopY);
-      taxG.addColorStop(0, 'rgba(244, 63, 94, 0.88)');
-      taxG.addColorStop(1, 'rgba(190, 18, 60, 0.82)');
-      ctx.fillStyle = taxG;
-      ctx.fillRect(bx, fillTopY, bW, taxSliceH);
-
-      // Stacked coin discs texture inside the kept golden zone
-      const coinR = 8.5 * S;
-      const cols = Math.max(3, Math.floor((bW - 8 * S) / (coinR * 1.65)));
-      const rowStep = coinR * 1.15;
-      const rows = Math.floor((bBot - keepTopY) / rowStep);
-      for (let r = 0; r < rows; r++) {
-        const cy = bBot - coinR * 0.7 - r * rowStep;
-        if (cy < keepTopY + 3 * S) break;
-        for (let c = 0; c < cols; c++) {
-          const cxPos = bx + 10 * S + (c + (r % 2) * 0.25) * ((bW - 20 * S) / Math.max(1, cols - 0.5));
-          ctx.fillStyle = 'rgba(254, 240, 138, 0.32)';
-          ctx.beginPath();
-          ctx.ellipse(cxPos, cy, coinR * 0.72, coinR * 0.36, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Bright meniscus rim at fill surface
-      ctx.strokeStyle = '#fef08a';
-      ctx.lineWidth = 2 * S;
-      ctx.beginPath(); ctx.moveTo(bx, fillTopY); ctx.lineTo(bx + bW, fillTopY); ctx.stroke();
-    }
-
-    // Glossy left glass specular streak
-    const specG = ctx.createLinearGradient(bx + 6 * S, 0, bx + 18 * S, 0);
-    specG.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
-    specG.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-    ctx.fillStyle = specG;
-    ctx.fillRect(bx + 5 * S, bTop + 4 * S, 13 * S, bH - 8 * S);
-    ctx.restore();
-
-    // Glowing glass outline
-    ctx.strokeStyle = highlight4 ? '#facc15' : (isLocked ? '#34d399' : b.color);
-    ctx.shadowColor = highlight4 ? '#facc15' : b.glow;
-    ctx.shadowBlur = (highlight4 ? 18 : 8) * S;
-    ctx.lineWidth = (highlight4 ? 3 : 2) * S;
-    ctx.beginPath();
-    ctx.roundRect(bx, bTop, bW, bH, [4 * S, 4 * S, 14 * S, 14 * S]);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // LOCKED ✓ pill on Buckets 1-3 during Raise phase, or "+$5K ONLY!" pill on Bucket 4
-    if (isLocked) {
-      const lkW = bW - 10 * S, lkH = 22 * S;
-      const lkX = bx + 5 * S, lkY = bTop + bH * 0.44 - lkH * 0.5;
-      ctx.fillStyle = 'rgba(6, 78, 59, 0.92)';
-      ctx.strokeStyle = '#34d399';
-      ctx.lineWidth = 1.4 * S;
-      ctx.beginPath(); ctx.roundRect(lkX, lkY, lkW, lkH, 7 * S); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#ecfdf5';
-      ctx.font = `900 ${Math.round(10.5 * S)}px ui-monospace, monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('LOCKED ✓', bcx, lkY + lkH * 0.5);
-    } else if (highlight4 && f.dollars > 200) {
-      const tagW = bW - 6 * S, tagH = 24 * S;
-      const tagX = bx + 3 * S, tagY = bTop + bH * 0.28;
-      ctx.fillStyle = 'rgba(124, 45, 18, 0.94)';
-      ctx.strokeStyle = '#fb923c';
-      ctx.lineWidth = 1.6 * S;
-      ctx.beginPath(); ctx.roundRect(tagX, tagY, tagW, tagH, 7 * S); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#fff7ed';
-      ctx.font = `900 ${Math.round(10.5 * S)}px ui-monospace, monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('ONLY +$5K', bcx, tagY + tagH * 0.5);
-    }
-
-    // Dollars inside bucket + Bracket range below
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    fitFont(fmtShort(f.dollars), 15 * S, bW + 4 * S, '900', 'ui-monospace, monospace');
-    ctx.fillStyle = f.dollars > 0 ? '#fefce8' : '#475569';
-    ctx.fillText(fmtShort(f.dollars), bcx, bBot + 8 * S);
-
-    fitFont(b.rangeLbl, 10.5 * S, bW + 6 * S, '700', 'ui-monospace, monospace');
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(b.rangeLbl, bcx, bBot + 29 * S);
-
-    ctx.restore();
-  }
-
-  // === 4. BOTTOM PANEL: MYTH vs REALITY PROOF CARD (y: H*0.600 .. H*0.735) ===
-  const boxY = H * 0.600;
-  const boxH = H * 0.135; // ends at H*0.735 <= H*0.74
-  ctx.save();
-  ctx.fillStyle = 'rgba(5, 20, 16, 0.84)';
-  ctx.strokeStyle = (mathReveal > 0.2 || lawGlow > 0.2) ? 'rgba(52, 211, 153, 0.68)' : 'rgba(148, 163, 184, 0.24)';
-  ctx.lineWidth = (1.6 + lawGlow * 1.2) * S;
-  ctx.beginPath(); ctx.roundRect(safeL, boxY, safeW, boxH, 16 * S); ctx.fill(); ctx.stroke();
-
-  // Header
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  fitFont('$100K → $105K RAISE: MYTH vs REALITY', 13 * S, safeW - 28 * S, '800', 'ui-monospace, monospace');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('$100K → $105K RAISE: MYTH vs REALITY', safeL + 16 * S, boxY + 22 * S);
-
-  // Row 1: MYTH (Red Strikethrough)
-  const row1Y = boxY + 54 * S;
-  const rowH = 44 * S;
-  ctx.fillStyle = mythHl > 0.2 ? 'rgba(136, 19, 55, 0.42)' : 'rgba(136, 19, 55, 0.24)';
-  ctx.strokeStyle = mythHl > 0.2 ? '#fb7185' : 'rgba(244, 63, 94, 0.42)';
-  ctx.lineWidth = 1.5 * S;
-  ctx.beginPath(); ctx.roundRect(safeL + 14 * S, row1Y, safeW - 28 * S, rowH, 10 * S); ctx.fill(); ctx.stroke();
-
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  fitFont('✗ MYTH: 24% ON ALL $105K', 14 * S, safeW * 0.56, '800', 'ui-monospace, monospace');
-  ctx.fillStyle = '#fda4af';
-  ctx.fillText('✗ MYTH: 24% ON ALL $105K', safeL + 26 * S, row1Y + rowH * 0.5);
-
-  ctx.textAlign = 'right';
-  fitFont('$79,800 (-$3.2K)', 15 * S, safeW * 0.36, '900', 'ui-monospace, monospace');
-  ctx.fillStyle = '#fb7185';
-  ctx.fillText('$79,800 (-$3.2K)', safeR - 24 * S, row1Y + rowH * 0.5);
-
-  // Row 2: REALITY (Glowing Emerald Winner)
-  const row2Y = boxY + 110 * S;
-  ctx.fillStyle = 'rgba(6, 78, 59, 0.46)';
-  ctx.strokeStyle = '#34d399';
-  ctx.lineWidth = (1.8 + mathReveal * 1.2) * S;
-  ctx.shadowColor = '#10b981';
-  ctx.shadowBlur = (8 + mathReveal * 12) * S;
-  ctx.beginPath(); ctx.roundRect(safeL + 14 * S, row2Y, safeW - 28 * S, rowH, 10 * S); ctx.fill(); ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  ctx.textAlign = 'left';
-  fitFont('✓ REAL: 24% ON TOP $5K ONLY', 14 * S, safeW * 0.56, '800', 'ui-monospace, monospace');
-  ctx.fillStyle = '#ecfdf5';
-  ctx.fillText('✓ REAL: 24% ON TOP $5K ONLY', safeL + 26 * S, row2Y + rowH * 0.5);
-
-  ctx.textAlign = 'right';
-  fitFont('$86,840 (+$3.8K)', 15.5 * S, safeW * 0.36, '900', 'ui-monospace, monospace');
-  ctx.fillStyle = '#34d399';
-  ctx.fillText('$86,840 (+$3.8K)', safeR - 24 * S, row2Y + rowH * 0.5);
-
-  ctx.restore();
+  const extraNet = income > 100000 ? Math.round((income - 100000) * 0.76) : 0;
+  drawStudioHud(ctx, {
+    W,
+    H,
+    channel: 'wealth',
+    badge: mythFlash > 0.01 ? 'MYTH: 24% ON ALL INCOME ✕' : 'MARGINAL TAX BUCKETS · 3D',
+    title: 'WHY A RAISE NEVER HURTS',
+    subtitle: inRaise ? '+$5,000 RAISE → ONLY TOP $5K AT 24%' : '4 PROGRESSIVE BUCKETS FILL IN ORDER',
+    caption: activeCaption,
+    metrics: [
+      { label: 'SALARY', value: '$' + Math.round(income).toLocaleString('en-US'), color: '#FFD60A' },
+      { label: 'REAL TAX RATE', value: mythFlash > 0.01 ? '24.0%?' : stats.effRate.toFixed(1) + '%', color: mythFlash > 0.01 ? '#FF3B30' : '#30D158' },
+      { label: 'EXTRA NET', value: extraNet > 0 ? '+$' + extraNet.toLocaleString('en-US') : '$' + Math.round(stats.takeHome / 1000) + 'K', color: '#30D158' },
+    ],
+    progress: t / Math.max(1, DUR),
+  });
 }
+
+window.renderFrame = (t) => {
+  renderSceneAt(t);
+  return cv.toDataURL('image/jpeg', 0.92).slice(23);
+};
 
 window.renderBatch = (startFrame, count) => {
   const out = [];
   for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
+    renderSceneAt((startFrame + i) / FPS);
     out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
   }
   return out;
 };
+
 window.ready = true;
 </script>

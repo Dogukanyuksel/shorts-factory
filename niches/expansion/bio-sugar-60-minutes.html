@@ -1,30 +1,38 @@
 <!doctype html>
 <!--
   Bio Mechanics — What One Can of Soda Does to Your Body in 60 Minutes
-  60fps, deterministic, audio-synced HTML5 Canvas medical cutaway
+  Y-LABS 3D Cinema Engine (Three.js PBR Bioluminescent Bloodstream Tunnel + Glucose/Insulin/Fat, 60fps deterministic)
 -->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#050712;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#0D1117;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
-
 const SCRIPT = [
   { id: 'hook', text: 'One single can of soda packs ten teaspoons of sugar—watch what happens inside your body in sixty minutes.', caption: '39 GRAMS OF SUGAR' },
-  { id: 'dissolve', text: 'In the first ten minutes, thirty-nine grams of liquid sugar flood straight into your bloodstream.', caption: '10 MIN • SUGAR FLOOD' },
-  { id: 'spike', text: 'By minute twenty, blood glucose rockets upward, triggering a rapid dopamine and energy spike.', caption: '20 MIN • GLUCOSE SPIKE' },
-  { id: 'insulin', text: 'Your pancreas fires massive waves of emerald insulin to unlock cells and pull that sugar out.', caption: '30 MIN • INSULIN SURGE' },
-  { id: 'liver', text: 'Overwhelmed, your liver converts the excess glucose straight into glowing droplets of stored fat.', caption: '45 MIN • FAT STORAGE' },
-  { id: 'crash', text: 'By minute fifty-five, blood sugar plummets below baseline—leaving you tired, foggy, and craving more.', caption: '55 MIN • SUGAR CRASH' },
+  { id: 'dissolve', text: 'In the first ten minutes, thirty-nine grams of liquid sugar flood straight into your bloodstream.', caption: '10 MIN · SUGAR FLOOD' },
+  { id: 'spike', text: 'By minute twenty, blood glucose rockets upward, triggering a rapid dopamine and energy spike.', caption: '20 MIN · GLUCOSE SPIKE' },
+  { id: 'insulin', text: 'Your pancreas fires massive waves of emerald insulin to unlock cells and pull that sugar out.', caption: '30 MIN · INSULIN SURGE' },
+  { id: 'liver', text: 'Overwhelmed, your liver converts the excess glucose straight into glowing droplets of stored fat.', caption: '45 MIN · FAT STORAGE' },
+  { id: 'crash', text: 'By minute fifty-five, blood sugar plummets below baseline—leaving you tired, foggy, and craving more.', caption: '55 MIN · SUGAR CRASH' },
 ];
 
 let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let vesselRings = [], rbcMeshes = [], glucoseCubes = [], insulinOrbs = [], fatDroplets = [];
+let vesselWallMat = null;
 
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
@@ -36,7 +44,133 @@ function getLine(id, fallbackIdx) {
   return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
 }
 
-window.init = (cfg) => {
+function hash(n) {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function buildScene() {
+  stage = createStudioStage({
+    width: W,
+    height: H,
+    channel: 'bio',
+    fov: 46,
+    fogDensity: 0.045,
+    addGrid: false,
+  });
+  const { scene } = stage;
+  const mats = createMaterials('bio');
+
+  // Translucent 3D Artery Tunnel Wall along Z axis
+  const wallGeo = new THREE.CylinderGeometry(2.65, 2.65, 24, 32, 1, true);
+  wallGeo.rotateX(Math.PI / 2);
+  vesselWallMat = new THREE.MeshPhysicalMaterial({
+    color: 0x9f1239,
+    emissive: 0x4c0519,
+    emissiveIntensity: 0.55,
+    transparent: true,
+    opacity: 0.32,
+    roughness: 0.28,
+    metalness: 0.1,
+    side: THREE.BackSide,
+    depthWrite: false,
+  });
+  const wall = new THREE.Mesh(wallGeo, vesselWallMat);
+  wall.position.z = -4;
+  scene.add(wall);
+
+  // Pulsing arterial rib rings along tunnel
+  vesselRings = [];
+  const ringGeo = new THREE.TorusGeometry(2.58, 0.055, 10, 40);
+  const ringMat = mats.glow(0xff2d55, 0.55, 0.25, 0.2);
+  for (let i = 0; i < 16; i++) {
+    const r = new THREE.Mesh(ringGeo, ringMat);
+    r.position.z = -14 + i * 1.45;
+    scene.add(r);
+    vesselRings.push(r);
+  }
+
+  // 3D Red Blood Cells (flattened crimson discs with rim)
+  rbcMeshes = [];
+  const rbcGeo = new THREE.TorusGeometry(0.28, 0.13, 12, 22);
+  const rbcMat = new THREE.MeshStandardMaterial({
+    color: 0xe11d48,
+    emissive: 0x881337,
+    emissiveIntensity: 0.45,
+    roughness: 0.26,
+    metalness: 0.18,
+  });
+  for (let i = 0; i < 24; i++) {
+    const m = new THREE.Mesh(rbcGeo, rbcMat);
+    m.scale.set(1, 1, 0.55);
+    scene.add(m);
+    rbcMeshes.push({
+      mesh: m,
+      ang: hash(i * 3.1) * Math.PI * 2,
+      rad: 0.45 + hash(i * 5.7) * 1.45,
+      zOff: hash(i * 7.3) * 18,
+      speed: 2.6 + hash(i * 2.9) * 1.6,
+    });
+  }
+
+  // 3D Crystalline Glucose Cubes (luminous white-gold octahedrons)
+  glucoseCubes = [];
+  const gluGeo = new THREE.OctahedronGeometry(0.22, 0);
+  const gluMat = mats.glow(0xfef08a, 0.95, 0.12, 0.25);
+  for (let i = 0; i < 32; i++) {
+    const m = new THREE.Mesh(gluGeo, gluMat);
+    scene.add(m);
+    glucoseCubes.push({
+      mesh: m,
+      ang: hash(i * 11.3) * Math.PI * 2,
+      rad: 0.2 + hash(i * 13.7) * 1.55,
+      zOff: hash(i * 17.1) * 18,
+      speed: 3.4 + hash(i * 19.3) * 2.0,
+    });
+  }
+
+  // 3D Emerald Insulin Keys (glowing green icosahedrons)
+  insulinOrbs = [];
+  const insGeo = new THREE.IcosahedronGeometry(0.19, 0);
+  const insMat = mats.glow(0x34c759, 1.1, 0.18, 0.35);
+  for (let i = 0; i < 22; i++) {
+    const m = new THREE.Mesh(insGeo, insMat);
+    m.visible = false;
+    scene.add(m);
+    insulinOrbs.push({
+      mesh: m,
+      ang: hash(i * 23.1) * Math.PI * 2,
+      rad: 0.35 + hash(i * 29.7) * 1.6,
+      zOff: hash(i * 31.3) * 18,
+    });
+  }
+
+  // 3D Golden Stored Fat Droplets (amber glossy spheres)
+  fatDroplets = [];
+  const fatGeo = new THREE.SphereGeometry(0.27, 18, 18);
+  const fatMat = new THREE.MeshStandardMaterial({
+    color: 0xf59e0b,
+    emissive: 0xd97706,
+    emissiveIntensity: 0.65,
+    roughness: 0.14,
+    metalness: 0.35,
+  });
+  for (let i = 0; i < 18; i++) {
+    const m = new THREE.Mesh(fatGeo, fatMat);
+    m.visible = false;
+    scene.add(m);
+    fatDroplets.push({
+      mesh: m,
+      ang: hash(i * 37.3) * Math.PI * 2,
+      rad: 1.45 + hash(i * 41.1) * 0.65,
+      zOff: hash(i * 43.7) * 14,
+    });
+  }
+
+  built = true;
+}
+
+window.init = (cfg = {}) => {
   W = cfg.width || 720;
   H = cfg.height || 1280;
   FPS = cfg.fps || 60;
@@ -59,61 +193,12 @@ window.init = (cfg) => {
     { t: lCrs.start + 0.12, type: 'break', pitchIndex: 1, intensity: 0.96 },
     { t: Math.min(DUR - 0.25, lCrs.start + 1.4), type: 'win', pitchIndex: 3, intensity: 0.85 },
   ];
+
+  if (!built) buildScene();
 };
 
-function fitFont(text, basePx, maxW, weight = '900', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
-  let px = Math.round(basePx);
-  ctx.font = `${weight} ${px}px ${family}`;
-  const m = ctx.measureText(text).width || 1;
-  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
-  ctx.font = `${weight} ${px}px ${family}`;
-  return px;
-}
-
-function getActivePhase(t) {
-  for (let i = SCRIPT.length - 1; i >= 0; i--) {
-    const ln = getLine(SCRIPT[i].id, i);
-    if (t >= ln.start) return { idx: i, line: ln };
-  }
-  return { idx: 0, line: getLine(SCRIPT[0].id, 0) };
-}
-
-// Physiological blood glucose curve (mg/dL) for minute m in [0, 60]
-function glucoseAtMinute(m) {
-  const base = 90;
-  const spike = 98 * Math.exp(-Math.pow((m - 22) / 11.5, 2));
-  const crash = -26 * Math.exp(-Math.pow((m - 55) / 8.5, 2));
-  const riseRamp = smooth(0, 8, m);
-  return base + (spike + crash) * riseRamp;
-}
-
-// Physiological insulin curve (normalized 0..1) for minute m in [0, 60]
-function insulinAtMinute(m) {
-  return clamp(Math.exp(-Math.pow((m - 33) / 11.0, 2)) * smooth(12, 22, m), 0, 1);
-}
-
-// Draw a hexagonal glucose molecule
-function drawHexagon(x, y, r) {
-  ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 - Math.PI / 6;
-    const px = x + Math.cos(a) * r;
-    const py = y + Math.sin(a) * r;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-}
-
-function drawFrame(t) {
-  const S = W / 720;
-  const safeLeft = W * 0.08;
-  const safeRight = W * 0.84;
-  const safeW = safeRight - safeLeft;
-  const cx = (safeLeft + safeRight) * 0.5;
-
-  const { idx: phaseIdx, line: activeLine } = getActivePhase(t);
-  const phaseProg = clamp((t - activeLine.start) / Math.max(0.1, activeLine.end - activeLine.start), 0, 1);
+function renderSceneAt(t) {
+  if (!built) buildScene();
 
   const lDis = getLine('dissolve', 1);
   const lSpk = getLine('spike', 2);
@@ -121,540 +206,140 @@ function drawFrame(t) {
   const lLiv = getLine('liver', 4);
   const lCrs = getLine('crash', 5);
 
-  // Map video timeline smoothly to 0 -> 60 minutes aligned with narration phases
-  let minutes = 0;
-  if (t < lDis.start) {
-    minutes = lerp(0, 3, clamp(t / Math.max(0.1, lDis.start), 0, 1));
-  } else if (t < lSpk.start) {
-    minutes = lerp(3, 14, clamp((t - lDis.start) / Math.max(0.1, lSpk.start - lDis.start), 0, 1));
-  } else if (t < lIns.start) {
-    minutes = lerp(14, 24, clamp((t - lSpk.start) / Math.max(0.1, lIns.start - lSpk.start), 0, 1));
-  } else if (t < lLiv.start) {
-    minutes = lerp(24, 38, clamp((t - lIns.start) / Math.max(0.1, lLiv.start - lIns.start), 0, 1));
-  } else if (t < lCrs.start) {
-    minutes = lerp(38, 50, clamp((t - lLiv.start) / Math.max(0.1, lCrs.start - lLiv.start), 0, 1));
-  } else {
-    minutes = lerp(50, 60, clamp((t - lCrs.start) / Math.max(0.1, DUR - lCrs.start), 0, 1));
-  }
-  minutes = clamp(minutes, 0, 60);
-
-  const glucoseMg = glucoseAtMinute(minutes);
-  const glucoseNorm = clamp((glucoseMg - 60) / 135, 0, 1);
-  const insulinAmt = insulinAtMinute(minutes);
-  const fatAmt = smooth(34, 52, minutes);
-  const crashAmt = smooth(48, 57, minutes);
-  const dissolveAmt = smooth(2, 16, minutes);
-
-  // === 1. DEEP MIDNIGHT #050712 MEDICAL STUDIO BACKGROUND ===
-  ctx.fillStyle = '#050712';
-  ctx.fillRect(0, 0, W, H);
-
-  const bgGlow = ctx.createRadialGradient(cx, H * 0.37, 18 * S, cx, H * 0.37, H * 0.44);
-  if (crashAmt > 0.35) {
-    bgGlow.addColorStop(0, `rgba(190,24,60,${(0.18 * crashAmt).toFixed(3)})`);
-  } else if (insulinAmt > 0.35) {
-    bgGlow.addColorStop(0, `rgba(16,185,129,${(0.18 * insulinAmt).toFixed(3)})`);
-  } else {
-    bgGlow.addColorStop(0, `rgba(251,191,36,${(0.10 + 0.12 * glucoseNorm).toFixed(3)})`);
-  }
-  bgGlow.addColorStop(0.55, 'rgba(15,23,42,0.16)');
-  bgGlow.addColorStop(1, 'rgba(5,7,18,0)');
-  ctx.fillStyle = bgGlow;
-  ctx.fillRect(0, 0, W, H);
-
-  // Subtle diagnostic grid
-  ctx.strokeStyle = 'rgba(56,189,248,0.042)';
-  ctx.lineWidth = 1 * S;
-  for (let x = safeLeft; x <= safeRight; x += 42 * S) {
-    ctx.beginPath(); ctx.moveTo(x, H * 0.14); ctx.lineTo(x, H * 0.74); ctx.stroke();
-  }
-  for (let y = H * 0.14; y <= H * 0.74; y += 42 * S) {
-    ctx.beginPath(); ctx.moveTo(safeLeft, y); ctx.lineTo(safeRight, y); ctx.stroke();
+  let activeCaption = SCRIPT[0].caption;
+  for (let i = 0; i < SCRIPT.length; i++) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) activeCaption = ln.caption || SCRIPT[i].caption;
   }
 
-  // === 2. LIVE 0 -> 60 MIN MEDICAL CLOCK BAR (y: H*0.182 to H*0.218) ===
-  const clkX = safeLeft;
-  const clkY = H * 0.182;
-  const clkW = safeW;
-  const clkH = H * 0.036;
+  const pDis = smooth(lDis.start, lSpk.start, t);
+  const pSpk = smooth(lSpk.start, lSpk.start + 1.2, t);
+  const pIns = smooth(lIns.start, lIns.start + 1.1, t);
+  const pLiv = smooth(lLiv.start, lLiv.start + 1.2, t);
+  const pCrs = smooth(lCrs.start, lCrs.start + 1.4, t);
 
-  ctx.save();
-  ctx.fillStyle = 'rgba(9,16,32,0.88)';
-  ctx.strokeStyle = crashAmt > 0.4 ? 'rgba(251,113,133,0.65)' : 'rgba(56,189,248,0.38)';
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  ctx.roundRect(clkX, clkY, clkW, clkH, 10 * S);
-  ctx.fill();
-  ctx.stroke();
+  // Simulated clinical timeline (0 -> 60 min) & Blood Glucose (mg/dL)
+  const simMin = Math.round(clamp((t / Math.max(1, DUR)) * 60, 0, 60));
+  let glucoseMg = 90;
+  if (t < lSpk.start) glucoseMg = lerp(90, 148, pDis);
+  else if (t < lIns.start) glucoseMg = lerp(148, 212, pSpk);
+  else if (t < lLiv.start) glucoseMg = lerp(212, 165, pIns);
+  else if (t < lCrs.start) glucoseMg = lerp(165, 118, pLiv);
+  else glucoseMg = lerp(118, 66, pCrs);
 
-  const barX = clkX + 12 * S;
-  const barW = clkW - 134 * S;
-  const barY = clkY + clkH * 0.50;
-  const barH = 10 * S;
+  const flowMult = lerp(1.0, 1.85, pSpk) * lerp(1.0, 0.35, pCrs);
+  const pulse = 1 + 0.045 * Math.sin(t * (5.5 + 3.5 * pSpk - 3.0 * pCrs));
 
-  ctx.fillStyle = 'rgba(30,41,59,0.9)';
-  ctx.beginPath();
-  ctx.roundRect(barX, barY - barH * 0.5, barW, barH, 5 * S);
-  ctx.fill();
-
-  const progW = Math.max(8 * S, barW * (minutes / 60));
-  const barG = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-  barG.addColorStop(0, '#fbbf24');
-  barG.addColorStop(0.38, '#fb7185');
-  barG.addColorStop(0.62, '#34d399');
-  barG.addColorStop(1, '#f43f5e');
-  ctx.fillStyle = barG;
-  ctx.beginPath();
-  ctx.roundRect(barX, barY - barH * 0.5, progW, barH, 5 * S);
-  ctx.fill();
-
-  // Digital minute readout
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  const minStr = `${Math.floor(minutes).toString().padStart(2, '0')} / 60 MIN`;
-  fitFont(minStr, 17 * S, 112 * S, '900');
-  ctx.fillStyle = crashAmt > 0.4 ? '#fb7185' : '#f8fafc';
-  ctx.fillText(minStr, clkX + clkW - 12 * S, barY);
-  ctx.restore();
-
-  // === 3. MAIN ANATOMICAL BLOODSTREAM & METABOLIC ORGAN CUTAWAY (y: H*0.228 to H*0.546) ===
-  const boxX = safeLeft;
-  const boxY = H * 0.228;
-  const boxW = safeW;
-  const boxH = H * 0.318;
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(boxX, boxY, boxW, boxH, 20 * S);
-  ctx.fillStyle = '#080e1f';
-  ctx.fill();
-  ctx.save();
-  ctx.clip();
-
-  // --- A. TOP ROW: 10 SUGAR CUBES (39g) DISSOLVING INTO BLOODSTREAM ---
-  const cubeAreaY = boxY + 26 * S;
-  const cubeSize = 18 * S;
-  const cubesLeft = boxX + 22 * S;
-  ctx.save();
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  fitFont('10 TSP SUGAR (39g)', 12.5 * S, 180 * S, '800');
-  ctx.fillStyle = '#fde68a';
-  ctx.fillText('10 TSP SUGAR (39g)', cubesLeft, boxY + 15 * S);
-
-  for (let i = 0; i < 10; i++) {
-    const col = i % 5;
-    const row = Math.floor(i / 5);
-    const dissolveK = clamp((dissolveAmt * 1.45) - i * 0.08, 0, 1);
-    const scaleC = clamp(1 - dissolveK, 0, 1);
-    const qx = cubesLeft + col * (cubeSize + 6 * S) + cubeSize * 0.5;
-    const qy = cubeAreaY + 12 * S + row * (cubeSize + 5 * S) + dissolveK * 42 * S;
-
-    if (scaleC > 0.04) {
-      ctx.save();
-      ctx.translate(qx, qy);
-      ctx.scale(scaleC, scaleC);
-      ctx.fillStyle = `rgba(254,243,199,${(0.92 * scaleC).toFixed(2)})`;
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 1.6 * S;
-      ctx.beginPath();
-      ctx.roundRect(-cubeSize * 0.5, -cubeSize * 0.5, cubeSize, cubeSize, 4 * S);
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    }
+  // Animate arterial rings
+  for (let i = 0; i < vesselRings.length; i++) {
+    const r = vesselRings[i];
+    const z = ((i * 1.45 + t * 2.4 * flowMult) % 23.2) - 16.5;
+    r.position.z = z;
+    r.scale.setScalar(pulse);
   }
 
-  // Sugar-pour stream from cubes down into the arterial cutaway
-  const streamAlpha = smooth(1, 5, minutes) * (1 - smooth(15, 22, minutes));
-  if (streamAlpha > 0.02) {
-    for (let i = 0; i < 18; i++) {
-      const u = ((t * 1.4 + i / 18) % 1 + 1) % 1;
-      const sx = cubesLeft + 52 * S + Math.sin(i * 3.1 + u * 6) * 20 * S;
-      const sy = boxY + 56 * S + u * 64 * S;
-      ctx.fillStyle = `rgba(251,191,36,${(0.85 * streamAlpha).toFixed(2)})`;
-      drawHexagon(sx, sy, 4.2 * S);
-      ctx.fill();
-    }
-  }
-  ctx.restore();
-
-  // Status badge top-right inside cutaway
-  ctx.save();
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  let statusTxt = 'BASELINE PLASMA';
-  let statusCol = '#94a3b8';
-  if (crashAmt > 0.45) { statusTxt = 'HYPOGLYCEMIC CRASH'; statusCol = '#fb7185'; }
-  else if (fatAmt > 0.35) { statusTxt = 'LIVER LIPOGENESIS'; statusCol = '#fbbf24'; }
-  else if (insulinAmt > 0.35) { statusTxt = 'INSULIN RESPONSE'; statusCol = '#34d399'; }
-  else if (glucoseMg > 125) { statusTxt = 'HYPERGLYCEMIC SPIKE'; statusCol = '#fb7185'; }
-  else if (dissolveAmt > 0.1) { statusTxt = 'ABSORBING GLUCOSE'; statusCol = '#fbbf24'; }
-  fitFont(statusTxt, 12.5 * S, 200 * S, '800');
-  ctx.fillStyle = statusCol;
-  ctx.fillText(statusTxt, boxX + boxW - 16 * S, boxY + 18 * S);
-  ctx.restore();
-
-  // --- B. CENTER HERO: 3D ARTERIAL BLOODSTREAM CUTAWAY ---
-  const vesY = boxY + boxH * 0.46;
-  const vesH = 98 * S;
-
-  // Outer muscular arterial wall
-  const wallG = ctx.createLinearGradient(0, vesY - vesH * 0.56, 0, vesY + vesH * 0.56);
-  wallG.addColorStop(0, '#9f1239');
-  wallG.addColorStop(0.14, '#fb7185');
-  wallG.addColorStop(0.24, '#3b0718');
-  wallG.addColorStop(0.5, crashAmt > 0.5 ? '#1f0b1f' : '#4c0519');
-  wallG.addColorStop(0.76, '#3b0718');
-  wallG.addColorStop(0.86, '#fb7185');
-  wallG.addColorStop(1, '#881337');
-  ctx.fillStyle = wallG;
-  ctx.fillRect(boxX, vesY - vesH * 0.56, boxW, vesH * 1.12);
-
-  // Inner plasma glow tinted by glucose load
-  const plasmaG = ctx.createLinearGradient(0, vesY - vesH * 0.40, 0, vesY + vesH * 0.40);
-  plasmaG.addColorStop(0, 'rgba(30,6,18,0.92)');
-  plasmaG.addColorStop(0.5, `rgba(${Math.round(lerp(136, 217, glucoseNorm))},${Math.round(lerp(19, 119, glucoseNorm))},${Math.round(lerp(55, 20, glucoseNorm))},${(0.45 + 0.25 * glucoseNorm).toFixed(2)})`);
-  plasmaG.addColorStop(1, 'rgba(30,6,18,0.92)');
-  ctx.fillStyle = plasmaG;
-  ctx.fillRect(boxX, vesY - vesH * 0.40, boxW, vesH * 0.80);
-
-  // Flowing Red Blood Cells (biconcave glowing crimson discs)
-  for (let i = 0; i < 16; i++) {
-    const speed = lerp(0.22, 0.34, glucoseNorm) * (1 - 0.35 * crashAmt);
-    const u = ((t * speed + i / 16) % 1 + 1) % 1;
-    const rx = boxX - 24 * S + u * (boxW + 48 * S);
-    const ry = vesY + (hash(i * 23) - 0.5) * (vesH * 0.58) + Math.sin(t * 2.5 + i) * 5 * S;
-    const rbcR = (10 + hash(i * 41) * 4) * S;
-
-    ctx.save();
-    ctx.translate(rx, ry);
-    ctx.rotate(Math.sin(t * 1.4 + i) * 0.28);
-    ctx.fillStyle = crashAmt > 0.5 ? '#be123c' : '#f43f5e';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rbcR, rbcR * 0.62, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(136,19,55,0.72)';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rbcR * 0.52, rbcR * 0.28, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+  // Animate RBCs
+  for (const r of rbcMeshes) {
+    const z = ((r.zOff + t * r.speed * flowMult) % 20) - 14.5;
+    r.mesh.position.set(
+      Math.cos(r.ang + t * 0.4) * r.rad,
+      Math.sin(r.ang + t * 0.4) * r.rad,
+      z,
+    );
+    r.mesh.rotation.set(t * 1.4 + r.zOff, t * 1.1, r.ang);
   }
 
-  // Flowing Amber Glucose Hexagons (density tracks live blood glucose!)
-  const activeGlucoseCount = Math.round(lerp(4, 46, glucoseNorm));
-  for (let i = 0; i < activeGlucoseCount; i++) {
-    const u = ((t * 0.32 + hash(i * 19 + 5)) % 1 + 1) % 1;
-    const gx = boxX + u * boxW;
-    const gy = vesY + (hash(i * 37 + 9) - 0.5) * (vesH * 0.66) + Math.cos(t * 4 + i) * 4 * S;
-    const gr = (4.2 + hash(i * 53) * 2.6) * S;
-
-    ctx.save();
-    ctx.shadowColor = '#fbbf24';
-    ctx.shadowBlur = 8 * S;
-    ctx.fillStyle = '#fbbf24';
-    drawHexagon(gx, gy, gr);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fef3c7';
-    ctx.beginPath();
-    ctx.arc(gx, gy, gr * 0.36, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+  // Animate Glucose crystals (flood in at dissolve/spike, swept away by insulin/crash)
+  const gluCount = Math.round(lerp(8, 32, pDis) * lerp(1.0, 0.18, pCrs));
+  for (let i = 0; i < glucoseCubes.length; i++) {
+    const g = glucoseCubes[i];
+    g.mesh.visible = i < gluCount;
+    if (!g.mesh.visible) continue;
+    const z = ((g.zOff + t * g.speed * flowMult) % 20) - 14.5;
+    const sc = lerp(0.85, 1.35, pSpk) * lerp(1.0, 0.55, pLiv);
+    g.mesh.position.set(
+      Math.cos(g.ang + t * 0.8) * g.rad,
+      Math.sin(g.ang + t * 0.8) * g.rad,
+      z,
+    );
+    g.mesh.rotation.set(t * 2.8 + i, t * 2.2, i);
+    g.mesh.scale.setScalar(sc);
   }
 
-  // Flowing Emerald Insulin Waves injected from Pancreas
-  if (insulinAmt > 0.04) {
-    const insCount = Math.round(insulinAmt * 28);
-    for (let i = 0; i < insCount; i++) {
-      const u = ((t * 0.45 + hash(i * 61)) % 1 + 1) % 1;
-      // Rise from pancreas on bottom-left into bloodstream, then sweep right
-      let ix, iy;
-      if (u < 0.28) {
-        const k = u / 0.28;
-        ix = boxX + boxW * 0.26 + Math.sin(k * 6 + i) * 14 * S;
-        iy = lerp(boxY + boxH - 42 * S, vesY + 12 * S, k);
-      } else {
-        const k = (u - 0.28) / 0.72;
-        ix = lerp(boxX + boxW * 0.26, boxX + boxW * 0.86, k);
-        iy = vesY + Math.sin(k * 8 + i * 2) * (vesH * 0.28);
-      }
-      ctx.save();
-      ctx.shadowColor = '#34d399';
-      ctx.shadowBlur = 10 * S;
-      ctx.fillStyle = `rgba(52,211,153,${(0.9 * insulinAmt).toFixed(2)})`;
-      ctx.beginPath();
-      ctx.arc(ix, iy, 4.4 * S, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
+  // Animate Emerald Insulin Surge
+  for (let i = 0; i < insulinOrbs.length; i++) {
+    const ins = insulinOrbs[i];
+    ins.mesh.visible = pIns > 0.05 && pCrs < 0.85;
+    if (!ins.mesh.visible) continue;
+    const z = ((ins.zOff + t * 4.2 * flowMult) % 20) - 14.5;
+    ins.mesh.position.set(
+      Math.cos(ins.ang - t * 1.1) * ins.rad * pIns,
+      Math.sin(ins.ang - t * 1.1) * ins.rad * pIns,
+      z,
+    );
+    ins.mesh.rotation.set(t * 3, t * 2, 0);
+    ins.mesh.scale.setScalar(pIns * (1 - 0.5 * pCrs));
   }
 
-  // --- C. BOTTOM ORGANS: PANCREAS (LEFT, EMERALD) & LIVER (RIGHT, FAT STORAGE) ---
-  const orgY = boxY + boxH - 48 * S;
-
-  // Pancreas Node (Left)
-  const panX = boxX + boxW * 0.26;
-  ctx.save();
-  ctx.translate(panX, orgY);
-  const panPulse = 1 + 0.07 * insulinAmt * Math.sin(t * 7);
-  ctx.scale(panPulse, panPulse);
-  ctx.shadowColor = '#34d399';
-  ctx.shadowBlur = (6 + 18 * insulinAmt) * S;
-  const panG = ctx.createLinearGradient(-56 * S, 0, 56 * S, 0);
-  panG.addColorStop(0, '#065f46');
-  panG.addColorStop(0.5, insulinAmt > 0.2 ? '#34d399' : '#10b981');
-  panG.addColorStop(1, '#064e3b');
-  ctx.fillStyle = panG;
-  ctx.strokeStyle = '#6ee7b7';
-  ctx.lineWidth = 2 * S;
-  ctx.beginPath();
-  ctx.moveTo(-58 * S, 8 * S);
-  ctx.quadraticCurveTo(-24 * S, -22 * S, 48 * S, -14 * S);
-  ctx.quadraticCurveTo(64 * S, 0, 44 * S, 16 * S);
-  ctx.quadraticCurveTo(-18 * S, 24 * S, -58 * S, 8 * S);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont('PANCREAS', 12.5 * S, 96 * S, '900');
-  ctx.fillStyle = '#ecfdf5';
-  ctx.fillText('PANCREAS', 0, 1 * S);
-  ctx.restore();
-
-  // Liver Node (Right) with accumulating golden fat droplets
-  const livX = boxX + boxW * 0.74;
-  ctx.save();
-  ctx.translate(livX, orgY);
-  ctx.shadowColor = fatAmt > 0.2 ? '#fbbf24' : '#f43f5e';
-  ctx.shadowBlur = (8 + 16 * fatAmt) * S;
-  const livG = ctx.createLinearGradient(-58 * S, -18 * S, 58 * S, 22 * S);
-  livG.addColorStop(0, '#881337');
-  livG.addColorStop(0.55, '#be123c');
-  livG.addColorStop(1, '#4c0519');
-  ctx.fillStyle = livG;
-  ctx.strokeStyle = fatAmt > 0.3 ? '#fbbf24' : '#fda4af';
-  ctx.lineWidth = 2 * S;
-  ctx.beginPath();
-  ctx.moveTo(-58 * S, 12 * S);
-  ctx.quadraticCurveTo(-48 * S, -24 * S, 18 * S, -22 * S);
-  ctx.quadraticCurveTo(62 * S, -18 * S, 54 * S, 16 * S);
-  ctx.quadraticCurveTo(10 * S, 24 * S, -58 * S, 12 * S);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // Golden fat droplets budding inside liver
-  const numFat = Math.round(fatAmt * 14);
-  for (let f = 0; f < numFat; f++) {
-    const fx = (-36 + hash(f * 29) * 76) * S;
-    const fy = (-10 + hash(f * 47) * 22) * S;
-    const fr = (3.4 + hash(f * 67) * 3.0) * S * smooth(f / 14, (f + 1) / 14, fatAmt);
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath();
-    ctx.arc(fx, fy, fr, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fef9c3';
-    ctx.beginPath();
-    ctx.arc(fx - fr * 0.25, fy - fr * 0.25, fr * 0.32, 0, Math.PI * 2);
-    ctx.fill();
+  // Animate Liver Fat Droplets
+  for (let i = 0; i < fatDroplets.length; i++) {
+    const f = fatDroplets[i];
+    f.mesh.visible = pLiv > 0.05;
+    if (!f.mesh.visible) continue;
+    const z = ((f.zOff + t * 1.4) % 16) - 11.5;
+    f.mesh.position.set(
+      Math.cos(f.ang + t * 0.25) * f.rad,
+      Math.sin(f.ang + t * 0.25) * f.rad,
+      z,
+    );
+    f.mesh.scale.setScalar(pLiv * (0.9 + 0.15 * Math.sin(t * 4 + i)));
   }
 
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont(fatAmt > 0.35 ? 'LIVER → FAT' : 'LIVER', 12.5 * S, 96 * S, '900');
-  ctx.fillStyle = '#fff1f2';
-  ctx.fillText(fatAmt > 0.35 ? 'LIVER → FAT' : 'LIVER', 0, 2 * S);
-  ctx.restore();
+  // Subtle wall tint shift on crash
+  vesselWallMat.emissive.setHex(pCrs > 0.4 ? 0x1e1b4b : pSpk > 0.5 ? 0x7f1d1d : 0x4c0519);
 
-  ctx.restore(); // end cutaway clip
+  // Dynamic camera flying gently inside the bloodstream
+  const { camera } = stage;
+  camera.position.set(
+    Math.sin(t * 0.65) * 0.55,
+    Math.cos(t * 0.52) * 0.42,
+    4.6 - 0.5 * Math.sin(t * 0.4),
+  );
+  camera.lookAt(Math.sin(t * 0.4) * 0.25, Math.cos(t * 0.35) * 0.2, -5.0);
 
-  // Cutaway outer rim
-  ctx.strokeStyle = crashAmt > 0.45 ? 'rgba(251,113,133,0.68)' : 'rgba(251,191,36,0.45)';
-  ctx.lineWidth = 2.2 * S;
-  ctx.beginPath();
-  ctx.roundRect(boxX, boxY, boxW, boxH, 20 * S);
-  ctx.stroke();
-  ctx.restore();
+  stage.composite(ctx, W, H);
 
-  // === 4. LIVE 0-60 MIN BLOOD GLUCOSE & INSULIN CURVE MONITOR (y: H*0.560 to H*0.624) ===
-  const grX = safeLeft;
-  const grY = H * 0.560;
-  const grW = safeW;
-  const grH = H * 0.064;
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(9,16,32,0.88)';
-  ctx.strokeStyle = crashAmt > 0.45 ? 'rgba(251,113,133,0.72)' : 'rgba(56,189,248,0.34)';
-  ctx.lineWidth = 1.6 * S;
-  ctx.beginPath();
-  ctx.roundRect(grX, grY, grW, grH, 12 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  const padX = 14 * S;
-  const plotW = grW - padX * 2;
-  const plotTop = grY + 24 * S;
-  const plotBot = grY + grH - 10 * S;
-  const mapY = (mg) => lerp(plotBot, plotTop, clamp((mg - 60) / 135, 0, 1));
-
-  // Dashed baseline at 90 mg/dL
-  ctx.save();
-  ctx.setLineDash([4 * S, 4 * S]);
-  ctx.strokeStyle = 'rgba(148,163,184,0.35)';
-  ctx.lineWidth = 1.2 * S;
-  const baseY = mapY(90);
-  ctx.beginPath();
-  ctx.moveTo(grX + padX, baseY);
-  ctx.lineTo(grX + grW - padX, baseY);
-  ctx.stroke();
-  ctx.restore();
-
-  // Drawn insulin curve (emerald) up to current minute
-  const steps = 80;
-  const curFrac = minutes / 60;
-  ctx.strokeStyle = 'rgba(52,211,153,0.78)';
-  ctx.lineWidth = 2.0 * S;
-  ctx.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const f = (i / steps) * curFrac;
-    const m = f * 60;
-    const sx = grX + padX + f * plotW;
-    const sy = lerp(plotBot, plotTop + 4 * S, insulinAtMinute(m) * 0.85);
-    if (i === 0) ctx.moveTo(sx, sy);
-    else ctx.lineTo(sx, sy);
-  }
-  ctx.stroke();
-
-  // Drawn blood glucose curve (amber -> coral -> crash red) up to current minute
-  ctx.strokeStyle = crashAmt > 0.45 ? '#fb7185' : '#fbbf24';
-  ctx.lineWidth = 3.0 * S;
-  ctx.shadowColor = crashAmt > 0.45 ? '#f43f5e' : '#fbbf24';
-  ctx.shadowBlur = 10 * S;
-  ctx.beginPath();
-  let dotX = grX + padX;
-  let dotY = mapY(90);
-  for (let i = 0; i <= steps; i++) {
-    const f = (i / steps) * curFrac;
-    const m = f * 60;
-    const sx = grX + padX + f * plotW;
-    const sy = mapY(glucoseAtMinute(m));
-    if (i === 0) ctx.moveTo(sx, sy);
-    else ctx.lineTo(sx, sy);
-    dotX = sx;
-    dotY = sy;
-  }
-  ctx.stroke();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.arc(dotX, dotY, 4.4 * S, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  fitFont('GLUCOSE (AMBER) • INSULIN (GREEN)', 12.5 * S, grW - 28 * S, '800');
-  ctx.fillStyle = '#cbd5e1';
-  ctx.fillText('GLUCOSE (AMBER) • INSULIN (GREEN)', grX + 14 * S, grY + 7 * S);
-  ctx.restore();
-
-  // === 5. LIVE STAT CARDS (y: H*0.634, h: H*0.052) ===
-  const cardY = H * 0.634;
-  const cardH = H * 0.052;
-  const gap = 12 * S;
-  const cardW = (safeW - gap) * 0.5;
-
-  function drawStatCard(x, label, valueText, accent, valColor) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(15,23,42,0.88)';
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.6 * S;
-    ctx.beginPath();
-    ctx.roundRect(x, cardY, cardW, cardH, 12 * S);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    fitFont(label, 12.5 * S, cardW - 16 * S, '800');
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(label, x + cardW * 0.5, cardY + cardH * 0.30);
-
-    fitFont(valueText, 23 * S, cardW - 16 * S, '900');
-    ctx.fillStyle = valColor;
-    ctx.fillText(valueText, x + cardW * 0.5, cardY + cardH * 0.70);
-    ctx.restore();
-  }
-
-  const gluVal = Math.round(glucoseMg);
-  const gluCol = gluVal >= 145 ? '#fbbf24' : (gluVal <= 76 ? '#fb7185' : '#f8fafc');
-  let metaText = 'STEADY';
-  let metaCol = '#94a3b8';
-  let metaAccent = 'rgba(148,163,184,0.45)';
-  if (crashAmt > 0.45) { metaText = 'CRASH DIP!'; metaCol = '#fb7185'; metaAccent = 'rgba(251,113,133,0.72)'; }
-  else if (fatAmt > 0.35) { metaText = 'FAT STORED'; metaCol = '#fbbf24'; metaAccent = 'rgba(251,191,36,0.72)'; }
-  else if (insulinAmt > 0.35) { metaText = 'INSULIN HIGH'; metaCol = '#34d399'; metaAccent = 'rgba(52,211,153,0.72)'; }
-  else if (gluVal > 125) { metaText = 'SPIKING'; metaCol = '#fbbf24'; metaAccent = 'rgba(251,191,36,0.68)'; }
-
-  drawStatCard(safeLeft, 'BLOOD GLUCOSE', `${gluVal} mg/dL`, 'rgba(251,191,36,0.65)', gluCol);
-  drawStatCard(safeLeft + cardW + gap, 'METABOLIC STATE', metaText, metaAccent, metaCol);
-
-  // === 6. SAFE-ZONE HEADER & HIGH-CONTRAST PHASE PILL ===
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  fitFont('BIO MECHANICS • SUGAR TIMELINE', 21 * S, safeW, '800');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('BIO MECHANICS • SUGAR TIMELINE', cx, H * 0.155);
-
-  const pillW = Math.min(safeW, 430 * S);
-  const pillH = 52 * S;
-  const pillY = H * 0.714;
-  const pop = 1 + 0.05 * Math.exp(-phaseProg * 14);
-
-  ctx.save();
-  ctx.translate(cx, pillY);
-  ctx.scale(pop, pop);
-
-  let c0 = '#fbbf24', c1 = '#f59e0b', txtCol = '#090d16';
-  if (phaseIdx === 2 || phaseIdx === 5) {
-    c0 = '#fb7185'; c1 = '#e11d48'; txtCol = '#ffffff';
-  } else if (phaseIdx === 3) {
-    c0 = '#34d399'; c1 = '#059669'; txtCol = '#052e16';
-  }
-
-  ctx.shadowColor = c0;
-  ctx.shadowBlur = 18 * S;
-  const pillG = ctx.createLinearGradient(-pillW * 0.5, 0, pillW * 0.5, 0);
-  pillG.addColorStop(0, c0);
-  pillG.addColorStop(1, c1);
-  ctx.fillStyle = pillG;
-  ctx.beginPath();
-  ctx.roundRect(-pillW * 0.5, -pillH * 0.5, pillW, pillH, pillH * 0.5);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  fitFont(activeLine.caption, 27 * S, pillW - 36 * S, '900');
-  ctx.fillStyle = txtCol;
-  ctx.fillText(activeLine.caption, 0, 1 * S);
-  ctx.restore();
-  ctx.restore();
+  const stateCol = pCrs > 0.4 ? '#FF2D55' : pLiv > 0.4 ? '#F59E0B' : pIns > 0.4 ? '#34C759' : '#FFD60A';
+  drawStudioHud(ctx, {
+    W,
+    H,
+    channel: 'bio',
+    badge: `T + ${simMin} MIN · INSIDE BLOODSTREAM 3D`,
+    title: '1 CAN OF SODA (39g SUGAR)',
+    subtitle: pCrs > 0.4 ? 'HYPOGLYCEMIC CRASH · CRAVING MORE' : pIns > 0.4 ? 'PANCREAS INSULIN SURGE ACTIVE' : 'LIVE GLUCOSE & INSULIN TELEMETRY',
+    caption: activeCaption,
+    metrics: [
+      { label: 'BLOOD GLUCOSE', value: `${Math.round(glucoseMg)} mg/dL`, color: stateCol },
+      { label: 'INSULIN', value: pIns > 0.3 ? (pCrs > 0.5 ? 'DROPPING' : 'SURGE ↑') : 'BASELINE', color: '#34C759' },
+      { label: 'ENERGY', value: pCrs > 0.4 ? 'CRASH ↓' : pSpk > 0.4 ? 'SPIKE ↑↑' : 'RISING', color: pCrs > 0.4 ? '#FF2D55' : '#00F0FF' },
+    ],
+    progress: t / Math.max(1, DUR),
+  });
 }
 
-window.renderFrame = drawFrame;
+window.renderFrame = (t) => {
+  renderSceneAt(t);
+  return cv.toDataURL('image/jpeg', 0.92).slice(23);
+};
+
 window.renderBatch = (startFrame, count) => {
   const out = [];
   for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
+    renderSceneAt((startFrame + i) / FPS);
     out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
   }
   return out;
 };
+
 window.ready = true;
 </script>
