@@ -104,7 +104,9 @@ export function hoursSinceLastPublish(
   let latest = -Infinity;
   for (const r of records) {
     if (r.channel !== channel) continue;
-    const isLong = r.id.startsWith("longform-");
+    const isLong =
+      r.id.startsWith("longform-") ||
+      (r.id.startsWith("narrative-") && !r.id.includes("-short-"));
     if ((kind === "longform") !== isLong) continue;
     const t = Date.parse(String(r.publishedAt ?? ""));
     if (Number.isFinite(t) && t > latest) latest = t;

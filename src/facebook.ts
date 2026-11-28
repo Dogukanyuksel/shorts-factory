@@ -50,6 +50,7 @@ export async function uploadReelToFacebook(
   description: string,
   creds: { igUserId: string; accessToken: string },
 ): Promise<FacebookReelUploadResult | null> {
+  if (process.env.ENABLE_FACEBOOK_REELS !== "true") return null;
   if (!creds.igUserId || !creds.accessToken) return null;
 
   const page = await resolveLinkedFacebookPage(creds.igUserId, creds.accessToken);

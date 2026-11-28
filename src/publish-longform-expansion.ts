@@ -13,6 +13,7 @@ import {
   postYouTubeTopLevelComment,
   refreshAccessToken,
   uploadVideoToYouTube,
+  uploadYouTubeThumbnail,
   type PrivacyStatus,
 } from "./youtube.js";
 
@@ -121,14 +122,15 @@ async function main() {
     },
     { clientId, clientSecret, refreshToken },
   );
-  console.log(`✅ [longform-expansion] 16:9 DEEP DIVE YAYINLANDI: ${uploaded.url}`);
+  const watchUrl = `https://www.youtube.com/watch?v=${uploaded.videoId}`;
+  console.log(`✅ [longform-expansion] 16:9 DEEP DIVE YAYINLANDI: ${watchUrl}`);
 
   published.push({
     id: spec.id,
     channel,
     title: rendered.title,
     videoId: uploaded.videoId,
-    url: uploaded.url,
+    url: watchUrl,
     publishedAt: new Date().toISOString(),
   });
   await mkdir(resolve("state"), { recursive: true });
@@ -136,6 +138,11 @@ async function main() {
 
   try {
     const token = await refreshAccessToken({ clientId, clientSecret, refreshToken });
+    if (rendered.thumbnailPath && existsSync(rendered.thumbnailPath)) {
+      await uploadYouTubeThumbnail(uploaded.videoId, rendered.thumbnailPath, token).catch((thErr) => {
+        console.warn("[longform-expansion] Kapak görseli uyarısı:", thErr);
+      });
+    }
     const comment = `🎬 Which act blew your mind the most? Drop the timestamp below! Subscribe to ${meta.brandName} for our next 4-act 60fps deep dive.`;
     await postYouTubeTopLevelComment(uploaded.videoId, comment, token);
     const plId = await ensureYouTubePlaylist(`${meta.brandName} — 4-Act Deep Dives`, `Full 16:9 60fps visual deep dives by ${meta.brandName}.`, token);

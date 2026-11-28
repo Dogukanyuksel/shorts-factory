@@ -380,3 +380,28 @@ export async function getMyChannel(token: string): Promise<{ id: string; title: 
   const it = json.items?.[0];
   return { id: it?.id ?? "", title: it?.snippet?.title ?? "" };
 }
+
+/**
+ * 16:9 uzun videolar için özel yüksek-CTR kapak görseli (1280×720 JPEG) yükler.
+ * 50 birim kota kullanır. Kanal telefon doğrulamasızsa YouTube 403 dönebilir — çağıran güvenli yakalamalıdır.
+ */
+export async function uploadYouTubeThumbnail(videoId: string, jpegPath: string, token: string): Promise<void> {
+  const bytes = await readFile(jpegPath);
+  const res = await fetchWithRetry(
+    `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "image/jpeg",
+        "Content-Length": String(bytes.byteLength),
+      },
+      body: bytes,
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`YouTube kapak görseli yükleme hatası (${res.status}): ${errText.slice(0, 240)}`);
+  }
+}

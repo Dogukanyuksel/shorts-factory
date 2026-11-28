@@ -21,7 +21,7 @@ import {
   writePublishNotice,
   YouTubeQuotaError,
 } from "./youtube-quota.js";
-import { uploadVideoToYouTube } from "./youtube.js";
+import { refreshAccessToken, uploadVideoToYouTube, uploadYouTubeThumbnail } from "./youtube.js";
 
 interface PublishedRecord {
   id: string;
@@ -205,6 +205,17 @@ async function main() {
 
   const watchUrl = `https://www.youtube.com/watch?v=${uploaded.videoId}`;
   console.log(`\n✅ [publish-longform] YOUTUBE 16:9 UZUN VİDEO YAYINLANDI: ${watchUrl}`);
+
+  const thumbPath = "thumbnailPath" in rendered ? rendered.thumbnailPath : "";
+  if (thumbPath && existsSync(thumbPath)) {
+    try {
+      const tok = await refreshAccessToken({ clientId, clientSecret, refreshToken });
+      await uploadYouTubeThumbnail(uploaded.videoId, thumbPath, tok);
+      console.log(`🖼️ [publish-longform] Özel 1280x720 yüksek-CTR kapak yüklendi!`);
+    } catch (thErr) {
+      console.warn("[publish-longform] Kapak görseli yükleme uyarısı:", thErr);
+    }
+  }
 
   state.published.push({
     id: rendered.episodeId,

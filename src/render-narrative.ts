@@ -25,6 +25,7 @@ export interface NarrativeLongformRenderResult {
   slug: string;
   channel: NarrativeLongformSpec["channel"];
   mp4Path: string;
+  thumbnailPath: string;
   jsonPath: string;
   title: string;
   durationSec: number;
@@ -225,6 +226,86 @@ export async function renderNarrativeLongformVideo(
       mp4Path,
     ]);
 
+    // 1280×720 Yüksek-CTR Kapak Görseli (Thumbnail) — doruk anından otomatik üretilir
+    const thumbnailPath = join(outDir, `${spec.id}-thumb.jpg`);
+    try {
+      const climaxT = Number((totalSec * 0.56).toFixed(2));
+      const thumbHeadline = (spec.derivedShorts[0]?.hook || spec.title.replace(/\(.*?\)/g, "").trim()).toUpperCase();
+      const thumbB64: string = await page.evaluate(
+        (cfg) => {
+          const g = globalThis as unknown as { renderFrame: (t: number) => void };
+          g.renderFrame(cfg.t);
+          const src = document.getElementById("c") as HTMLCanvasElement;
+          const th = document.createElement("canvas");
+          th.width = 1280;
+          th.height = 720;
+          const tc = th.getContext("2d")!;
+          tc.drawImage(src, 0, 0, 1280, 720);
+
+          // Yüksek kontrastlı sol-alt sinematik koyulaştırma
+          const grad = tc.createLinearGradient(0, 720, 0, 260);
+          grad.addColorStop(0, "rgba(2, 6, 23, 0.92)");
+          grad.addColorStop(0.55, "rgba(2, 6, 23, 0.42)");
+          grad.addColorStop(1, "rgba(2, 6, 23, 0.0)");
+          tc.fillStyle = grad;
+          tc.fillRect(0, 0, 1280, 720);
+
+          // Üst-sol parlak rozet
+          tc.save();
+          tc.fillStyle = "rgba(8, 15, 34, 0.90)";
+          tc.beginPath();
+          tc.roundRect(48, 42, 310, 56, 28);
+          tc.fill();
+          tc.strokeStyle = cfg.accent;
+          tc.lineWidth = 3.5;
+          tc.stroke();
+          tc.font = "900 24px -apple-system, BlinkMacSystemFont, sans-serif";
+          tc.fillStyle = "#ffffff";
+          tc.textAlign = "center";
+          tc.fillText("⚡ 60FPS DEEP DIVE", 203, 79);
+          tc.restore();
+
+          // Alt-sol dev CTR başlığı (max 2 satır — tsx __name hatasını önlemek için iç içe fonksiyon yok)
+          tc.save();
+          const words = cfg.headline.split(/\s+/).filter(Boolean);
+          const mid = Math.ceil(words.length / 2);
+          const line1 = words.slice(0, mid).join(" ");
+          const line2 = words.slice(mid).join(" ");
+          const rows = line2
+            ? [
+                { txt: line1, y: 572, color: "#ffffff" },
+                { txt: line2, y: 662, color: "#fde047" },
+              ]
+            : [{ txt: line1, y: 648, color: "#ffffff" }];
+          for (let r = 0; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row.txt) continue;
+            let px = 86;
+            while (px > 42) {
+              tc.font = `900 ${px}px -apple-system, BlinkMacSystemFont, sans-serif`;
+              if (tc.measureText(row.txt).width <= 1160) break;
+              px -= 3;
+            }
+            tc.textAlign = "left";
+            tc.lineJoin = "round";
+            tc.lineWidth = 14;
+            tc.strokeStyle = "rgba(2, 6, 23, 0.96)";
+            tc.strokeText(row.txt, 54, row.y);
+            tc.fillStyle = row.color;
+            tc.fillText(row.txt, 54, row.y);
+          }
+          tc.restore();
+
+          return th.toDataURL("image/jpeg", 0.92).slice("data:image/jpeg;base64,".length);
+        },
+        { t: climaxT, headline: thumbHeadline, accent: spec.accentHex },
+      );
+      await writeFile(thumbnailPath, Buffer.from(thumbB64, "base64"));
+      console.log(`🖼️ [narrative-longform] 1280x720 yüksek-CTR kapak üretildi: ${thumbnailPath}`);
+    } catch (thErr) {
+      console.warn("[narrative-longform] Kapak görseli üretim uyarısı:", thErr);
+    }
+
     // 4 Perde YouTube chapter zaman damgaları
     const chapters: Array<{ timestamp: string; title: string }> = [];
     const seenActs = new Set<number>();
@@ -263,6 +344,7 @@ export async function renderNarrativeLongformVideo(
       slug: spec.slug,
       channel: spec.channel,
       mp4Path,
+      thumbnailPath,
       jsonPath,
       title: spec.title,
       durationSec: Math.round(totalSec),
