@@ -1,24 +1,24 @@
 {
-  "updatedAt": "2026-11-28T07:23:30.833Z",
+  "updatedAt": "2026-11-28T15:42:28.995Z",
   "physics": {
     "boostedNiches": [
       "pi-collisions",
       "spin-illusion"
     ],
     "cooledNiches": [
-      "giant-vs-swarm",
-      "doubling-ladder"
+      "doubling-ladder",
+      "gyroscope-3d"
     ],
     "topWinningTitles": [
       "These Two Blocks Calculate Pi Just By Colliding #shorts",
-      "100 Pendulums Dropped 0.001° Apart: Watch Second 7 #shorts",
-      "Your Mind Can Reverse This Spinning Cylinder #shorts"
+      "Your Mind Can Reverse This Spinning Cylinder #shorts",
+      "100 Pendulums Dropped 0.001° Apart: Watch Second 7 #shorts"
     ]
   },
   "explainer": {
     "topWinningTitles": [
-      "How a 4-Stroke Engine Actually Works (3D Cutaway) #shorts",
       "If the Sun Turned Into a Black Hole, Earth Wouldn't Get Sucked In #shorts",
+      "How a 4-Stroke Engine Actually Works (3D Cutaway) #shorts",
       "Why Thieves Can't Just Record Your Car Key #shorts"
     ],
     "highSaveTopics": []
