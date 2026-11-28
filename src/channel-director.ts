@@ -242,9 +242,15 @@ async function main() {
     const igShares = ig?.shares ?? 0;
     const totalViews = ytViews + igViews;
     const ageHours = Math.max(1, Number(((nowMs - Date.parse(r.publishedAt)) / 3_600_000).toFixed(1)));
-    const viewsPerHour = Number((totalViews / ageHours).toFixed(1));
+    const viewsPerHour = Number((totalViews / Math.max(6, ageHours)).toFixed(1));
     const viralScore = Number(
-      (viewsPerHour + (ytLikes + igLikes) * 1.5 + (ytComments + igComments) * 4 + (igSaves + igShares) * 6).toFixed(1),
+      (
+        totalViews * 0.12 +
+        viewsPerHour * 1.5 +
+        (ytLikes + igLikes) * 1.5 +
+        (ytComments + igComments) * 4 +
+        (igSaves + igShares) * 6
+      ).toFixed(1),
     );
     allPerf.push({
       id: r.id,

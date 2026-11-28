@@ -479,9 +479,9 @@ async function main() {
     }
   }
 
-  // Dinamik büyüme döngüsü: Kanal Müdürü'nün YT+IG birleşik skorla seçtiği kazanan nişi her 3 slotta bir öne al
+  // Dinamik büyüme döngüsü: Kanal Müdürü'nün YT+IG birleşik skorla seçtiği 10K+ viral lideri her 2 slotta bir öne al!
   let directorBoostedJob: PublishJob | null = null;
-  if (!votedJob && channel === "physics" && state.published.filter((r) => r.channel === "physics").length % 3 === 2) {
+  if (!votedJob && channel === "physics" && state.published.filter((r) => r.channel === "physics").length % 2 === 1) {
     const stratPath = resolve("state", "director-strategy.json");
     if (existsSync(stratPath)) {
       try {
