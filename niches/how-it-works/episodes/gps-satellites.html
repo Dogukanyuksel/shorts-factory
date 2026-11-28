@@ -262,7 +262,7 @@ function drawFrame(t) {
   ctx.fillText('HOW GPS SATELLITES WORK', W * 0.5, H * 0.125);
   if (activeLine) {
     const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
-    ctx.translate(W * 0.5, H * 0.84); ctx.scale(pop, pop);
+    ctx.translate(W * 0.5, H * 0.715); ctx.scale(pop, pop);
     ctx.font = `900 ${Math.round(46 * S)}px -apple-system, sans-serif`;
     ctx.lineWidth = 10 * S; ctx.strokeStyle = '#020617'; ctx.strokeText(activeLine.caption, 0, 0);
     ctx.fillStyle = activeLine.id === 'trilat' || activeLine.id === 'outro' ? '#4ade80' : '#facc15';

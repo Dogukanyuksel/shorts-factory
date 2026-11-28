@@ -30,7 +30,9 @@ export type PhysicsNiche =
   | "chladni-sand"
   | "gear-gauntlet-1000"
   | "gyroscope-3d"
-  | "galileo-vacuum-drop";
+  | "galileo-vacuum-drop"
+  | "ames-window-illusion"
+  | "necker-cube-illusion";
 
 export type PhysicsJob = {
   id: string;
@@ -67,6 +69,8 @@ export const PHYSICS_ROTATION: PhysicsNiche[] = [
   "physics-ring",
   "duel-balls",
   "galileo-vacuum-drop",
+  "ames-window-illusion",
+  "necker-cube-illusion",
   "gyroscope-3d",
   "pendulum-chaos-100",
   "chladni-sand",
@@ -160,6 +164,36 @@ export const CURATED_PHYSICS_JOBS: PhysicsJob[] = [
     description:
       "Split-screen 60fps physics simulation of Galileo's Law: Air (1.00 atm) vs Vacuum (0.00 atm). Watch both objects hit the bottom sensor on the exact same millisecond at 9.81 m/s².\n\n#shorts #physics #galileo #vacuum #science",
     tags: ["galileo law", "bowling ball feather vacuum", "gravity physics", "simulation", "shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "ames-window-illusion-seed127",
+    channel: "physics",
+    niche: "ames-window-illusion",
+    seed: 127,
+    seconds: 24,
+    hook: "CAN YOU SEE IT SPIN 360°?",
+    narration:
+      "This window is spinning in a full three hundred sixty degree circle — yet your brain swears it is rocking back and forth. Now watch the cyan rod pass straight through solid bars without breaking. Your visual cortex would rather invent an impossible ghost rod than admit the window is a trapezoid.",
+    title: "Your Brain REFUSES to See This Window Spin 360° (Ames Illusion) #shorts",
+    description:
+      "60fps orthographic physics simulation of the Ames Window Illusion: even with a rigid cyan rod locked to the spinning trapezoid, your brain forces it to oscillate back and forth.\n\n#shorts #opticalillusion #ameswindow #physics #brain",
+    tags: ["ames window", "optical illusion", "brain test", "visual perception", "physics shorts"],
+    categoryId: "28",
+  },
+  {
+    id: "necker-cube-illusion-seed128",
+    channel: "physics",
+    niche: "necker-cube-illusion",
+    seed: 128,
+    seconds: 24,
+    hook: "BLINK TO FLIP THIS CUBE",
+    narration:
+      "Look at the glowing ring inside this cube. Is the cyan face closer to you, or the magenta face? Blink once and watch the entire 3D geometry snap inside out. Because there are zero perspective cues, your brain literally flips a coin between two valid 3D worlds.",
+    title: "Blink Once and Watch This 3D Cube Flip Inside Out (Necker Illusion) #shorts",
+    description:
+      "Pure orthographic 3D dot-cloud and wireframe Necker Cube simulation with zero depth cues. Focus on the glowing reticle and blink to force bistable perception to flip.\n\n#shorts #opticalillusion #neckercube #physics #brain",
+    tags: ["necker cube", "optical illusion", "bistable perception", "brain test", "shorts"],
     categoryId: "28",
   },
   {
@@ -1331,6 +1365,24 @@ const INFINITE_ANGLES: Record<
     titlePrefix: "Bowling Ball vs Feather in Vacuum",
     topic: "Galileo's law of free fall and equivalence of inertial and gravitational mass",
   },
+  "ames-window-illusion": {
+    hooks: ["CAN YOU SEE IT SPIN 360°?", "WHY YOUR BRAIN BREAKS HERE", "THE AMES WINDOW PARADOX"],
+    narrations: [
+      "This trapezoid window spins in a full three hundred sixty degree circle — yet your brain forces it to rock back and forth while a rigid rod passes straight through solid bars.",
+      "Watch the cyan rod closely: your brain's assumption that windows are rectangular is so strong it overrides physical reality.",
+    ],
+    titlePrefix: "Ames Window 360° Brain Paradox",
+    topic: "the Ames trapezoid window optical illusion and Bayesian perspective priors",
+  },
+  "necker-cube-illusion": {
+    hooks: ["BLINK TO FLIP THIS CUBE", "CYAN FRONT OR MAGENTA FRONT?", "FORCE YOUR BRAIN TO FLIP"],
+    narrations: [
+      "Focus on the glowing ring inside this orthographic cube and blink once. With zero perspective cues, your visual cortex flips between two equally valid 3D orientations.",
+      "Can you hold the cyan face in front for five full seconds before your brain flips it inside out?",
+    ],
+    titlePrefix: "Necker Cube Bistable Flip",
+    topic: "the Necker cube optical illusion and bistable neural adaptation",
+  },
 };
 
 /**
@@ -1418,6 +1470,8 @@ export const PHYSICS_LABELS: Record<PhysicsNiche, string> = {
   "gear-gauntlet-1000": "1,000 Balls vs Gears",
   "gyroscope-3d": "3D Gyroscope Precession",
   "galileo-vacuum-drop": "Galileo Vacuum Drop",
+  "ames-window-illusion": "Ames Window 360° Illusion",
+  "necker-cube-illusion": "Necker Cube Flip Illusion",
 };
 
 const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
@@ -1451,6 +1505,8 @@ const PHYSICS_CTAS: Record<PhysicsNiche, string> = {
   "gear-gauntlet-1000": "GUESS HOW MANY REACH THE VAULT",
   "gyroscope-3d": "WATCH GRAVITY BEND 90 DEGREES",
   "galileo-vacuum-drop": "WATCH 0.00 ATM VACUUM IMPACT",
+  "ames-window-illusion": "CAN YOU SEE IT SPIN 360°?",
+  "necker-cube-illusion": "BLINK ONCE TO FLIP THIS CUBE",
 };
 
 function formatEpisodeLabel(slug: string): string {

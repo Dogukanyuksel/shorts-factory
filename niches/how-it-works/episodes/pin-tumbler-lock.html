@@ -322,7 +322,7 @@ function drawFrame(t) {
 
   if (activeLine) {
     const pop = 1 + 0.08 * Math.exp(-Math.max(0, t - activeLine.start) * 14);
-    ctx.translate(W * 0.5, H * 0.84);
+    ctx.translate(W * 0.5, H * 0.715);
     ctx.scale(pop, pop);
     ctx.font = `900 ${Math.round(48 * S)}px -apple-system, sans-serif`;
     ctx.lineWidth = 10 * S;

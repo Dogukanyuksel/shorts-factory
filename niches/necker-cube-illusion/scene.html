@@ -1,0 +1,418 @@
+<!doctype html>
+<!--
+  Kinetic Lab HQ — Reversible Necker Cube Dot-Cloud + Wireframe Illusion
+  Pure orthographic 3D projection with ZERO perspective, occlusion, or depth-fog cues.
+  Combined shimmering particle cloud + symmetric Cyan (#00F0FF) / Magenta (#FF2D55) wireframe +
+  subtle focus guide arrows that let viewers flip the front/back face on command.
+  Deterministic 60fps, zero external CDN, seamless loop, safe-zone compliant (12%H–74%H).
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#0B0F19;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 16, SEED = 1;
+let HOOK = 'BLINK TO FLIP THIS CUBE';
+let events = [], period = 8, lastCue = -1;
+let particles = [], bgStars = [], cfgState = null;
+
+// Deterministic PRNG (mulberry32)
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 8 vertices of unit cube [-1, 1]^3
+// Indices 0..3: Face A (z = +1, Cyan)
+// Indices 4..7: Face B (z = -1, Magenta)
+const VERTS = [
+  [-1, -1,  1], [ 1, -1,  1], [ 1,  1,  1], [-1,  1,  1],
+  [-1, -1, -1], [ 1, -1, -1], [ 1,  1, -1], [-1,  1, -1],
+];
+
+const CYAN_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0]];
+const MAGENTA_EDGES = [[4, 5], [5, 6], [6, 7], [7, 4]];
+const BRIDGE_EDGES = [[0, 4], [1, 5], [2, 6], [3, 7]];
+
+// Pure ORTHOGRAPHIC 3D projection: Y-rotation + fixed isometric X-tilt + subtle Z-tilt
+// Zero perspective division, zero depth scaling -> 100% mathematically bistable
+function projectOrtho(p, angY, tiltX, tiltZ, cx, cy, scale) {
+  const cyA = Math.cos(angY), syA = Math.sin(angY);
+  const x1 = p[0] * cyA + p[2] * syA;
+  const z1 = -p[0] * syA + p[2] * cyA;
+
+  const ctX = Math.cos(tiltX), stX = Math.sin(tiltX);
+  const y2 = p[1] * ctX - z1 * stX;
+
+  const ctZ = Math.cos(tiltZ), stZ = Math.sin(tiltZ);
+  const x3 = x1 * ctZ - y2 * stZ;
+  const y3 = x1 * stZ + y2 * ctZ;
+
+  return [cx + x3 * scale, cy - y3 * scale];
+}
+
+function wrapText(text, maxW) {
+  const words = text.split(' '), lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+window.init = (cfg = {}) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 16;
+  SEED = cfg.seed || 1;
+  HOOK = cfg.hook || 'BLINK TO FLIP THIS CUBE';
+  cv.width = W;
+  cv.height = H;
+
+  const r = rng(SEED * 6271 + 43);
+  // Slow, hypnotic integer number of full rotations over DUR => exact seamless loop
+  const turns = Math.max(1, Math.round(DUR / 8));
+  period = DUR / turns;
+
+  // Classic Necker isometric elevation (~32°–38°) so overlapping squares are unmistakable
+  const tiltX = 0.56 + r() * 0.08;
+  const tiltZ = (r() - 0.5) * 0.10;
+  const baseAng = 0.62 + (SEED % 4) * 0.14; // avoids dead-on orthographic overlap at t=0
+  const dir = (SEED % 2 === 1) ? 1 : -1;
+
+  cfgState = { tiltX, tiltZ, baseAng, dir, turns };
+
+  // Build shimmering dot-cloud distributed symmetrically across all 6 faces + 12 edges
+  particles = [];
+  const FACE_DOTS = 3200;
+  for (let i = 0; i < FACE_DOTS; i++) {
+    const face = i % 6;
+    const u = r() * 2 - 1;
+    const v = r() * 2 - 1;
+    let p;
+    if (face === 0) p = [u, v, 1];
+    else if (face === 1) p = [u, v, -1];
+    else if (face === 2) p = [1, u, v];
+    else if (face === 3) p = [-1, u, v];
+    else if (face === 4) p = [u, 1, v];
+    else p = [u, -1, v];
+
+    // Color blend strictly by local z coordinate (+1 = Cyan, -1 = Magenta) -> symmetric!
+    const tColor = (p[2] + 1) * 0.5;
+    particles.push({
+      p,
+      tColor,
+      baseAlpha: 0.24 + r() * 0.36,
+      size: 1.1 + r() * 1.4,
+      phase: r() * Math.PI * 2,
+      freq: 1 + Math.floor(r() * 3), // integer harmonic for exact seamless loop
+    });
+  }
+
+  // Extra dense shimmering particles along the 12 edges for crisp holographic structure
+  const allEdges = [...CYAN_EDGES, ...MAGENTA_EDGES, ...BRIDGE_EDGES];
+  for (let i = 0; i < 720; i++) {
+    const e = allEdges[i % allEdges.length];
+    const a = VERTS[e[0]], b = VERTS[e[1]];
+    const s = r();
+    const jitter = 0.025;
+    const p = [
+      a[0] + (b[0] - a[0]) * s + (r() - 0.5) * jitter,
+      a[1] + (b[1] - a[1]) * s + (r() - 0.5) * jitter,
+      a[2] + (b[2] - a[2]) * s + (r() - 0.5) * jitter,
+    ];
+    const tColor = Math.max(0, Math.min(1, (p[2] + 1) * 0.5));
+    particles.push({
+      p,
+      tColor,
+      baseAlpha: 0.42 + r() * 0.38,
+      size: 1.3 + r() * 1.5,
+      phase: r() * Math.PI * 2,
+      freq: 2 + Math.floor(r() * 3),
+    });
+  }
+
+  // Faint background ambient particles
+  bgStars = [];
+  for (let i = 0; i < 40; i++) {
+    bgStars.push({
+      x: r(),
+      y: 0.14 + r() * 0.58,
+      sz: 0.9 + r() * 1.6,
+      phase: r() * Math.PI * 2,
+      cyan: i % 2 === 0,
+    });
+  }
+
+  events = [];
+  lastCue = -1;
+};
+
+// Draw a curved guide arrow flanking the cube to prompt mental flipping
+function drawCurvedGuideArrow(cx, cy, radius, startA, endA, color, alpha, S) {
+  if (alpha <= 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3.2 * S;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12 * S;
+
+  const anticlockwise = endA < startA;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, startA, endA, anticlockwise);
+  ctx.stroke();
+
+  // Arrowhead at endA
+  const ex = cx + Math.cos(endA) * radius;
+  const ey = cy + Math.sin(endA) * radius;
+  const tangent = endA + (anticlockwise ? -Math.PI * 0.5 : Math.PI * 0.5);
+  const headLen = 13 * S;
+
+  ctx.beginPath();
+  ctx.moveTo(ex - Math.cos(tangent - 0.52) * headLen, ey - Math.sin(tangent - 0.52) * headLen);
+  ctx.lineTo(ex, ey);
+  ctx.lineTo(ex - Math.cos(tangent + 0.52) * headLen, ey - Math.sin(tangent + 0.52) * headLen);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Draw subtle focus target reticle + inward micro-arrows on the active bistable face center
+function drawFocusReticle(px, py, color, alpha, pulse, S) {
+  if (alpha <= 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 14 * S;
+
+  const rOuter = (17 + pulse * 5) * S;
+  ctx.lineWidth = 2.2 * S;
+  ctx.beginPath();
+  ctx.arc(px, py, rOuter, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Four subtle inward tick-arrows pointing at the focal face center
+  const tickInner = rOuter + 4 * S;
+  const tickOuter = rOuter + 12 * S;
+  for (let k = 0; k < 4; k++) {
+    const a = k * (Math.PI * 0.5) + Math.PI * 0.25;
+    ctx.beginPath();
+    ctx.moveTo(px + Math.cos(a) * tickOuter, py + Math.sin(a) * tickOuter);
+    ctx.lineTo(px + Math.cos(a) * tickInner, py + Math.sin(a) * tickInner);
+    ctx.stroke();
+  }
+
+  // Crisp center pinpoint dot
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.arc(px, py, 3.2 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.435;
+  const scale = 152 * S;
+
+  // Seamless periodic angle: wrap tMod into [0, DUR) so frame 0 and frame DUR*FPS are pixel-identical
+  const tMod = ((t % DUR) + DUR) % DUR;
+  const loopPhase = (tMod / DUR) * Math.PI * 2;
+  const rotPhase = (tMod / period) * Math.PI * 2;
+  const angY = cfgState.baseAng + rotPhase * cfgState.dir;
+
+  // Periodic flip cue every 4 seconds (integer number of flip cycles over DUR -> exact loop!)
+  const flipCycles = Math.max(2, Math.round(DUR / 4));
+  const flipPeriod = DUR / flipCycles;
+  const cueIdx = Math.floor(t / (flipPeriod * 0.5));
+  if (cueIdx !== lastCue) {
+    lastCue = cueIdx;
+    events.push({ t, type: 'bounce', pitchIndex: (cueIdx % 2 === 0) ? 3 : 6, intensity: 0.22 });
+  }
+
+  // Smooth periodic weights for Cyan vs Magenta focus guide (exact match at t=0 and t=DUR)
+  const cueWave = Math.sin(loopPhase * flipCycles);
+  const cyanGuide = Math.max(0, cueWave);
+  const magentaGuide = Math.max(0, -cueWave);
+  const reticlePulse = 0.5 + 0.5 * Math.sin(loopPhase * flipCycles * 4);
+
+  // 1. Dark Kinetic Lab HQ background (#0B0F19)
+  ctx.fillStyle = '#0B0F19';
+  ctx.fillRect(0, 0, W, H);
+
+  // Symmetric dual-tone ambient halo (no depth bias)
+  const haloC = ctx.createRadialGradient(cx - 40 * S, cy - 20 * S, 10 * S, cx, cy, scale * 2.4);
+  haloC.addColorStop(0, 'rgba(0, 240, 255, 0.08)');
+  haloC.addColorStop(1, 'rgba(11, 15, 25, 0)');
+  ctx.fillStyle = haloC;
+  ctx.fillRect(0, 0, W, H);
+
+  const haloM = ctx.createRadialGradient(cx + 40 * S, cy + 20 * S, 10 * S, cx, cy, scale * 2.4);
+  haloM.addColorStop(0, 'rgba(255, 45, 85, 0.08)');
+  haloM.addColorStop(1, 'rgba(11, 15, 25, 0)');
+  ctx.fillStyle = haloM;
+  ctx.fillRect(0, 0, W, H);
+
+  // Ambient dust stars (periodic)
+  for (const st of bgStars) {
+    const a = 0.14 + 0.12 * Math.sin(st.phase + loopPhase * 2);
+    ctx.fillStyle = st.cyan ? `rgba(0, 240, 255, ${a})` : `rgba(255, 45, 85, ${a})`;
+    ctx.fillRect(st.x * W, st.y * H, st.sz * S, st.sz * S);
+  }
+
+  // 2. Shimmering Orthographic Dot-Cloud (ADDITIVE blend -> zero occlusion bias!)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const { tiltX, tiltZ } = cfgState;
+  for (const pt of particles) {
+    const [x, y] = projectOrtho(pt.p, angY, tiltX, tiltZ, cx, cy, scale);
+    const shimmer = 0.62 + 0.38 * Math.sin(pt.phase + loopPhase * pt.freq);
+    const alpha = pt.baseAlpha * shimmer;
+    // Interpolate strictly between Magenta (#FF2D55 = 255,45,85) and Cyan (#00F0FF = 0,240,255)
+    const rCol = Math.round(255 * (1 - pt.tColor));
+    const gCol = Math.round(45 + 195 * pt.tColor);
+    const bCol = Math.round(85 + 170 * pt.tColor);
+    ctx.fillStyle = `rgba(${rCol},${gCol},${bCol},${alpha.toFixed(3)})`;
+    const sz = pt.size * S;
+    ctx.fillRect(x - sz * 0.5, y - sz * 0.5, sz, sz);
+  }
+
+  // 3. Pure Orthographic Wireframe Cube (ADDITIVE blend so front/back never occlude each other!)
+  const projV = VERTS.map((v) => projectOrtho(v, angY, tiltX, tiltZ, cx, cy, scale));
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Bridge edges (Cyan <-> Magenta linear gradient, uniform thickness)
+  ctx.lineWidth = 3.2 * S;
+  for (const [i, j] of BRIDGE_EDGES) {
+    const [x0, y0] = projV[i], [x1, y1] = projV[j];
+    const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+    grad.addColorStop(0, 'rgba(0, 240, 255, 0.82)');
+    grad.addColorStop(0.5, 'rgba(210, 225, 255, 0.65)');
+    grad.addColorStop(1, 'rgba(255, 45, 85, 0.82)');
+    ctx.strokeStyle = grad;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  }
+
+  // Cyan square face (z = +1)
+  ctx.strokeStyle = '#00F0FF';
+  ctx.shadowColor = '#00F0FF';
+  ctx.shadowBlur = 14 * S;
+  ctx.lineWidth = 3.6 * S;
+  for (const [i, j] of CYAN_EDGES) {
+    ctx.beginPath(); ctx.moveTo(projV[i][0], projV[i][1]); ctx.lineTo(projV[j][0], projV[j][1]); ctx.stroke();
+  }
+
+  // Magenta square face (z = -1) — EXACT same width, opacity, and glow as Cyan!
+  ctx.strokeStyle = '#FF2D55';
+  ctx.shadowColor = '#FF2D55';
+  ctx.shadowBlur = 14 * S;
+  ctx.lineWidth = 3.6 * S;
+  for (const [i, j] of MAGENTA_EDGES) {
+    ctx.beginPath(); ctx.moveTo(projV[i][0], projV[i][1]); ctx.lineTo(projV[j][0], projV[j][1]); ctx.stroke();
+  }
+
+  // Glowing corner vertices (identical size for all 8 corners -> zero depth bias)
+  ctx.shadowBlur = 10 * S;
+  for (let i = 0; i < 8; i++) {
+    const isCyan = i < 4;
+    const [vx, vy] = projV[i];
+    ctx.fillStyle = isCyan ? '#00F0FF' : '#FF2D55';
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.beginPath(); ctx.arc(vx, vy, 5.2 * S, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath(); ctx.arc(vx, vy, 2.2 * S, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+
+  // 4. Subtle Guide Arrows & Focus Reticle (let viewers flip front/back face on command)
+  const guideR = scale * 1.72;
+  // Left curved flip arrow (Cyan) & Right curved flip arrow (Magenta)
+  drawCurvedGuideArrow(cx, cy, guideR, Math.PI * 0.84, Math.PI * 1.16, '#00F0FF', 0.30 + 0.55 * cyanGuide, S);
+  drawCurvedGuideArrow(cx, cy, guideR, Math.PI * 0.16, -Math.PI * 0.16, '#FF2D55', 0.30 + 0.55 * magentaGuide, S);
+
+  // Subtle focus reticle at the center of the currently prompted face (Cyan [0,0,+1] or Magenta [0,0,-1])
+  const [cFx, cFy] = projectOrtho([0, 0, 1], angY, tiltX, tiltZ, cx, cy, scale);
+  const [mFx, mFy] = projectOrtho([0, 0, -1], angY, tiltX, tiltZ, cx, cy, scale);
+  drawFocusReticle(cFx, cFy, '#00F0FF', cyanGuide * 0.85, reticlePulse, S);
+  drawFocusReticle(mFx, mFy, '#FF2D55', magentaGuide * 0.85, reticlePulse, S);
+
+  // 5. Soft studio vignette
+  const vg = ctx.createRadialGradient(cx, cy, H * 0.24, cx, cy, H * 0.72);
+  vg.addColorStop(0, 'rgba(11, 15, 25, 0)');
+  vg.addColorStop(1, 'rgba(5, 8, 15, 0.62)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  // 6. Safe-zone UI (strictly within y ∈ [12%H, 74%H])
+  ctx.save();
+  ctx.textAlign = 'center';
+
+  // Top Hook (starts at 15.4%H, ascenders >= 12.6%H)
+  ctx.font = `900 ${Math.round(40 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.shadowColor = 'rgba(0, 240, 255, 0.32)';
+  ctx.shadowBlur = 14 * S;
+  ctx.fillStyle = '#FFFFFF';
+  const hookLines = wrapText(HOOK, W * 0.84);
+  const hookStartY = H * 0.154;
+  hookLines.forEach((line, i) => {
+    ctx.fillText(line, W * 0.5, hookStartY + i * 48 * S);
+  });
+  ctx.shadowBlur = 0;
+
+  // Dual-mode flip legend pill at 65.2%H
+  const pillW = 376 * S, pillH = 36 * S, pillX = cx - pillW * 0.5, pillY = H * 0.652;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+  ctx.strokeStyle = cyanGuide >= magentaGuide ? 'rgba(0, 240, 255, 0.50)' : 'rgba(255, 45, 85, 0.50)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.roundRect(pillX, pillY, pillW, pillH, 18 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = `800 ${Math.round(15 * S)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  const midY = pillY + 23 * S;
+  ctx.fillStyle = `rgba(0, 240, 255, ${(0.45 + 0.55 * cyanGuide).toFixed(2)})`;
+  ctx.fillText('● CYAN FRONT', cx - 96 * S, midY);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.fillText('⇄', cx, midY);
+
+  ctx.fillStyle = `rgba(255, 45, 85, ${(0.45 + 0.55 * magentaGuide).toFixed(2)})`;
+  ctx.fillText('MAGENTA FRONT ●', cx + 98 * S, midY);
+
+  // Bottom subtle prompt at 71.2%H (well inside <= 74%H safe zone)
+  ctx.font = `700 ${Math.round(24 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.86)';
+  ctx.fillText('Focus on the glowing ring. Blink to flip.', cx, H * 0.712);
+
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.9).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>

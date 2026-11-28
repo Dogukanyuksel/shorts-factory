@@ -61,4 +61,9 @@ YouTube'un **"tekrarlayan / şablon seri üretim" (`Help 1311392`) `[RESMİ]`** 
 ## 5. Gelişim Günlüğü (Living Changelog)
 - **v2.0:** 4 kanallı ağ + 4-Perdeli 16:9 derin videolar + Altın Ritim zamanlayıcısı.
 - **v2.1:** Word-Pop altyazılar, `policy-guard.ts`, 3 kapak varyantı, yerel `.srt` üretimi, 4-kanal Channel Director, robotik TTS yasağı.
-- **v2.2 (Aktif):** **Kokoro-82M (\$0/ay)** entegrasyonu, **2 Erkek + 2 Kadın** imza ses dengesi (`am_fenrir`, `am_michael`, `af_bella` A-, `af_heart` A), uzun videolarda **Perde-2 Co-Host** karşı cinsiyet ses değişimi, tüm 4 kanalda zorunlu `runPolicyGuard` kapısı, GitHub Actions model önbellekleme.
+- **v2.2:** **Kokoro-82M (\$0/ay)** entegrasyonu, **2 Erkek + 2 Kadın** imza ses dengesi (`am_fenrir`, `am_michael`, `af_bella` A-, `af_heart` A), uzun videolarda **Perde-2 Co-Host** karşı cinsiyet ses değişimi, tüm 4 kanalda zorunlu `runPolicyGuard` kapısı, GitHub Actions model önbellekleme.
+- **v2.3 (Aktif — 28 Kas 2026 Canlı Studio/IG Verisiyle Evrim):**
+  - **Ölçülen Gerçek Veri `[VERİ]`:** Kinetic Lab 48s YT `19.412` (Stayed-to-Watch `%48,8`), Clear Mechanics 48s YT `8.133` (`%41,3`), IG `@kineticlab.motion` patlayan kazanan `Spinning Cone` (`10,4B`).
+  - **IG/YT Alt Safe-Zone Kuralı `[VERİ]`:** 38 Clear Mechanics bölümünde alt başlıklar `H * 0.84–0.855` → `H * 0.715` (Word-Pop `H * 0.768`) yukarı çekildi; IG profil grid sayacı ve YT Shorts alt bar çakışması sıfırlandı.
+  - **10.4K Kazanan Klonlama:** 2 yeni interaktif optik illüzyon Short'u (`ames-window-illusion`, `necker-cube-illusion`) + 4-Perdeli 16:9 derin video (`optical-illusions-brain-hack-deep-dive`) eklendi.
+  - **Otomatik KPI Hattı:** `src/analytics-kpi.ts` + `channel-director.yml` entegrasyonu ile 4 kanalın 365g/28g İzlenme Saati, AVD, AVP ve Top Watch-Hour videoları `state/kpi-weekly.json`'a otomatik yazılır (`yt-analytics.readonly` scope eklendiği an aktif).

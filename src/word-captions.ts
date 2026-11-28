@@ -94,7 +94,7 @@ export function buildWordCaptionCanvasSnippet(lines: TimedVoiceLine[], accentHex
         fontPx -= 2;
       }
 
-      const cy = H * 0.785;
+      const cy = H * 0.768;
       const padX = 22 * S, padY = 14 * S;
       const pillW = Math.min(W * 0.88, totalW + padX * 2);
       const pillH = fontPx + padY * 2;

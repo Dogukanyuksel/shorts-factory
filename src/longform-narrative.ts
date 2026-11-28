@@ -436,6 +436,178 @@ export const NARRATIVE_LONGFORM_SPECS: NarrativeLongformSpec[] = [
   },
 
   // =========================================================================
+  // KINETIC LAB — DEEP DIVE #0 (10.4K WINNER CLONE): 4 OPTICAL ILLUSIONS EXPLAINED
+  // =========================================================================
+  {
+    id: "narrative-physics-optical-illusions",
+    slug: "optical-illusions-brain-hack-deep-dive",
+    channel: "physics",
+    brandName: "KINETIC LAB",
+    accentHex: "#00f0ff",
+    title: "Why Your Brain Lies to You: 4 Optical Illusions Explained by Physics (Deep Dive)",
+    descriptionLead:
+      "You don't actually see reality — your brain renders a 3D prediction from flat 2D retinal pixels. In this 4-act interactive physics deep dive, we break down the Spinning Cone, the Ames Trapezoid Window, the Necker Cube, and Motion-Induced Blindness to show exactly where your visual cortex overrides physical truth.",
+    tags: ["optical illusions", "ames window", "necker cube", "brain physics", "visual perception", "kinetic lab"],
+    categoryId: "28",
+    nextEpisodeTeaser: "Next up on Kinetic Lab: How 0.001° Destroys Predictability in 100 Double Pendulums.",
+    beats: [
+      // ACT 1: SPINNING CONE & ORTHOGRAPHIC AMBIGUITY
+      {
+        id: "oi-a1-1",
+        actIndex: 0,
+        actKind: "hook",
+        actTitle: "1. The Spinning Cone & Orthographic Ambiguity",
+        visualPhase: "cone_ambiguity",
+        caption: "WHICH WAY IS IT SPINNING?",
+        text: "Stare at the center of this spinning cone right now. Is it rotating clockwise, or counter-clockwise? Blink once, and watch it reverse direction without a single pixel changing.",
+      },
+      {
+        id: "oi-a1-2",
+        actIndex: 0,
+        actKind: "hook",
+        actTitle: "1. The Spinning Cone & Orthographic Ambiguity",
+        visualPhase: "retina_projection",
+        caption: "3D WORLD → 2D RETINA",
+        text: "Every eye in your head is a flat two-dimensional sensor. When we strip away perspective shrinking and shadow occlusion, an orthographic projection mathematically collapses depth to zero.",
+      },
+      {
+        id: "oi-a1-3",
+        actIndex: 0,
+        actKind: "hook",
+        actTitle: "1. The Spinning Cone & Orthographic Ambiguity",
+        visualPhase: "dual_solution",
+        caption: "2 EXACT 3D SOLUTIONS",
+        text: "In geometry, a clockwise rotation and a counter-clockwise mirror reflection produce the exact same two-dimensional dot velocities. Your brain refuses to show you ambiguity, so it picks one answer and locks onto it.",
+      },
+      // ACT 2 (Co-Host Voice!): THE AMES WINDOW PARADOX
+      {
+        id: "oi-a2-1",
+        actIndex: 1,
+        actKind: "mechanism",
+        actTitle: "2. The Ames Window & Perspective Priors",
+        visualPhase: "ames_window_spin",
+        caption: "360° SPIN OR OSCILLATION?",
+        isBridge: true,
+        text: "But what happens when your brain's assumptions are so powerful that they overwrite a physical object spinning right in front of you? Meet the Ames Trapezoid Window.",
+      },
+      {
+        id: "oi-a2-2",
+        actIndex: 1,
+        actKind: "mechanism",
+        actTitle: "2. The Ames Window & Perspective Priors",
+        visualPhase: "ames_rod_paradox",
+        caption: "GHOST ROD THROUGH SOLID BARS",
+        text: "Even when we lock a rigid cyan rod straight through the center of the window, your visual cortex forces the trapezoid to rock back and forth while the rod appears to slice impossibly through solid metal.",
+      },
+      {
+        id: "oi-a2-3",
+        actIndex: 1,
+        actKind: "mechanism",
+        actTitle: "2. The Ames Window & Perspective Priors",
+        visualPhase: "perspective_prior",
+        caption: "BAYESIAN PRIOR OVERRIDE",
+        text: "You have spent your entire life inside rectangular rooms. In Bayesian perception math, your brain's prior probability that a window has ninety-degree corners is so extreme that it prefers breaking the laws of solid matter over admitting the window is a trapezoid.",
+      },
+      // ACT 3: THE NECKER CUBE & NEURAL ADAPTATION
+      {
+        id: "oi-a3-1",
+        actIndex: 2,
+        actKind: "failure",
+        actTitle: "3. The Necker Cube & Neural Fatigue",
+        visualPhase: "necker_wireframe",
+        caption: "CYAN FRONT OR MAGENTA FRONT?",
+        isBridge: true,
+        text: "Now let's test how long your brain can hold a single 3D interpretation before its own neurons get tired. Focus on the glowing ring inside this orthographic Necker Cube.",
+      },
+      {
+        id: "oi-a3-2",
+        actIndex: 2,
+        actKind: "failure",
+        actTitle: "3. The Necker Cube & Neural Fatigue",
+        visualPhase: "neural_adaptation",
+        caption: "NEURONS FATIGUE IN 3–5 SECONDS",
+        text: "Two competing neural populations fire for each 3D orientation. After three to five seconds, the winning group experiences synaptic adaptation — its signal weakens until the rival group takes over.",
+      },
+      {
+        id: "oi-a3-3",
+        actIndex: 2,
+        actKind: "failure",
+        actTitle: "3. The Necker Cube & Neural Fatigue",
+        visualPhase: "bistable_flip",
+        caption: "BISTABLE PERCEPTION FLIP",
+        text: "Every time you blink or shift your gaze by two degrees, you reset the competition and force the entire 3D cube to snap inside out on command.",
+      },
+      // ACT 4: MOTION-INDUCED BLINDNESS & PREDICTIVE CODING
+      {
+        id: "oi-a4-1",
+        actIndex: 3,
+        actKind: "comparison",
+        actTitle: "4. Motion-Induced Blindness & Predictive Coding",
+        visualPhase: "motion_blindness",
+        caption: "STARE AT THE CENTER DOT",
+        isBridge: true,
+        text: "Finally, watch what happens when your brain decides a stationary object is no longer useful data. Stare strictly at the blinking center dot while the cyan grid rotates around it.",
+      },
+      {
+        id: "oi-a4-2",
+        actIndex: 3,
+        actKind: "comparison",
+        actTitle: "4. Motion-Induced Blindness & Predictive Coding",
+        visualPhase: "prediction_delay",
+        caption: "100 MS NEURAL LAG",
+        text: "Within seconds, the bright gold targets vanish completely from your awareness — even though they never left the screen. Because light takes roughly one hundred milliseconds to travel from retina to conscious perception, your brain constantly edits out static noise to predict the moving present.",
+      },
+      {
+        id: "oi-a4-3",
+        actIndex: 3,
+        actKind: "comparison",
+        actTitle: "4. Motion-Induced Blindness & Predictive Coding",
+        visualPhase: "synthesis_summary",
+        caption: "REALITY IS A LIVE SIMULATION",
+        text: "From the spinning cone to the Ames window, every illusion proves the same physics principle: sight is not a camera recording pixels — it is a real-time 3D inference engine running inside your skull. Subscribe to Kinetic Lab for our next deep dive into chaos theory.",
+      },
+    ],
+    derivedShorts: [
+      {
+        shortIndex: 0,
+        slugSuffix: "short-1-ames-paradox",
+        hook: "WHY THIS ROD PASSES THROUGH SOLID BARS",
+        partLabel: "PART 1 / 3 · FULL DEEP DIVE ↓",
+        title: "Why Your Brain Breaks on the Ames Window Illusion #shorts",
+        descriptionLead:
+          "Watch a rigid cyan rod slice impossibly through solid window bars — Bayesian perspective priors explained in 30 seconds.",
+        tags: ["ames window", "optical illusion", "physics", "brain", "shorts"],
+        beatIds: ["oi-a2-1", "oi-a2-2", "oi-a2-3"],
+        ctaText: "WATCH FULL 4-ILLUSION DEEP DIVE ↓",
+      },
+      {
+        shortIndex: 1,
+        slugSuffix: "short-2-necker-fatigue",
+        hook: "WHY THIS CUBE FLIPS EVERY 4 SECONDS",
+        partLabel: "PART 2 / 3 · FULL DEEP DIVE ↓",
+        title: "The Real Neuroscience Behind the Necker Cube Flip #shorts",
+        descriptionLead:
+          "Synaptic neural adaptation forces your visual cortex to snap this orthographic 3D cube inside out every 3 to 5 seconds.",
+        tags: ["necker cube", "optical illusion", "neuroscience", "shorts"],
+        beatIds: ["oi-a3-1", "oi-a3-2", "oi-a3-3"],
+        ctaText: "WATCH FULL 4-ILLUSION DEEP DIVE ↓",
+      },
+      {
+        shortIndex: 2,
+        slugSuffix: "short-3-motion-blindness",
+        hook: "STARE AT THE DOT: WATCH GOLD VANISH",
+        partLabel: "PART 3 / 3 · FULL DEEP DIVE ↓",
+        title: "Stare at the Center Dot and Watch These 3 Dots Disappear #shorts",
+        descriptionLead:
+          "Motion-Induced Blindness: why your visual cortex deletes stationary objects in real time while a grid rotates.",
+        tags: ["motion induced blindness", "optical illusion", "brain test", "shorts"],
+        beatIds: ["oi-a4-1", "oi-a4-2", "oi-a4-3"],
+        ctaText: "WATCH FULL 4-ILLUSION DEEP DIVE ↓",
+      },
+    ],
+  },
+
+  // =========================================================================
   // KINETIC LAB — DEEP DIVE #1: 100 DOUBLE PENDULUMS & BUTTERFLY EFFECT
   // =========================================================================
   {

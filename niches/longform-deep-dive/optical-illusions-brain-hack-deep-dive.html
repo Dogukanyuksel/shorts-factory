@@ -1,0 +1,1960 @@
+<!doctype html>
+<!-- Kinetic Lab HQ Deep Dive: Why Your Brain Lies to You: 4 Optical Illusions Explained by Physics (Dual-Aspect 16:9 & 9:16) -->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#0B0F19;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // ---------- Palette ----------
+  const BG = '#0B0F19';
+  const CYAN = '#00F0FF';
+  const GOLD = '#FFD60A';
+  const CRIMSON = '#FF3B30';
+  const SLATE = '#94A3B8';
+  const WHITE = '#F8FAFC';
+
+  // ---------- Config & State ----------
+  let W = 1280, H = 720, FPS = 30, DUR = 60;
+  let ASPECT = '16:9';
+  let TITLE = 'Why Your Brain Lies to You: 4 Optical Illusions Explained by Physics';
+  let BRAND = 'KINETIC LAB HQ';
+  let ACCENT = CYAN;
+  let BEATS = [];
+  let SHORT_META = null;
+  let savedCfg = null;
+
+  let currentFrame = 0;
+  let simTime = 0;
+  let lastBeatIdx = -1;
+  let lastVisualPhase = '';
+  let phaseEnterTime = 0;
+  let events = [];
+
+  // Event tracking for deterministic procedural audio
+  let lastFlipIndex = -1;
+  let lastRodCrossIndex = -1;
+  let lastFlashIndex = -1;
+  let lastConeEdgeIndex = -1;
+
+  // Precomputed background star/dust particles (deterministic)
+  let dust = [];
+  let mibCrosses = [];
+
+  // ---------- Math & Drawing Helpers ----------
+  function clamp(v, lo, hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function smoothstep(t) {
+    const c = clamp(t, 0, 1);
+    return c * c * (3 - 2 * c);
+  }
+
+  function easeOutCubic(t) {
+    const c = clamp(t, 0, 1);
+    return 1 - Math.pow(1 - c, 3);
+  }
+
+  function makeRng(seed) {
+    let s = ((seed || 90210) * 2654435761 + 1013904223) >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
+    };
+  }
+
+  function hexToRgba(hex, a) {
+    const h = (hex || CYAN).replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map(ch => ch + ch).join('') : h, 16);
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function roundRectPath(c, x, y, w, h, r) {
+    const rr = Math.min(r, w * 0.5, h * 0.5);
+    c.beginPath();
+    c.moveTo(x + rr, y);
+    c.lineTo(x + w - rr, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + rr);
+    c.lineTo(x + w, y + h - rr);
+    c.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    c.lineTo(x + rr, y + h);
+    c.quadraticCurveTo(x, y + h, x, y + h - rr);
+    c.lineTo(x, y + rr);
+    c.quadraticCurveTo(x, y, x + rr, y);
+    c.closePath();
+  }
+
+  function wrapLines(c, text, maxW, maxLines) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (let i = 0; i < words.length; i++) {
+      const test = cur ? cur + ' ' + words[i] : words[i];
+      if (c.measureText(test).width <= maxW || !cur) {
+        cur = test;
+      } else {
+        lines.push(cur);
+        cur = words[i];
+        if (maxLines && lines.length >= maxLines - 1) {
+          const rest = [cur].concat(words.slice(i + 1)).join(' ');
+          let trimmed = rest;
+          while (trimmed.length > 3 && c.measureText(trimmed + '…').width > maxW) {
+            trimmed = trimmed.slice(0, -1);
+          }
+          lines.push(trimmed === rest ? rest : trimmed + '…');
+          return lines;
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  function formatTime(sec) {
+    const s = Math.max(0, Math.floor(sec));
+    const mm = Math.floor(s / 60);
+    const ss = s % 60;
+    return `${mm}:${ss < 10 ? '0' : ''}${ss}`;
+  }
+
+  // ---------- 3D Math Utilities ----------
+  function rotY(p, a) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    return [p[0] * ca + p[2] * sa, p[1], -p[0] * sa + p[2] * ca];
+  }
+
+  function rotX(p, a) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    return [p[0], p[1] * ca - p[2] * sa, p[1] * sa + p[2] * ca];
+  }
+
+  function rotZ(p, a) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    return [p[0] * ca - p[1] * sa, p[0] * sa + p[1] * ca, p[2]];
+  }
+
+  function projOrtho(p, cx, cy, scale) {
+    return [cx + p[0] * scale, cy - p[1] * scale, p[2]];
+  }
+
+  function projPersp(p, cx, cy, scale, fov) {
+    const d = fov || 4.8;
+    const denom = Math.max(0.6, d - p[2]);
+    const k = (d / denom) * scale;
+    return [cx + p[0] * k, cy - p[1] * k, p[2], d / denom];
+  }
+
+  // ---------- Beat & Phase Lookup ----------
+  const ACT_DEFAULT_PHASES = [
+    'cone_ambiguity',
+    'ames_window_spin',
+    'necker_wireframe',
+    'motion_blindness'
+  ];
+
+  const ACT_TITLES = [
+    '1. Spinning Cone & Orthographic Loss',
+    '2. The Ames Window Paradox',
+    '3. Necker Cube & Bistable Cortex',
+    '4. Predictive Coding & Blindness'
+  ];
+
+  const PHASE_LABELS = {
+    cone_ambiguity: 'ORTHOGRAPHIC AMBIGUITY',
+    retina_projection: '3D → 2D RETINAL PROJECTION',
+    dual_solution: 'DUAL-SOLUTION SYMMETRY',
+    ames_window_spin: 'AMES TRAPEZOID · 360° SPIN',
+    ames_rod_paradox: 'AMES SOLID-ROD PARADOX',
+    perspective_prior: 'RECTANGULAR PERSPECTIVE PRIOR',
+    necker_wireframe: 'NECKER CUBE WIREFRAME',
+    neural_adaptation: 'CORTICAL FATIGUE & ADAPTATION',
+    bistable_flip: 'BISTABLE PERCEPTUAL FLIP',
+    motion_blindness: 'MOTION-INDUCED BLINDNESS',
+    prediction_delay: '100ms NEURAL LATENCY & EXTRAPOLATION',
+    synthesis_summary: '4-ILLUSION PREDICTIVE SYNTHESIS'
+  };
+
+  function resolvePhase(beat) {
+    if (beat && beat.visualPhase && PHASE_LABELS[beat.visualPhase]) {
+      return beat.visualPhase;
+    }
+    const ai = clamp((beat && typeof beat.actIndex === 'number') ? beat.actIndex : 0, 0, 3);
+    return ACT_DEFAULT_PHASES[ai];
+  }
+
+  function getBeatAt(t) {
+    if (!BEATS.length) {
+      // Fallback auto-cycling across all 12 phases if initialized without beats
+      const phases = Object.keys(PHASE_LABELS);
+      const seg = Math.max(1, DUR / phases.length);
+      const idx = clamp(Math.floor(t / seg), 0, phases.length - 1);
+      const actIndex = Math.floor(idx / 3);
+      return {
+        idx,
+        beat: {
+          id: `auto-${idx}`,
+          actIndex,
+          actKind: actIndex === 0 ? 'hook' : actIndex === 3 ? 'outro' : 'body',
+          actTitle: ACT_TITLES[actIndex],
+          visualPhase: phases[idx],
+          caption: PHASE_LABELS[phases[idx]],
+          text: 'Your visual cortex reconstructs 3D reality from a flat 2D retinal signal using physics priors.',
+          start: idx * seg,
+          end: (idx + 1) * seg,
+          isBridge: idx > 0 && idx % 3 === 0
+        }
+      };
+    }
+    for (let i = 0; i < BEATS.length; i++) {
+      const b = BEATS[i];
+      if (t >= b.start && t < b.end) return { idx: i, beat: b };
+    }
+    if (t < BEATS[0].start) return { idx: 0, beat: BEATS[0] };
+    return { idx: BEATS.length - 1, beat: BEATS[BEATS.length - 1] };
+  }
+
+  function getPhaseEnterTime(t, phase) {
+    if (!BEATS.length) {
+      const phases = Object.keys(PHASE_LABELS);
+      const seg = Math.max(1, DUR / phases.length);
+      return Math.floor(t / seg) * seg;
+    }
+    const { idx } = getBeatAt(t);
+    let firstIdx = idx;
+    while (firstIdx > 0 && resolvePhase(BEATS[firstIdx - 1]) === phase) {
+      firstIdx--;
+    }
+    return BEATS[firstIdx].start || 0;
+  }
+
+  // ---------- Initialization ----------
+  function resetSimulation(cfg) {
+    const c = cfg || {};
+    W = c.width || 1280;
+    H = c.height || 720;
+    FPS = c.fps || 30;
+    DUR = c.duration || c.seconds || 60;
+    ASPECT = c.aspect || (W >= H ? '16:9' : '9:16');
+    TITLE = c.title || 'Why Your Brain Lies to You: 4 Optical Illusions Explained by Physics';
+    BRAND = c.brand || 'KINETIC LAB HQ';
+    ACCENT = c.accent || CYAN;
+    BEATS = Array.isArray(c.beats) ? c.beats : [];
+    SHORT_META = c.shortMeta || null;
+
+    cv.width = W;
+    cv.height = H;
+
+    currentFrame = 0;
+    simTime = 0;
+    lastBeatIdx = -1;
+    lastVisualPhase = '';
+    phaseEnterTime = 0;
+    events = [];
+    lastFlipIndex = -1;
+    lastRodCrossIndex = -1;
+    lastFlashIndex = -1;
+    lastConeEdgeIndex = -1;
+
+    // Deterministic ambient dust
+    const rand = makeRng(c.seed || 7331);
+    dust = [];
+    for (let i = 0; i < 64; i++) {
+      dust.push({
+        x: rand(),
+        y: rand(),
+        r: 0.7 + rand() * 1.6,
+        a: 0.08 + rand() * 0.22,
+        spd: 0.004 + rand() * 0.012,
+        col: i % 5 === 0 ? GOLD : (i % 7 === 0 ? CRIMSON : CYAN)
+      });
+    }
+
+    // Deterministic 3D spherical grid of crosses for Act 3 Motion-Induced Blindness
+    mibCrosses = [];
+    const rings = 7;
+    for (let r = 1; r <= rings; r++) {
+      const phi = (r / (rings + 0.5)) * Math.PI * 0.85 - Math.PI * 0.425;
+      const count = Math.round(12 + Math.cos(phi) * 16);
+      for (let k = 0; k < count; k++) {
+        const theta = (k / count) * Math.PI * 2 + r * 0.37;
+        mibCrosses.push({
+          x: Math.cos(phi) * Math.cos(theta),
+          y: Math.sin(phi),
+          z: Math.cos(phi) * Math.sin(theta)
+        });
+      }
+    }
+  }
+
+  window.init = (cfg) => {
+    savedCfg = Object.assign({}, cfg || {});
+    resetSimulation(savedCfg);
+  };
+
+  // ---------- Deterministic Sound Events ----------
+  function emitEventsForTime(t) {
+    const { idx: beatIdx, beat } = getBeatAt(t);
+    const phase = resolvePhase(beat);
+
+    if (beatIdx !== lastBeatIdx) {
+      if (lastBeatIdx !== -1) {
+        events.push({
+          t: clamp(t, 0, DUR),
+          type: beat.isBridge ? 'win' : 'bounce',
+          pitchIndex: 2 + (beat.actIndex || 0) * 3 + (beatIdx % 3),
+          intensity: beat.isBridge ? 0.78 : 0.48
+        });
+      } else {
+        events.push({ t: 0.05, type: 'bounce', pitchIndex: 2, intensity: 0.45 });
+      }
+      lastBeatIdx = beatIdx;
+      if (phase !== lastVisualPhase) {
+        lastVisualPhase = phase;
+        phaseEnterTime = t;
+      }
+    }
+
+    // Phase-specific rhythmic micro-SFX
+    if (phase === 'cone_ambiguity' || phase === 'dual_solution') {
+      const halfTurn = Math.floor((t * 1.15) / Math.PI);
+      if (halfTurn !== lastConeEdgeIndex && t > 0.4) {
+        lastConeEdgeIndex = halfTurn;
+        events.push({ t: clamp(t, 0, DUR), type: 'bounce', pitchIndex: 4 + (halfTurn % 3), intensity: 0.32 });
+      }
+    } else if (phase === 'ames_rod_paradox') {
+      const crossIdx = Math.floor((t * 1.25 + Math.PI * 0.5) / Math.PI);
+      if (crossIdx !== lastRodCrossIndex && t > 0.3) {
+        lastRodCrossIndex = crossIdx;
+        events.push({ t: clamp(t, 0, DUR), type: 'break', pitchIndex: 6 + (crossIdx % 4), intensity: 0.55 });
+      }
+    } else if (phase === 'bistable_flip' || phase === 'neural_adaptation') {
+      const flipIdx = Math.floor(t / 2.6);
+      if (flipIdx !== lastFlipIndex && t > 0.4) {
+        lastFlipIndex = flipIdx;
+        events.push({ t: clamp(t, 0, DUR), type: 'break', pitchIndex: flipIdx % 2 === 0 ? 5 : 9, intensity: 0.58 });
+      }
+    } else if (phase === 'prediction_delay') {
+      const flashIdx = Math.floor(t / 1.8);
+      if (flashIdx !== lastFlashIndex && t > 0.3) {
+        lastFlashIndex = flashIdx;
+        events.push({ t: clamp(t, 0, DUR), type: 'bounce', pitchIndex: 10, intensity: 0.48 });
+      }
+    }
+  }
+
+  // ---------- Background & Stage Framing ----------
+  function drawBackground(t, S) {
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle deep radial glow
+    const rg = ctx.createRadialGradient(W * 0.36, H * 0.48, 10, W * 0.36, H * 0.48, Math.max(W, H) * 0.75);
+    rg.addColorStop(0, 'rgba(0, 240, 255, 0.065)');
+    rg.addColorStop(0.55, 'rgba(11, 15, 25, 0.02)');
+    rg.addColorStop(1, 'rgba(3, 5, 10, 0.65)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle lab blueprint grid
+    const gridStep = Math.round(48 * S);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.045)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += gridStep) {
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, H);
+    }
+    for (let y = 0; y <= H; y += gridStep) {
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(W, y + 0.5);
+    }
+    ctx.stroke();
+
+    // Floating dust motes
+    for (let i = 0; i < dust.length; i++) {
+      const d = dust[i];
+      const px = ((d.x + t * d.spd) % 1) * W;
+      const py = ((d.y - t * d.spd * 0.4 + 10) % 1) * H;
+      ctx.fillStyle = hexToRgba(d.col, d.a);
+      ctx.beginPath();
+      ctx.arc(px, py, d.r * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // =====================================================================
+  // ACT 0: SPINNING CONE & CYLINDER (ORTHOGRAPHIC AMBIGUITY)
+  // =====================================================================
+  function drawOrthoConeCylinder(cx, cy, scale, angleY, tiltX, mode, colorMain, colorSec, S) {
+    // mode: 'ambiguous' (no depth cues), 'cw' (depth-cued z+), 'ccw' (depth-cued z-)
+    const zSign = mode === 'ccw' ? -1 : 1;
+    const isAmbig = mode === 'ambiguous';
+
+    // Build 3D geometry: upper cone + lower cylinder joined at waist
+    const rings = [
+      { y: 1.05, r: 0.02, col: colorSec },
+      { y: 0.72, r: 0.30, col: colorMain },
+      { y: 0.38, r: 0.58, col: colorMain },
+      { y: 0.05, r: 0.85, col: colorSec }, // waist
+      { y: -0.35, r: 0.62, col: colorMain },
+      { y: -0.75, r: 0.62, col: colorMain },
+      { y: -1.05, r: 0.62, col: colorSec }
+    ];
+    const segs = 28;
+    const meridians = 12;
+
+    const transform = (x, y, z) => {
+      let p = rotY([x, y, z], angleY * zSign);
+      p = rotX(p, tiltX);
+      if (mode === 'ccw') p[2] = -p[2];
+      return projOrtho(p, cx, cy, scale);
+    };
+
+    // Draw meridian segments (sorted back-to-front only if depth-cued)
+    const edges = [];
+    for (let m = 0; m < meridians; m++) {
+      const th = (m / meridians) * Math.PI * 2;
+      const ct = Math.cos(th), st = Math.sin(th);
+      for (let r = 0; r < rings.length - 1; r++) {
+        const r0 = rings[r], r1 = rings[r + 1];
+        const p0 = transform(r0.r * ct, r0.y, r0.r * st);
+        const p1 = transform(r1.r * ct, r1.y, r1.r * st);
+        const zAvg = (p0[2] + p1[2]) * 0.5;
+        edges.push({ p0, p1, zAvg, col: r < 3 ? colorMain : colorSec, kind: 'meridian' });
+      }
+    }
+
+    // Ring segments
+    for (let r = 1; r < rings.length; r++) {
+      const rg = rings[r];
+      for (let k = 0; k < segs; k++) {
+        const a0 = (k / segs) * Math.PI * 2;
+        const a1 = ((k + 1) / segs) * Math.PI * 2;
+        const p0 = transform(rg.r * Math.cos(a0), rg.y, rg.r * Math.sin(a0));
+        const p1 = transform(rg.r * Math.cos(a1), rg.y, rg.r * Math.sin(a1));
+        const zAvg = (p0[2] + p1[2]) * 0.5;
+        edges.push({ p0, p1, zAvg, col: rg.col, kind: 'ring' });
+      }
+    }
+
+    if (!isAmbig) {
+      edges.sort((a, b) => a.zAvg - b.zAvg);
+    }
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let i = 0; i < edges.length; i++) {
+      const e = edges[i];
+      if (isAmbig) {
+        // Pure orthographic: front and back have IDENTICAL opacity & thickness!
+        ctx.strokeStyle = hexToRgba(e.col, e.kind === 'ring' ? 0.78 : 0.42);
+        ctx.lineWidth = (e.kind === 'ring' ? 2.1 : 1.35) * S;
+        ctx.setLineDash([]);
+      } else {
+        const front = e.zAvg >= 0;
+        const depthNorm = clamp((e.zAvg + 1.0) * 0.5, 0.12, 1.0);
+        ctx.strokeStyle = hexToRgba(e.col, front ? (0.45 + 0.55 * depthNorm) : 0.20);
+        ctx.lineWidth = (front ? (1.8 + depthNorm * 1.4) : 1.0) * S;
+        ctx.setLineDash(front ? [] : [4 * S, 4 * S]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(e.p0[0], e.p0[1]);
+      ctx.lineTo(e.p1[0], e.p1[1]);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Luminous waist beads (creates strong kinetic motion signal)
+    const waist = rings[3];
+    for (let m = 0; m < meridians; m++) {
+      const th = (m / meridians) * Math.PI * 2;
+      const p = transform(waist.r * Math.cos(th), waist.y, waist.r * Math.sin(th));
+      const alpha = isAmbig ? 0.92 : (p[2] >= 0 ? 1.0 : 0.25);
+      const rad = isAmbig ? 3.2 * S : (p[2] >= 0 ? 4.2 * S : 2.1 * S);
+      ctx.fillStyle = hexToRgba(GOLD, alpha);
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], rad, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Central axis line
+    const topP = transform(0, 1.25, 0);
+    const botP = transform(0, -1.25, 0);
+    ctx.strokeStyle = hexToRgba(WHITE, 0.25);
+    ctx.lineWidth = 1.2 * S;
+    ctx.setLineDash([5 * S, 5 * S]);
+    ctx.beginPath();
+    ctx.moveTo(topP[0], topP[1]);
+    ctx.lineTo(botP[0], botP[1]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  function renderAct0(vp, phase, t, phaseT, S) {
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.52;
+    const baseScale = Math.min(vp.w, vp.h) * 0.30;
+    const angleY = t * 1.15;
+    const tiltX = 0.26 + Math.sin(t * 0.45) * 0.08;
+
+    if (phase === 'cone_ambiguity') {
+      // Soft halo behind spinning cone
+      const rg = ctx.createRadialGradient(cx, cy, 8, cx, cy, baseScale * 1.55);
+      rg.addColorStop(0, 'rgba(0, 240, 255, 0.14)');
+      rg.addColorStop(0.6, 'rgba(255, 214, 10, 0.04)');
+      rg.addColorStop(1, 'rgba(11, 15, 25, 0)');
+      ctx.fillStyle = rg;
+      ctx.fillRect(vp.x, vp.y, vp.w, vp.h);
+
+      drawOrthoConeCylinder(cx, cy, baseScale * 1.08, angleY, tiltX, 'ambiguous', CYAN, GOLD, S);
+
+      // Ambiguity direction arrows oscillating subtly
+      const brainFlip = Math.sin(t * 0.85) >= 0;
+      const arrowY = cy + baseScale * 1.22;
+      ctx.save();
+      ctx.font = `800 ${13 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+
+      // Left CW indicator
+      const cwW = 148 * S, pillH = 30 * S;
+      roundRectPath(ctx, cx - cwW - 14 * S, arrowY, cwW, pillH, 15 * S);
+      ctx.fillStyle = brainFlip ? hexToRgba(CYAN, 0.24) : 'rgba(15, 23, 42, 0.72)';
+      ctx.fill();
+      ctx.strokeStyle = brainFlip ? CYAN : 'rgba(148,163,184,0.3)';
+      ctx.lineWidth = (brainFlip ? 2.0 : 1.0) * S;
+      ctx.stroke();
+      ctx.fillStyle = brainFlip ? WHITE : SLATE;
+      ctx.fillText('↻ SPINNING CW', cx - cwW * 0.5 - 14 * S, arrowY + pillH * 0.66);
+
+      // Right CCW indicator
+      roundRectPath(ctx, cx + 14 * S, arrowY, cwW, pillH, 15 * S);
+      ctx.fillStyle = !brainFlip ? hexToRgba(GOLD, 0.24) : 'rgba(15, 23, 42, 0.72)';
+      ctx.fill();
+      ctx.strokeStyle = !brainFlip ? GOLD : 'rgba(148,163,184,0.3)';
+      ctx.lineWidth = (!brainFlip ? 2.0 : 1.0) * S;
+      ctx.stroke();
+      ctx.fillStyle = !brainFlip ? WHITE : SLATE;
+      ctx.fillText('↺ SPINNING CCW', cx + cwW * 0.5 + 14 * S, arrowY + pillH * 0.66);
+
+      ctx.fillStyle = SLATE;
+      ctx.font = `700 ${11 * S}px ui-monospace, monospace`;
+      ctx.fillText('ZERO PERSPECTIVE FORESHORTENING · DEPTH = UNDEFINED', cx, vp.y + vp.h - 22 * S);
+      ctx.restore();
+
+    } else if (phase === 'retina_projection') {
+      // Left: 3D Object in Space | Center: Parallel Orthographic Rays | Right: 2D Retinal Plane
+      const objCx = vp.x + vp.w * 0.29;
+      const retX = vp.x + vp.w * 0.75;
+      const objScale = Math.min(vp.w * 0.21, vp.h * 0.27);
+
+      // Draw parallel projection rays with traveling photon pulses
+      ctx.save();
+      const rayYs = [-0.95, -0.45, 0.05, 0.52, 0.95];
+      for (let i = 0; i < rayYs.length; i++) {
+        const ry = cy - rayYs[i] * objScale;
+        ctx.strokeStyle = hexToRgba(CYAN, 0.24);
+        ctx.lineWidth = 1.4 * S;
+        ctx.setLineDash([6 * S, 6 * S]);
+        ctx.beginPath();
+        ctx.moveTo(objCx + objScale * 0.7, ry);
+        ctx.lineTo(retX - 18 * S, ry);
+        ctx.stroke();
+
+        // Traveling photon dot
+        const prog = (t * 0.85 + i * 0.19) % 1;
+        const px = lerp(objCx + objScale * 0.7, retX - 18 * S, prog);
+        ctx.fillStyle = GOLD;
+        ctx.beginPath();
+        ctx.arc(px, ry, 3.0 * S, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.setLineDash([]);
+
+      // Retinal 2D Sensor Plane (tilted glass parallelogram)
+      const planeH = objScale * 2.5;
+      const planeW = Math.max(84 * S, vp.w * 0.17);
+      const px0 = retX - planeW * 0.42;
+      const py0 = cy - planeH * 0.5;
+      roundRectPath(ctx, px0, py0, planeW, planeH, 12 * S);
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.08)';
+      ctx.fill();
+      ctx.strokeStyle = CYAN;
+      ctx.lineWidth = 2.0 * S;
+      ctx.stroke();
+
+      // Flat 2D silhouette on retinal plane
+      drawOrthoConeCylinder(px0 + planeW * 0.5, cy, objScale * 0.74, angleY, tiltX, 'ambiguous', WHITE, CYAN, S * 0.82);
+
+      // 3D source object on left (with depth cues so viewer sees real 3D)
+      drawOrthoConeCylinder(objCx, cy, objScale, angleY, tiltX, 'cw', CYAN, GOLD, S);
+
+      // Labels & Equation
+      ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = CYAN;
+      ctx.fillText('3D OBJECT (x, y, z)', objCx, cy - objScale * 1.38);
+      ctx.fillStyle = GOLD;
+      ctx.fillText('2D RETINA (x, y)', px0 + planeW * 0.5, py0 - 12 * S);
+
+      // Crimson Z-dropped badge in middle
+      const midX = (objCx + px0) * 0.5 + 16 * S;
+      roundRectPath(ctx, midX - 78 * S, vp.y + vp.h - 56 * S, 156 * S, 32 * S, 8 * S);
+      ctx.fillStyle = hexToRgba(CRIMSON, 0.22);
+      ctx.fill();
+      ctx.strokeStyle = CRIMSON;
+      ctx.lineWidth = 1.6 * S;
+      ctx.stroke();
+      ctx.fillStyle = WHITE;
+      ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+      ctx.fillText('Z-AXIS COLLAPSED', midX, vp.y + vp.h - 35 * S);
+      ctx.restore();
+
+    } else {
+      // 'dual_solution': Two mirror-depth 3D models producing identical 2D projections
+      const leftCx = vp.x + vp.w * 0.27;
+      const rightCx = vp.x + vp.w * 0.73;
+      const pairScale = Math.min(vp.w * 0.19, vp.h * 0.27);
+
+      // Cards behind each hypothesis
+      const cardW = vp.w * 0.40;
+      const cardH = vp.h * 0.72;
+      const cardY = cy - cardH * 0.5;
+
+      ctx.save();
+      roundRectPath(ctx, leftCx - cardW * 0.5, cardY, cardW, cardH, 14 * S);
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.05)';
+      ctx.fill();
+      ctx.strokeStyle = hexToRgba(CYAN, 0.45);
+      ctx.lineWidth = 1.6 * S;
+      ctx.stroke();
+
+      roundRectPath(ctx, rightCx - cardW * 0.5, cardY, cardW, cardH, 14 * S);
+      ctx.fillStyle = 'rgba(255, 214, 10, 0.05)';
+      ctx.fill();
+      ctx.strokeStyle = hexToRgba(GOLD, 0.45);
+      ctx.lineWidth = 1.6 * S;
+      ctx.stroke();
+
+      drawOrthoConeCylinder(leftCx, cy + 8 * S, pairScale, angleY, tiltX, 'cw', CYAN, WHITE, S);
+      drawOrthoConeCylinder(rightCx, cy + 8 * S, pairScale, angleY, tiltX, 'ccw', GOLD, WHITE, S);
+
+      // Headers
+      ctx.font = `800 ${13 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = CYAN;
+      ctx.fillText('SOLUTION A · CW (+z)', leftCx, cardY + 26 * S);
+      ctx.fillStyle = GOLD;
+      ctx.fillText('SOLUTION B · CCW (-z)', rightCx, cardY + 26 * S);
+
+      // Central equivalence badge
+      const eqR = 26 * S;
+      ctx.fillStyle = BG;
+      ctx.beginPath();
+      ctx.arc(cx, cy, eqR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = WHITE;
+      ctx.lineWidth = 2.0 * S;
+      ctx.stroke();
+      ctx.fillStyle = WHITE;
+      ctx.font = `900 ${24 * S}px ui-monospace, monospace`;
+      ctx.fillText('≡', cx, cy + 8 * S);
+
+      ctx.fillStyle = WHITE;
+      ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+      ctx.fillText('100% IDENTICAL 2D PIXELS ON YOUR RETINA', cx, vp.y + vp.h - 22 * S);
+      ctx.restore();
+    }
+  }
+
+  // =====================================================================
+  // ACT 1: AMES WINDOW & SOLID-ROD PARADOX
+  // =====================================================================
+  function getAmesTrapezoidVerts() {
+    // True 3D trapezoid lying in the XY plane (z = 0)
+    // Left side tall (y in [-1, 1]), right side short (y in [-0.52, 0.52])
+    return [
+      [-1.15,  1.00, 0], // 0: top-left (tall)
+      [ 1.15,  0.52, 0], // 1: top-right (short)
+      [ 1.15, -0.52, 0], // 2: bot-right (short)
+      [-1.15, -1.00, 0]  // 3: bot-left (tall)
+    ];
+  }
+
+  function evalTrapezoid(u, v) {
+    // u in [-1, 1] left-to-right, v in [-1, 1] bottom-to-top
+    const x = u * 1.15;
+    const halfH = lerp(1.00, 0.52, (u + 1) * 0.5);
+    return [x, v * halfH, 0];
+  }
+
+  function drawAmesWindow3D(cx, cy, scale, angleY, withRod, withPrior, S) {
+    const tiltX = 0.09;
+    const fov = 5.2;
+
+    const xform = (pt) => {
+      let p = rotY(pt, angleY);
+      p = rotX(p, tiltX);
+      return projPersp(p, cx, cy, scale, fov);
+    };
+
+    // Draw rod back half first (if behind window), then window, then rod front half
+    const rodLen = 1.65;
+    const rodAngleLocal = 0.24; // slight tilt through center mullion
+    // Rod lies in XZ plane perpendicular-ish to window, rotating WITH window
+    const rodA = [0,  Math.sin(rodAngleLocal) * rodLen * 0.35, -rodLen];
+    const rodB = [0, -Math.sin(rodAngleLocal) * rodLen * 0.35,  rodLen];
+    const rodMid = [0, 0, 0];
+
+    const pRodA = xform(rodA);
+    const pRodB = xform(rodB);
+    const pRodMid = xform(rodMid);
+
+    // Determine which half of the rod is behind the window center (lower z = farther)
+    const backRod = pRodA[2] < pRodB[2] ? [pRodA, pRodMid] : [pRodB, pRodMid];
+    const frontRod = pRodA[2] < pRodB[2] ? [pRodMid, pRodB] : [pRodMid, pRodA];
+
+    const drawRodSeg = (a, b, isFront) => {
+      ctx.save();
+      ctx.lineCap = 'round';
+      // Glow
+      ctx.strokeStyle = hexToRgba(CRIMSON, isFront ? 0.42 : 0.18);
+      ctx.lineWidth = (isFront ? 16 : 11) * S;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+
+      // Core rod
+      ctx.strokeStyle = isFront ? CRIMSON : '#8E1E19';
+      ctx.lineWidth = (isFront ? 7.5 : 5.5) * S;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+
+      // Gold specular highlight
+      ctx.strokeStyle = hexToRgba(GOLD, isFront ? 0.85 : 0.35);
+      ctx.lineWidth = 2.0 * S;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+
+      // End cap orb
+      const tip = isFront ? b : a;
+      ctx.fillStyle = isFront ? GOLD : CRIMSON;
+      ctx.beginPath();
+      ctx.arc(tip[0], tip[1], (isFront ? 6 : 4.5) * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+
+    if (withRod) drawRodSeg(backRod[0], backRod[1], false);
+
+    // Optional perspective prior overlay: assumed rectangle & vanishing rays
+    if (withPrior) {
+      const rectVerts = [
+        [-1.15,  1.00, 0],
+        [ 1.15,  1.00, 0],
+        [ 1.15, -1.00, 0],
+        [-1.15, -1.00, 0]
+      ].map(xform);
+
+      ctx.save();
+      // Vanishing perspective convergence rays from trapezoid top/bottom edges
+      const tl = xform(evalTrapezoid(-1, 1));
+      const tr = xform(evalTrapezoid(1, 1));
+      const bl = xform(evalTrapezoid(-1, -1));
+      const br = xform(evalTrapezoid(1, -1));
+
+      ctx.strokeStyle = hexToRgba(GOLD, 0.38);
+      ctx.lineWidth = 1.4 * S;
+      ctx.setLineDash([6 * S, 5 * S]);
+      const ext = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(tl[0], tl[1]);
+      ctx.lineTo(tl[0] + (tr[0] - tl[0]) * ext, tl[1] + (tr[1] - tl[1]) * ext);
+      ctx.moveTo(bl[0], bl[1]);
+      ctx.lineTo(bl[0] + (br[0] - bl[0]) * ext, bl[1] + (br[1] - bl[1]) * ext);
+      ctx.stroke();
+
+      // Assumed 90-deg rectangle ghost
+      ctx.strokeStyle = hexToRgba(CRIMSON, 0.65);
+      ctx.lineWidth = 2.0 * S;
+      ctx.setLineDash([8 * S, 6 * S]);
+      ctx.beginPath();
+      ctx.moveTo(rectVerts[0][0], rectVerts[0][1]);
+      for (let i = 1; i < 4; i++) ctx.lineTo(rectVerts[i][0], rectVerts[i][1]);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // Draw Ames Window Frame (outer trapezoid + 3x2 grid of panes with painted perspective shadows)
+    const outer = getAmesTrapezoidVerts().map(xform);
+
+    // Subtle glass sheen across whole frame
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(outer[0][0], outer[0][1]);
+    for (let i = 1; i < 4; i++) ctx.lineTo(outer[i][0], outer[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 240, 255, 0.08)';
+    ctx.fill();
+
+    // Inner panes (3 columns x 2 rows)
+    const cols = 3, rows = 2;
+    const padU = 0.09, padV = 0.11;
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < rows; r++) {
+        const u0 = -1 + (c / cols) * 2 + padU;
+        const u1 = -1 + ((c + 1) / cols) * 2 - padU;
+        const v0 = -1 + (r / rows) * 2 + padV;
+        const v1 = -1 + ((r + 1) / rows) * 2 - padV;
+        const q = [
+          xform(evalTrapezoid(u0, v1)),
+          xform(evalTrapezoid(u1, v1)),
+          xform(evalTrapezoid(u1, v0)),
+          xform(evalTrapezoid(u0, v0))
+        ];
+
+        // Dark cutout pane
+        ctx.beginPath();
+        ctx.moveTo(q[0][0], q[0][1]);
+        for (let i = 1; i < 4; i++) ctx.lineTo(q[i][0], q[i][1]);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(11, 15, 25, 0.84)';
+        ctx.fill();
+
+        // Painted fake depth bevel on left/top edge of each pane (key to the Ames illusion!)
+        ctx.strokeStyle = hexToRgba(GOLD, 0.65);
+        ctx.lineWidth = 2.4 * S;
+        ctx.beginPath();
+        ctx.moveTo(q[3][0], q[3][1]);
+        ctx.lineTo(q[0][0], q[0][1]);
+        ctx.lineTo(q[1][0], q[1][1]);
+        ctx.stroke();
+
+        ctx.strokeStyle = hexToRgba(CYAN, 0.55);
+        ctx.lineWidth = 1.4 * S;
+        ctx.beginPath();
+        ctx.moveTo(q[1][0], q[1][1]);
+        ctx.lineTo(q[2][0], q[2][1]);
+        ctx.lineTo(q[3][0], q[3][1]);
+        ctx.stroke();
+      }
+    }
+
+    // Crisp luminous outer border
+    ctx.beginPath();
+    ctx.moveTo(outer[0][0], outer[0][1]);
+    for (let i = 1; i < 4; i++) ctx.lineTo(outer[i][0], outer[i][1]);
+    ctx.closePath();
+    ctx.strokeStyle = CYAN;
+    ctx.lineWidth = 3.2 * S;
+    ctx.stroke();
+
+    // Mullion ribs
+    const ribUs = [-1 / 3, 1 / 3];
+    ctx.strokeStyle = hexToRgba(CYAN, 0.88);
+    ctx.lineWidth = 2.2 * S;
+    for (let i = 0; i < ribUs.length; i++) {
+      const a = xform(evalTrapezoid(ribUs[i], 1));
+      const b = xform(evalTrapezoid(ribUs[i], -1));
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+    }
+    const hA = xform(evalTrapezoid(-1, 0));
+    const hB = xform(evalTrapezoid(1, 0));
+    ctx.beginPath();
+    ctx.moveTo(hA[0], hA[1]);
+    ctx.lineTo(hB[0], hB[1]);
+    ctx.stroke();
+    ctx.restore();
+
+    if (withRod) {
+      drawRodSeg(frontRod[0], frontRod[1], true);
+
+      // Paradox crossing reticle when window is near edge-on
+      const edgeProx = Math.abs(Math.sin(angleY));
+      if (edgeProx > 0.78) {
+        const pulse = (edgeProx - 0.78) / 0.22;
+        ctx.save();
+        ctx.strokeStyle = hexToRgba(CRIMSON, pulse * 0.9);
+        ctx.lineWidth = 2.2 * S;
+        ctx.beginPath();
+        ctx.arc(pRodMid[0], pRodMid[1], (16 + (1 - pulse) * 28) * S, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  function renderAct1(vp, phase, t, phaseT, S) {
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.50;
+    const scale = Math.min(vp.w, vp.h) * 0.27;
+    const angleY = t * 1.25;
+    const deg = ((angleY * 180 / Math.PI) % 360 + 360) % 360;
+
+    // Subtle studio spotlight
+    const rg = ctx.createRadialGradient(cx, cy, 10, cx, cy, scale * 2.1);
+    rg.addColorStop(0, phase === 'ames_rod_paradox' ? 'rgba(255, 59, 48, 0.12)' : 'rgba(0, 240, 255, 0.12)');
+    rg.addColorStop(1, 'rgba(11, 15, 25, 0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(vp.x, vp.y, vp.w, vp.h);
+
+    const withRod = phase === 'ames_rod_paradox';
+    const withPrior = phase === 'perspective_prior';
+    drawAmesWindow3D(cx, cy, scale, angleY, withRod, withPrior, S);
+
+    // Top-down 360° Ground-Truth Mini-Radar (bottom-left of viewport)
+    const radR = 34 * S;
+    const radCx = vp.x + 58 * S;
+    const radCy = vp.y + vp.h - 58 * S;
+    ctx.save();
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.86)';
+    ctx.beginPath();
+    ctx.arc(radCx, radCy, radR + 8 * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.lineWidth = 1.4 * S;
+    ctx.stroke();
+
+    // True rotation ring
+    ctx.strokeStyle = hexToRgba(CYAN, 0.45);
+    ctx.lineWidth = 2.0 * S;
+    ctx.beginPath();
+    ctx.arc(radCx, radCy, radR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Window bar from top-down
+    const dx = Math.cos(angleY) * radR * 0.85;
+    const dy = Math.sin(angleY) * radR * 0.85;
+    ctx.strokeStyle = CYAN;
+    ctx.lineWidth = 3.2 * S;
+    ctx.beginPath();
+    ctx.moveTo(radCx - dx, radCy - dy);
+    ctx.lineTo(radCx + dx, radCy + dy);
+    ctx.stroke();
+
+    if (withRod) {
+      const rx = -Math.sin(angleY) * radR * 0.85;
+      const ry = Math.cos(angleY) * radR * 0.85;
+      ctx.strokeStyle = CRIMSON;
+      ctx.lineWidth = 2.6 * S;
+      ctx.beginPath();
+      ctx.moveTo(radCx - rx, radCy - ry);
+      ctx.lineTo(radCx + rx, radCy + ry);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = WHITE;
+    ctx.font = `800 ${10 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`TOP VIEW ${deg.toFixed(0)}°`, radCx, radCy - radR - 14 * S);
+
+    // Phase-specific bottom-right callout
+    const infoX = vp.x + vp.w * 0.56;
+    const infoY = vp.y + vp.h - 72 * S;
+    const infoW = vp.w * 0.40;
+    const infoH = 52 * S;
+    roundRectPath(ctx, infoX, infoY, infoW, infoH, 10 * S);
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.86)';
+    ctx.fill();
+    ctx.strokeStyle = withRod ? CRIMSON : (withPrior ? GOLD : CYAN);
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = withRod ? CRIMSON : (withPrior ? GOLD : CYAN);
+    ctx.font = `800 ${10.5 * S}px ui-monospace, monospace`;
+    if (phase === 'ames_window_spin') {
+      ctx.fillText('CONSTANT 360° ROTATION', infoX + 12 * S, infoY + 20 * S);
+      ctx.fillStyle = WHITE;
+      ctx.font = `700 ${11.5 * S}px system-ui, sans-serif`;
+      ctx.fillText('Brain hallucinates ±55° oscillation', infoX + 12 * S, infoY + 39 * S);
+    } else if (phase === 'ames_rod_paradox') {
+      ctx.fillText('SOLID-ROD PARADOX', infoX + 12 * S, infoY + 20 * S);
+      ctx.fillStyle = WHITE;
+      ctx.font = `700 ${11.5 * S}px system-ui, sans-serif`;
+      ctx.fillText('Rod seems to slice through solid glass', infoX + 12 * S, infoY + 39 * S);
+    } else {
+      ctx.fillText('BAYESIAN PRIOR: P(90° RECT) = 99.4%', infoX + 12 * S, infoY + 20 * S);
+      ctx.fillStyle = WHITE;
+      ctx.font = `700 ${11.5 * S}px system-ui, sans-serif`;
+      ctx.fillText('Actual shape: 52% tapered trapezoid', infoX + 12 * S, infoY + 39 * S);
+    }
+    ctx.restore();
+  }
+
+  // =====================================================================
+  // ACT 2: NECKER CUBE & BISTABLE CORTEX
+  // =====================================================================
+  const CUBE_VERTS = [
+    [-1, -1, -1], [ 1, -1, -1], [ 1,  1, -1], [-1,  1, -1], // 0..3 back face (-z)
+    [-1, -1,  1], [ 1, -1,  1], [ 1,  1,  1], [-1,  1,  1]  // 4..7 front face (+z)
+  ];
+  const CUBE_EDGES = [
+    [0,1],[1,2],[2,3],[3,0], // back face
+    [4,5],[5,6],[6,7],[7,4], // front face
+    [0,4],[1,5],[2,6],[3,7]  // connecting struts
+  ];
+
+  function drawNeckerCube(cx, cy, scale, t, mode, flipBlend, S) {
+    // mode: 'wireframe', 'stateA', 'stateB', 'blend'
+    // Isometric-ish orientation with gentle breathing
+    const yaw = 0.62 + Math.sin(t * 0.55) * 0.06;
+    const pitch = 0.46 + Math.cos(t * 0.42) * 0.05;
+
+    const pts = CUBE_VERTS.map(v => {
+      let p = rotY(v, yaw);
+      p = rotX(p, pitch);
+      return projOrtho(p, cx, cy, scale);
+    });
+
+    ctx.save();
+    // Optional highlighted front face depending on bistable state
+    if (mode !== 'wireframe') {
+      const aAlpha = mode === 'stateA' ? 0.24 : (mode === 'stateB' ? 0.02 : lerp(0.26, 0.02, flipBlend));
+      const bAlpha = mode === 'stateB' ? 0.24 : (mode === 'stateA' ? 0.02 : lerp(0.02, 0.26, flipBlend));
+
+      // Face A: front (+z) -> 4,5,6,7
+      if (aAlpha > 0.03) {
+        ctx.beginPath();
+        ctx.moveTo(pts[4][0], pts[4][1]);
+        ctx.lineTo(pts[5][0], pts[5][1]);
+        ctx.lineTo(pts[6][0], pts[6][1]);
+        ctx.lineTo(pts[7][0], pts[7][1]);
+        ctx.closePath();
+        ctx.fillStyle = hexToRgba(CYAN, aAlpha);
+        ctx.fill();
+      }
+      // Face B: back (-z) -> 0,1,2,3
+      if (bAlpha > 0.03) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        ctx.lineTo(pts[1][0], pts[1][1]);
+        ctx.lineTo(pts[2][0], pts[2][1]);
+        ctx.lineTo(pts[3][0], pts[3][1]);
+        ctx.closePath();
+        ctx.fillStyle = hexToRgba(GOLD, bAlpha);
+        ctx.fill();
+      }
+    }
+
+    // Draw all 12 edges
+    ctx.lineCap = 'round';
+    for (let i = 0; i < CUBE_EDGES.length; i++) {
+      const [ia, ib] = CUBE_EDGES[i];
+      const a = pts[ia], b = pts[ib];
+      const isBackFace = i < 4;
+      const isFrontFace = i >= 4 && i < 8;
+
+      if (mode === 'wireframe') {
+        // Pure ambiguous wireframe: all edges identical weight & brightness!
+        ctx.strokeStyle = hexToRgba(CYAN, 0.92);
+        ctx.lineWidth = 2.8 * S;
+        ctx.setLineDash([]);
+      } else {
+        const stateB = mode === 'stateB' || (mode === 'blend' && flipBlend >= 0.5);
+        const isPrimary = stateB ? isBackFace : isFrontFace;
+        const isRecessed = stateB ? isFrontFace : isBackFace;
+        const col = stateB ? GOLD : CYAN;
+
+        if (isPrimary) {
+          ctx.strokeStyle = col;
+          ctx.lineWidth = 3.8 * S;
+          ctx.setLineDash([]);
+        } else if (isRecessed) {
+          ctx.strokeStyle = hexToRgba(SLATE, 0.45);
+          ctx.lineWidth = 1.6 * S;
+          ctx.setLineDash([6 * S, 6 * S]);
+        } else {
+          ctx.strokeStyle = hexToRgba(col, 0.72);
+          ctx.lineWidth = 2.4 * S;
+          ctx.setLineDash([]);
+        }
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Vertex nodes
+    for (let i = 0; i < pts.length; i++) {
+      ctx.fillStyle = WHITE;
+      ctx.beginPath();
+      ctx.arc(pts[i][0], pts[i][1], 4.0 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function renderAct2(vp, phase, t, phaseT, S) {
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.5;
+    const cycle = 2.6;
+    const flipIdx = Math.floor(t / cycle);
+    const localT = (t % cycle) / cycle;
+    const stateB = (flipIdx % 2) === 1;
+    const flipFlash = Math.exp(-localT * 9.0);
+
+    if (phase === 'necker_wireframe') {
+      const scale = Math.min(vp.w, vp.h) * 0.24;
+      const rg = ctx.createRadialGradient(cx, cy, 8, cx, cy, scale * 2.0);
+      rg.addColorStop(0, 'rgba(0, 240, 255, 0.14)');
+      rg.addColorStop(1, 'rgba(11, 15, 25, 0)');
+      ctx.fillStyle = rg;
+      ctx.fillRect(vp.x, vp.y, vp.w, vp.h);
+
+      drawNeckerCube(cx, cy - 10 * S, scale, t, 'wireframe', 0, S);
+
+      // Subtle crosshair at optical ambiguity center
+      ctx.save();
+      ctx.strokeStyle = hexToRgba(GOLD, 0.5 + 0.3 * Math.sin(t * 3));
+      ctx.lineWidth = 1.4 * S;
+      ctx.beginPath();
+      ctx.arc(cx, cy - 10 * S, 10 * S, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = WHITE;
+      ctx.font = `800 ${12.5 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('STARE AT THE CENTER · TWO VALID 3D ORIENTATIONS', cx, vp.y + vp.h - 28 * S);
+      ctx.restore();
+
+    } else if (phase === 'neural_adaptation') {
+      // Upper half: Necker Cube | Lower half: Mutual Inhibition Neural Circuit + Fatigue Graph
+      const cubeY = vp.y + vp.h * 0.34;
+      const cubeScale = Math.min(vp.w, vp.h) * 0.175;
+      drawNeckerCube(cx, cubeY, cubeScale, t, stateB ? 'stateB' : 'stateA', stateB ? 1 : 0, S);
+
+      // Cortical Competition Panel
+      const panX = vp.x + vp.w * 0.08;
+      const panY = vp.y + vp.h * 0.62;
+      const panW = vp.w * 0.84;
+      const panH = vp.h * 0.31;
+
+      ctx.save();
+      roundRectPath(ctx, panX, panY, panW, panH, 12 * S);
+      ctx.fillStyle = 'rgba(11, 15, 25, 0.88)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+      ctx.lineWidth = 1.4 * S;
+      ctx.stroke();
+
+      // Population A (left) and Population B (right) nodes
+      const nAx = panX + panW * 0.20;
+      const nBx = panX + panW * 0.80;
+      const nY = panY + panH * 0.44;
+      const nR = Math.min(26 * S, panH * 0.24);
+
+      const actA = stateB ? (0.25 + 0.15 * localT) : (0.95 - 0.52 * localT);
+      const actB = stateB ? (0.95 - 0.52 * localT) : (0.25 + 0.15 * localT);
+
+      // Mutual inhibitory arrows
+      ctx.strokeStyle = hexToRgba(CRIMSON, 0.72);
+      ctx.lineWidth = 2.0 * S;
+      ctx.beginPath();
+      ctx.moveTo(nAx + nR + 8 * S, nY - 7 * S);
+      ctx.lineTo(nBx - nR - 8 * S, nY - 7 * S);
+      ctx.moveTo(nBx - nR - 8 * S, nY + 7 * S);
+      ctx.lineTo(nAx + nR + 8 * S, nY + 7 * S);
+      ctx.stroke();
+
+      // Traveling neural impulse dot
+      const spX = stateB
+        ? lerp(nBx - nR - 8 * S, nAx + nR + 8 * S, (t * 2.2) % 1)
+        : lerp(nAx + nR + 8 * S, nBx - nR - 8 * S, (t * 2.2) % 1);
+      ctx.fillStyle = CRIMSON;
+      ctx.beginPath();
+      ctx.arc(spX, stateB ? nY + 7 * S : nY - 7 * S, 3.8 * S, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pop A circle
+      ctx.fillStyle = hexToRgba(CYAN, 0.18 + actA * 0.35);
+      ctx.beginPath();
+      ctx.arc(nAx, nY, nR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = CYAN;
+      ctx.lineWidth = (1.5 + actA * 2.0) * S;
+      ctx.stroke();
+
+      // Pop B circle
+      ctx.fillStyle = hexToRgba(GOLD, 0.18 + actB * 0.35);
+      ctx.beginPath();
+      ctx.arc(nBx, nY, nR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = GOLD;
+      ctx.lineWidth = (1.5 + actB * 2.0) * S;
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = WHITE;
+      ctx.font = `800 ${11 * S}px ui-monospace, monospace`;
+      ctx.fillText('NEURON A', nAx, nY + 4 * S);
+      ctx.fillText('NEURON B', nBx, nY + 4 * S);
+      ctx.fillStyle = CRIMSON;
+      ctx.font = `800 ${10 * S}px ui-monospace, monospace`;
+      ctx.fillText('MUTUAL INHIBITION ⊣', (nAx + nBx) * 0.5, nY - 15 * S);
+
+      // Firing-rate / fatigue bars at bottom of panel
+      const barW = panW * 0.34;
+      const barH = 10 * S;
+      const barY = panY + panH - 24 * S;
+
+      roundRectPath(ctx, panX + panW * 0.06, barY, barW, barH, 5 * S);
+      ctx.fillStyle = 'rgba(148,163,184,0.18)';
+      ctx.fill();
+      roundRectPath(ctx, panX + panW * 0.06, barY, barW * actA, barH, 5 * S);
+      ctx.fillStyle = CYAN;
+      ctx.fill();
+
+      roundRectPath(ctx, panX + panW * 0.60, barY, barW, barH, 5 * S);
+      ctx.fillStyle = 'rgba(148,163,184,0.18)';
+      ctx.fill();
+      roundRectPath(ctx, panX + panW * 0.60, barY, barW * actB, barH, 5 * S);
+      ctx.fillStyle = GOLD;
+      ctx.fill();
+
+      ctx.fillStyle = SLATE;
+      ctx.font = `700 ${10 * S}px ui-monospace, monospace`;
+      ctx.fillText(`FATIGUE ${(localT * 100).toFixed(0)}%`, (nAx + nBx) * 0.5, barY + 9 * S);
+      ctx.restore();
+
+    } else {
+      // 'bistable_flip': Dramatic Cube Flip + Double-Well Potential Energy Landscape U(x) = x^4 - 2x^2
+      const cubeY = vp.y + vp.h * 0.38;
+      const cubeScale = Math.min(vp.w, vp.h) * 0.21;
+
+      // Shockwave ring on flip
+      if (flipFlash > 0.04) {
+        ctx.save();
+        ctx.strokeStyle = hexToRgba(stateB ? GOLD : CYAN, flipFlash * 0.85);
+        ctx.lineWidth = 3.0 * S;
+        ctx.beginPath();
+        ctx.arc(cx, cubeY, cubeScale * (0.6 + (1 - flipFlash) * 1.4), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      drawNeckerCube(cx, cubeY, cubeScale, t, stateB ? 'stateB' : 'stateA', stateB ? 1 : 0, S);
+
+      // State badge
+      ctx.save();
+      const badgeTxt = stateB ? 'PERCEPT B · UPPER-RIGHT FRONT' : 'PERCEPT A · LOWER-LEFT FRONT';
+      const bCol = stateB ? GOLD : CYAN;
+      const bw = 270 * S, bh = 28 * S;
+      roundRectPath(ctx, cx - bw * 0.5, vp.y + 46 * S, bw, bh, 14 * S);
+      ctx.fillStyle = hexToRgba(bCol, 0.20);
+      ctx.fill();
+      ctx.strokeStyle = bCol;
+      ctx.lineWidth = 1.6 * S;
+      ctx.stroke();
+      ctx.fillStyle = WHITE;
+      ctx.font = `800 ${11.5 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText(badgeTxt, cx, vp.y + 46 * S + bh * 0.68);
+
+      // Double-Well Potential Curve U(x) = x^4 - 2x^2 at bottom
+      const wx = vp.x + vp.w * 0.12;
+      const wy = vp.y + vp.h * 0.72;
+      const ww = vp.w * 0.76;
+      const wh = vp.h * 0.21;
+
+      ctx.strokeStyle = 'rgba(148,163,184,0.45)';
+      ctx.lineWidth = 2.2 * S;
+      ctx.beginPath();
+      for (let i = 0; i <= 80; i++) {
+        const u = -1.45 + (i / 80) * 2.9;
+        const U = (u * u * u * u - 2 * u * u) * 0.35 + 0.55;
+        const px = wx + (i / 80) * ww;
+        const py = wy + wh - U * wh;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // Ball smoothly jumping across the barrier on flip
+      const jumpT = smoothstep(localT * 5.0);
+      const fromWell = stateB ? -1.0 : 1.0;
+      const toWell = stateB ? 1.0 : -1.0;
+      const jitter = Math.sin(t * 23) * 0.06 * localT;
+      const bxU = lerp(fromWell, toWell, jumpT) + jitter;
+      const bxUVal = (bxU * bxU * bxU * bxU - 2 * bxU * bxU) * 0.35 + 0.55;
+      const bx = wx + ((bxU + 1.45) / 2.9) * ww;
+      const by = wy + wh - bxUVal * wh - 7 * S;
+
+      ctx.fillStyle = bCol;
+      ctx.beginPath();
+      ctx.arc(bx, by, 8.5 * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = WHITE;
+      ctx.lineWidth = 2.0 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = SLATE;
+      ctx.font = `700 ${10.5 * S}px ui-monospace, monospace`;
+      ctx.fillText('DOUBLE-WELL ATTRACTOR U(x) = x⁴ - 2x²', cx, vp.y + vp.h - 14 * S);
+      ctx.restore();
+    }
+  }
+
+  // =====================================================================
+  // ACT 3: PREDICTIVE CODING & MOTION-INDUCED BLINDNESS
+  // =====================================================================
+  function renderAct3(vp, phase, t, phaseT, S) {
+    const cx = vp.x + vp.w * 0.5;
+    const cy = vp.y + vp.h * 0.50;
+    const R = Math.min(vp.w, vp.h) * 0.37;
+
+    if (phase === 'motion_blindness') {
+      // Rotating 3D spherical cloud of Cyan '+' crosses
+      const rotAngle = t * 0.95;
+      const tilt = 0.22;
+      ctx.save();
+      for (let i = 0; i < mibCrosses.length; i++) {
+        const pt = mibCrosses[i];
+        let p = rotY([pt.x, pt.y, pt.z], rotAngle);
+        p = rotX(p, tilt);
+        const depth = (p[2] + 1) * 0.5; // 0..1
+        const sx = cx + p[0] * R * 1.15;
+        const sy = cy - p[1] * R * 1.15;
+        const sz = (3.5 + depth * 5.0) * S;
+        ctx.strokeStyle = hexToRgba(CYAN, 0.18 + depth * 0.65);
+        ctx.lineWidth = (1.1 + depth * 1.2) * S;
+        ctx.beginPath();
+        ctx.moveTo(sx - sz, sy);
+        ctx.lineTo(sx + sz, sy);
+        ctx.moveTo(sx, sy - sz);
+        ctx.lineTo(sx, sy + sz);
+        ctx.stroke();
+      }
+
+      // Three stationary Gold peripheral target orbs at 120° intervals
+      const targetR = R * 0.62;
+      for (let k = 0; k < 3; k++) {
+        const a = -Math.PI * 0.5 + (k * Math.PI * 2) / 3;
+        const tx = cx + Math.cos(a) * targetR;
+        const ty = cy + Math.sin(a) * targetR;
+
+        // Cortical suppression wave (visualizing perceptual fading while physical dot stays 100% present)
+        const suppress = 0.5 + 0.5 * Math.sin(t * 1.15 - k * 2.05);
+
+        // Dark exclusion ring (classic MIB protection zone)
+        ctx.fillStyle = 'rgba(11, 15, 25, 0.82)';
+        ctx.beginPath();
+        ctx.arc(tx, ty, 20 * S, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Suppression halo
+        ctx.strokeStyle = hexToRgba(CRIMSON, suppress * 0.65);
+        ctx.lineWidth = 1.6 * S;
+        ctx.setLineDash([4 * S, 4 * S]);
+        ctx.beginPath();
+        ctx.arc(tx, ty, 19 * S, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Stationary bright Gold orb (always 100% physically present!)
+        const orbGrad = ctx.createRadialGradient(tx, ty, 1, tx, ty, 11 * S);
+        orbGrad.addColorStop(0, WHITE);
+        orbGrad.addColorStop(0.45, GOLD);
+        orbGrad.addColorStop(1, 'rgba(255, 214, 10, 0)');
+        ctx.fillStyle = orbGrad;
+        ctx.beginPath();
+        ctx.arc(tx, ty, 11 * S, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Central pulsing Crimson fixation point
+      const fixPulse = 0.7 + 0.3 * Math.sin(t * 6.0);
+      ctx.fillStyle = hexToRgba(CRIMSON, 0.35 * fixPulse);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14 * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = CRIMSON;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6.2 * S, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = WHITE;
+      ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('FIXATE ON RED DOT · GOLD TARGETS VANISH FROM AWARENESS', cx, vp.y + vp.h - 22 * S);
+      ctx.restore();
+
+    } else if (phase === 'prediction_delay') {
+      // 100ms Neural Latency & Flash-Lag Extrapolation
+      const trackR = R * 0.86;
+      const omega = 1.75; // rad/s
+      const lagSec = 0.10; // 100ms neural latency
+      const trueAngle = t * omega;
+      const retinaAngle = (t - lagSec * 2.2) * omega; // visually magnified arc for clear reading
+      const predAngle = trueAngle + 0.04;
+
+      ctx.save();
+      // Orbit guide ring
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.24)';
+      ctx.lineWidth = 2.0 * S;
+      ctx.beginPath();
+      ctx.arc(cx, cy, trackR, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 100ms Latency Arc Bracket between Retinal Arrival and True World
+      ctx.strokeStyle = CRIMSON;
+      ctx.lineWidth = 6.0 * S;
+      ctx.beginPath();
+      ctx.arc(cx, cy, trackR, retinaAngle, trueAngle);
+      ctx.stroke();
+
+      // Forward Extrapolation Vector (Gold)
+      const tx = cx + Math.cos(trueAngle) * trackR;
+      const ty = cy + Math.sin(trueAngle) * trackR;
+      const rx = cx + Math.cos(retinaAngle) * trackR;
+      const ry = cy + Math.sin(retinaAngle) * trackR;
+      const tangX = -Math.sin(trueAngle);
+      const tangY = Math.cos(trueAngle);
+
+      ctx.strokeStyle = GOLD;
+      ctx.lineWidth = 3.0 * S;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + tangX * 48 * S, ty + tangY * 48 * S);
+      ctx.stroke();
+
+      // Periodic Flash-Lag Alignment Test every 1.8s
+      const flashLocal = (t % 1.8);
+      if (flashLocal < 0.28) {
+        const fa = Math.floor(t / 1.8) * 1.8 * omega;
+        const fx = cx + Math.cos(fa) * (trackR * 0.72);
+        const fy = cy + Math.sin(fa) * (trackR * 0.72);
+        const fAlpha = 1 - flashLocal / 0.28;
+        ctx.fillStyle = hexToRgba(GOLD, fAlpha);
+        ctx.beginPath();
+        ctx.arc(fx, fy, 13 * S, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = hexToRgba(WHITE, fAlpha);
+        ctx.lineWidth = 2 * S;
+        ctx.beginPath();
+        ctx.arc(fx, fy, (16 + flashLocal * 60) * S, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Lagging Retinal Ghost (Crimson)
+      ctx.fillStyle = hexToRgba(CRIMSON, 0.85);
+      ctx.beginPath();
+      ctx.arc(rx, ry, 10 * S, 0, Math.PI * 2);
+      ctx.fill();
+
+      // True Physical Orb (Cyan)
+      ctx.fillStyle = CYAN;
+      ctx.beginPath();
+      ctx.arc(tx, ty, 12 * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = WHITE;
+      ctx.lineWidth = 2.2 * S;
+      ctx.stroke();
+
+      // Center Equation & Readout
+      ctx.textAlign = 'center';
+      ctx.fillStyle = CRIMSON;
+      ctx.font = `900 ${26 * S}px ui-monospace, monospace`;
+      ctx.fillText('Δt = 100 ms', cx, cy - 8 * S);
+      ctx.fillStyle = WHITE;
+      ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+      ctx.fillText('NEURAL PROCESSING DELAY', cx, cy + 16 * S);
+      ctx.fillStyle = GOLD;
+      ctx.font = `800 ${13 * S}px ui-monospace, monospace`;
+      ctx.fillText('x̂(t) = x(t-Δt) + v · Δt', cx, cy + 40 * S);
+
+      // Legend at bottom
+      ctx.font = `800 ${11 * S}px ui-monospace, monospace`;
+      ctx.fillStyle = CRIMSON;
+      ctx.fillText('● RETINAL SIGNAL (-100ms)', cx - 150 * S, vp.y + vp.h - 22 * S);
+      ctx.fillStyle = CYAN;
+      ctx.fillText('● TRUE WORLD', cx + 25 * S, vp.y + vp.h - 22 * S);
+      ctx.fillStyle = GOLD;
+      ctx.fillText('→ PREDICTED', cx + 165 * S, vp.y + vp.h - 22 * S);
+      ctx.restore();
+
+    } else {
+      // 'synthesis_summary': 4-Quadrant Live Synthesis Matrix
+      const pad = 16 * S;
+      const gap = 14 * S;
+      const qw = (vp.w - pad * 2 - gap) * 0.5;
+      const qh = (vp.h - pad * 2 - gap - 34 * S) * 0.5;
+      const qTop = vp.y + pad + 26 * S;
+
+      const quads = [
+        { x: vp.x + pad, y: qTop, label: '01 · ORTHOGRAPHIC LOSS', col: CYAN },
+        { x: vp.x + pad + qw + gap, y: qTop, label: '02 · AMES PRIOR', col: GOLD },
+        { x: vp.x + pad, y: qTop + qh + gap, label: '03 · BISTABLE CORTEX', col: CYAN },
+        { x: vp.x + pad + qw + gap, y: qTop + qh + gap, label: '04 · 100ms PREDICTION', col: CRIMSON }
+      ];
+
+      ctx.save();
+      for (let i = 0; i < 4; i++) {
+        const q = quads[i];
+        roundRectPath(ctx, q.x, q.y, qw, qh, 12 * S);
+        ctx.fillStyle = 'rgba(11, 15, 25, 0.82)';
+        ctx.fill();
+        ctx.strokeStyle = hexToRgba(q.col, 0.45);
+        ctx.lineWidth = 1.5 * S;
+        ctx.stroke();
+
+        ctx.fillStyle = q.col;
+        ctx.font = `800 ${10.5 * S}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.fillText(q.label, q.x + 12 * S, q.y + 20 * S);
+
+        const qcx = q.x + qw * 0.5;
+        const qcy = q.y + qh * 0.56;
+        const qs = Math.min(qw, qh) * 0.28;
+
+        if (i === 0) {
+          drawOrthoConeCylinder(qcx, qcy, qs, t * 1.15, 0.25, 'ambiguous', CYAN, GOLD, S * 0.65);
+        } else if (i === 1) {
+          drawAmesWindow3D(qcx, qcy, qs * 0.9, t * 1.25, true, false, S * 0.62);
+        } else if (i === 2) {
+          const stB = Math.floor(t / 2.2) % 2 === 1;
+          drawNeckerCube(qcx, qcy, qs * 0.85, t, stB ? 'stateB' : 'stateA', stB ? 1 : 0, S * 0.72);
+        } else {
+          // Mini prediction ring + fixation dot
+          const mr = qs * 1.1;
+          ctx.strokeStyle = 'rgba(148,163,184,0.3)';
+          ctx.lineWidth = 1.6 * S;
+          ctx.beginPath();
+          ctx.arc(qcx, qcy, mr, 0, Math.PI * 2);
+          ctx.stroke();
+          const a = t * 1.9;
+          ctx.strokeStyle = CRIMSON;
+          ctx.lineWidth = 4 * S;
+          ctx.beginPath();
+          ctx.arc(qcx, qcy, mr, a - 0.5, a);
+          ctx.stroke();
+          ctx.fillStyle = CYAN;
+          ctx.beginPath();
+          ctx.arc(qcx + Math.cos(a) * mr, qcy + Math.sin(a) * mr, 5.5 * S, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = GOLD;
+          ctx.beginPath();
+          ctx.arc(qcx, qcy, 4.5 * S, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Central Synthesis Core Pill
+      const coreW = Math.min(vp.w * 0.68, 360 * S);
+      const coreH = 34 * S;
+      const coreY = qTop + qh + gap * 0.5 - coreH * 0.5;
+      roundRectPath(ctx, cx - coreW * 0.5, coreY, coreW, coreH, 17 * S);
+      ctx.fillStyle = BG;
+      ctx.fill();
+      ctx.strokeStyle = GOLD;
+      ctx.lineWidth = 2.0 * S;
+      ctx.stroke();
+      ctx.fillStyle = WHITE;
+      ctx.font = `900 ${12 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('YOUR BRAIN IS A PREDICTION ENGINE', cx, coreY + coreH * 0.66);
+      ctx.restore();
+    }
+  }
+
+  // ---------- Viewport Dispatcher ----------
+  function renderSimulationViewport(vp, beat, t, S) {
+    const phase = resolvePhase(beat);
+    const phaseT = Math.max(0, t - getPhaseEnterTime(t, phase));
+
+    ctx.save();
+    roundRectPath(ctx, vp.x, vp.y, vp.w, vp.h, 16 * S);
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.84)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.24)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+    ctx.clip();
+
+    // Dispatch to Act renderer
+    if (phase === 'cone_ambiguity' || phase === 'retina_projection' || phase === 'dual_solution') {
+      renderAct0(vp, phase, t, phaseT, S);
+    } else if (phase === 'ames_window_spin' || phase === 'ames_rod_paradox' || phase === 'perspective_prior') {
+      renderAct1(vp, phase, t, phaseT, S);
+    } else if (phase === 'necker_wireframe' || phase === 'neural_adaptation' || phase === 'bistable_flip') {
+      renderAct2(vp, phase, t, phaseT, S);
+    } else {
+      renderAct3(vp, phase, t, phaseT, S);
+    }
+
+    // Top-left Phase Pill inside viewport
+    const pText = PHASE_LABELS[phase] || phase.toUpperCase();
+    ctx.font = `800 ${11 * S}px ui-monospace, monospace`;
+    const pw = Math.min(vp.w * 0.56, ctx.measureText(pText).width + 24 * S);
+    roundRectPath(ctx, vp.x + 14 * S, vp.y + 14 * S, pw, 26 * S, 8 * S);
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.86)';
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(CYAN, 0.45);
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = CYAN;
+    ctx.textAlign = 'left';
+    ctx.fillText(pText, vp.x + 26 * S, vp.y + 31 * S);
+
+    ctx.restore();
+  }
+
+  // ---------- Live Act Telemetry Metrics ----------
+  function getTelemetryMetrics(beat, t) {
+    const phase = resolvePhase(beat);
+    if (phase === 'cone_ambiguity' || phase === 'retina_projection' || phase === 'dual_solution') {
+      const deg = ((t * 1.15 * 180 / Math.PI) % 360 + 360) % 360;
+      return [
+        { label: 'PROJECTION', val: 'ORTHO 2D', col: CYAN },
+        { label: 'Z-DEPTH INFO', val: '0.0%', col: CRIMSON },
+        { label: 'ROTATION θ', val: `${deg.toFixed(0)}°`, col: GOLD },
+        { label: 'SOLUTIONS', val: '2 (±ω)', col: WHITE }
+      ];
+    }
+    if (phase === 'ames_window_spin' || phase === 'ames_rod_paradox' || phase === 'perspective_prior') {
+      const deg = ((t * 1.25 * 180 / Math.PI) % 360 + 360) % 360;
+      return [
+        { label: 'TRUE ANGLE', val: `${deg.toFixed(0)}°`, col: CYAN },
+        { label: 'TAPER RATIO', val: '52%', col: GOLD },
+        { label: 'RECT PRIOR', val: '99.4%', col: CRIMSON },
+        { label: 'ROD STATE', val: phase === 'ames_rod_paradox' ? 'SOLID 360°' : 'LOCKED', col: WHITE }
+      ];
+    }
+    if (phase === 'necker_wireframe' || phase === 'neural_adaptation' || phase === 'bistable_flip') {
+      const cycle = 2.6;
+      const flipIdx = Math.floor(t / cycle);
+      const localT = (t % cycle) / cycle;
+      return [
+        { label: 'PERCEPT', val: flipIdx % 2 === 0 ? 'STATE A' : 'STATE B', col: flipIdx % 2 === 0 ? CYAN : GOLD },
+        { label: 'ADAPTATION', val: `${(localT * 100).toFixed(0)}%`, col: CRIMSON },
+        { label: 'FLIP PERIOD', val: '2.6 s', col: WHITE },
+        { label: 'ATTRACTORS', val: 'BISTABLE', col: CYAN }
+      ];
+    }
+    const suppress = Math.round((0.5 + 0.5 * Math.sin(t * 1.15)) * 100);
+    return [
+      { label: 'NEURAL LAG', val: '100 ms', col: CRIMSON },
+      { label: 'SUPPRESSION', val: `${suppress}%`, col: GOLD },
+      { label: 'MODEL', val: 'BAYESIAN', col: CYAN },
+      { label: 'PREDICTION', val: 'ACTIVE', col: WHITE }
+    ];
+  }
+
+  // ---------- 16:9 Studio HUD ----------
+  function renderHud16x9(beat, t, S) {
+    const hx = W * 0.70;
+    const hy = H * 0.04;
+    const hw = W * 0.28;
+    const hh = H * 0.92;
+    const pad = 18 * S;
+    const globalProg = clamp(t / Math.max(1, DUR), 0, 1);
+
+    ctx.save();
+    roundRectPath(ctx, hx, hy, hw, hh, 16 * S);
+    ctx.fillStyle = 'rgba(13, 19, 34, 0.90)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.20)';
+    ctx.lineWidth = 1.4 * S;
+    ctx.stroke();
+
+    let y = hy + 28 * S;
+
+    // Brand Row
+    ctx.fillStyle = CYAN;
+    ctx.font = `900 ${13 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(`⚡ ${BRAND}`, hx + pad, y);
+
+    ctx.fillStyle = GOLD;
+    ctx.textAlign = 'right';
+    ctx.fillText(`ACT ${(beat.actIndex || 0) + 1} / 4`, hx + hw - pad, y);
+    y += 14 * S;
+
+    // 4-Act Segmented Progress Bar
+    const segGap = 6 * S;
+    const segW = (hw - pad * 2 - segGap * 3) / 4;
+    for (let i = 0; i < 4; i++) {
+      const sx = hx + pad + i * (segW + segGap);
+      roundRectPath(ctx, sx, y, segW, 5 * S, 2.5 * S);
+      ctx.fillStyle = i < (beat.actIndex || 0)
+        ? CYAN
+        : i === (beat.actIndex || 0)
+          ? GOLD
+          : 'rgba(148, 163, 184, 0.22)';
+      ctx.fill();
+    }
+    y += 24 * S;
+
+    // Act Title
+    ctx.textAlign = 'left';
+    ctx.fillStyle = WHITE;
+    ctx.font = `800 ${17 * S}px system-ui, -apple-system, sans-serif`;
+    const actLines = wrapLines(ctx, beat.actTitle || ACT_TITLES[beat.actIndex || 0], hw - pad * 2, 2);
+    for (let i = 0; i < actLines.length; i++) {
+      ctx.fillText(actLines[i], hx + pad, y);
+      y += 22 * S;
+    }
+    y += 6 * S;
+
+    // Caption Highlight Pill
+    const capH = 38 * S;
+    roundRectPath(ctx, hx + pad, y, hw - pad * 2, capH, 10 * S);
+    ctx.fillStyle = hexToRgba(CYAN, 0.14);
+    ctx.fill();
+    ctx.strokeStyle = CYAN;
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+    ctx.fillStyle = WHITE;
+    ctx.font = `800 ${12.5 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    const capLines = wrapLines(ctx, beat.caption || PHASE_LABELS[resolvePhase(beat)], hw - pad * 2 - 18 * S, 1);
+    ctx.fillText(capLines[0] || '', hx + hw * 0.5, y + capH * 0.64);
+    y += capH + 16 * S;
+
+    // Narration Card
+    const narH = Math.max(120 * S, hh * 0.25);
+    roundRectPath(ctx, hx + pad, y, hw - pad * 2, narH, 12 * S);
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.78)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = GOLD;
+    ctx.fillRect(hx + pad, y + 12 * S, 3.5 * S, narH - 24 * S);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#E2E8F0';
+    ctx.font = `500 ${15 * S}px system-ui, -apple-system, sans-serif`;
+    const narLines = wrapLines(ctx, beat.text || '', hw - pad * 2 - 26 * S, 6);
+    for (let i = 0; i < narLines.length; i++) {
+      ctx.fillText(narLines[i], hx + pad + 15 * S, y + 28 * S + i * 21 * S);
+    }
+    y += narH + 16 * S;
+
+    // 2x2 Live Telemetry Grid
+    const metrics = getTelemetryMetrics(beat, t);
+    const cardGap = 10 * S;
+    const cw = (hw - pad * 2 - cardGap) * 0.5;
+    const ch = 62 * S;
+    for (let i = 0; i < metrics.length; i++) {
+      const mx = hx + pad + (i % 2) * (cw + cardGap);
+      const my = y + Math.floor(i / 2) * (ch + cardGap);
+      roundRectPath(ctx, mx, my, cw, ch, 10 * S);
+      ctx.fillStyle = 'rgba(11, 15, 25, 0.80)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+      ctx.lineWidth = 1.2 * S;
+      ctx.stroke();
+
+      ctx.fillStyle = SLATE;
+      ctx.font = `700 ${9.5 * S}px ui-monospace, monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText(metrics[i].label, mx + 11 * S, my + 20 * S);
+
+      ctx.fillStyle = metrics[i].col;
+      ctx.font = `800 ${17.5 * S}px ui-monospace, monospace`;
+      ctx.fillText(metrics[i].val, mx + 11 * S, my + 46 * S);
+    }
+
+    // Bottom Timeline Scrubber
+    const barY = hy + hh - 28 * S;
+    roundRectPath(ctx, hx + pad, barY, hw - pad * 2, 6 * S, 3 * S);
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.22)';
+    ctx.fill();
+    roundRectPath(ctx, hx + pad, barY, (hw - pad * 2) * globalProg, 6 * S, 3 * S);
+    ctx.fillStyle = CYAN;
+    ctx.fill();
+
+    ctx.fillStyle = SLATE;
+    ctx.font = `700 ${11 * S}px ui-monospace, monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(formatTime(t), hx + pad, barY - 8 * S);
+    ctx.textAlign = 'right';
+    ctx.fillText(formatTime(DUR), hx + hw - pad, barY - 8 * S);
+    ctx.restore();
+  }
+
+  // ---------- 9:16 Safe-Zone Vertical Layout ----------
+  function renderLayout9x16(beat, t, S) {
+    const safeL = W * 0.07;
+    const safeR = W * 0.88;
+    const safeW = safeR - safeL;
+    const safeCx = (safeL + safeR) * 0.5;
+
+    const partText = (SHORT_META && SHORT_META.partLabel) || `${BRAND} · ACT ${(beat.actIndex || 0) + 1}/4`;
+    const hookText = (SHORT_META && SHORT_META.hook) || beat.caption || TITLE;
+
+    ctx.save();
+    ctx.font = `800 ${14 * S}px ui-monospace, monospace`;
+    const pillW = Math.min(safeW, ctx.measureText(partText).width + 32 * S);
+    const pillH = 30 * S;
+    const pillY = H * 0.118;
+    roundRectPath(ctx, safeCx - pillW * 0.5, pillY, pillW, pillH, 15 * S);
+    ctx.fillStyle = hexToRgba(CYAN, 0.20);
+    ctx.fill();
+    ctx.strokeStyle = CYAN;
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+    ctx.fillStyle = WHITE;
+    ctx.textAlign = 'center';
+    ctx.fillText(partText, safeCx, pillY + pillH * 0.67);
+
+    // Bold clamped Hook Headline
+    let hookSize = 34 * S;
+    ctx.font = `900 ${hookSize}px system-ui, -apple-system, sans-serif`;
+    while (hookSize > 20 * S && ctx.measureText(hookText).width > safeW * 1.85) {
+      hookSize -= 2 * S;
+      ctx.font = `900 ${hookSize}px system-ui, -apple-system, sans-serif`;
+    }
+    const hookLines = wrapLines(ctx, hookText, safeW, 2);
+    ctx.fillStyle = WHITE;
+    for (let i = 0; i < hookLines.length; i++) {
+      ctx.fillText(hookLines[i], safeCx, pillY + pillH + 36 * S + i * (hookSize * 1.12));
+    }
+    ctx.restore();
+
+    // Center Simulation Viewport
+    const vp = {
+      x: W * 0.04,
+      y: H * 0.232,
+      w: W * 0.92,
+      h: H * 0.468
+    };
+    renderSimulationViewport(vp, beat, t, S * 0.94);
+
+    // Compact Live Telemetry Pill inside top-right of viewport
+    const metrics = getTelemetryMetrics(beat, t);
+    const tTxt = `${metrics[0].val} · ${metrics[1].val}`;
+    ctx.save();
+    ctx.font = `800 ${12 * S}px ui-monospace, monospace`;
+    const tw = Math.min(vp.w * 0.44, ctx.measureText(tTxt).width + 22 * S);
+    roundRectPath(ctx, vp.x + vp.w - tw - 14 * S, vp.y + 14 * S, tw, 26 * S, 8 * S);
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.88)';
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(GOLD, 0.65);
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = GOLD;
+    ctx.textAlign = 'center';
+    ctx.fillText(tTxt, vp.x + vp.w - tw * 0.5 - 14 * S, vp.y + 31 * S);
+    ctx.restore();
+
+    // Bottom High-Contrast Caption Pill (strictly above H * 0.78)
+    const capY = H * 0.715;
+    const capH = 54 * S;
+    ctx.save();
+    roundRectPath(ctx, safeL, capY, safeW, capH, 14 * S);
+    ctx.fillStyle = 'rgba(13, 19, 34, 0.94)';
+    ctx.fill();
+    ctx.strokeStyle = CYAN;
+    ctx.lineWidth = 2.2 * S;
+    ctx.stroke();
+    ctx.fillStyle = WHITE;
+    ctx.font = `900 ${20 * S}px system-ui, -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    const cLines = wrapLines(ctx, beat.caption || PHASE_LABELS[resolvePhase(beat)], safeW - 28 * S, 1);
+    ctx.fillText(cLines[0] || '', safeCx, capY + capH * 0.65);
+    ctx.restore();
+
+    // Last 1.2s CTA Banner inside safe zone
+    if (t >= DUR - 1.2) {
+      const p = easeOutCubic((t - (DUR - 1.2)) / 0.25);
+      const ctaText = (SHORT_META && SHORT_META.ctaText) || `SUBSCRIBE TO ${BRAND} →`;
+      const ctaH = 60 * S;
+      const ctaY = H * 0.635 + (1 - p) * 20 * S;
+      ctx.save();
+      ctx.globalAlpha = p;
+      roundRectPath(ctx, safeL, ctaY, safeW, ctaH, 16 * S);
+      ctx.fillStyle = GOLD;
+      ctx.fill();
+      ctx.strokeStyle = WHITE;
+      ctx.lineWidth = 2.4 * S;
+      ctx.stroke();
+      ctx.fillStyle = BG;
+      ctx.font = `900 ${19 * S}px system-ui, -apple-system, sans-serif`;
+      ctx.textAlign = 'center';
+      const ctaLines = wrapLines(ctx, ctaText, safeW - 24 * S, 1);
+      ctx.fillText(ctaLines[0] || ctaText, safeCx, ctaY + ctaH * 0.64);
+      ctx.restore();
+    }
+  }
+
+  // ---------- Frame Renderer ----------
+  function renderFrameAt(t) {
+    simTime = clamp(t, 0, Math.max(0.001, DUR));
+    const is16x9 = ASPECT === '16:9';
+    const S = is16x9 ? (W / 1280) : (W / 720);
+    const { beat } = getBeatAt(simTime);
+
+    drawBackground(simTime, S);
+
+    if (is16x9) {
+      const vp = {
+        x: W * 0.02,
+        y: H * 0.04,
+        w: W * 0.66,
+        h: H * 0.92
+      };
+      renderSimulationViewport(vp, beat, simTime, S);
+      renderHud16x9(beat, simTime, S);
+    } else {
+      renderLayout9x16(beat, simTime, S);
+    }
+  }
+
+  window.renderFrame = (t) => {
+    renderFrameAt(typeof t === 'number' ? t : simTime);
+  };
+
+  window.renderBatch = (startFrame, count) => {
+    if (startFrame < currentFrame && savedCfg) {
+      resetSimulation(savedCfg);
+    }
+    const dt = 1 / Math.max(1, FPS);
+    while (currentFrame < startFrame) {
+      emitEventsForTime((currentFrame + 1) * dt);
+      currentFrame++;
+    }
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const t = (currentFrame + 1) * dt;
+      emitEventsForTime(t);
+      currentFrame++;
+      renderFrameAt(t);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.90);
+      const idx = dataUrl.indexOf(',');
+      out.push(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
+    }
+    return out;
+  };
+
+  window.getEvents = () => events.slice();
+
+  window.ready = true;
+})();
+</script>

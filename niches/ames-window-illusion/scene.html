@@ -1,0 +1,418 @@
+<!doctype html>
+<!--
+  Kinetic Lab HQ — Ames Rotating Trapezoid Window Illusion
+  Pure orthographic 3D rotating trapezoid window with fake perspective mullions & bevels +
+  a glowing Electric Cyan rod passing rigidly through the center.
+  The brain perceives the window oscillating ~180° while the cyan rod spins a full 360°,
+  appearing to pass straight through solid matter.
+  Deterministic 60fps, zero external CDN, seamless loop, safe-zone compliant (12%H–74%H).
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#0B0F19;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W = 720, H = 1280, FPS = 60, DUR = 16, SEED = 1;
+let HOOK = 'CAN YOU SEE IT SPIN 360°?';
+let events = [], period = 4, lastQuarter = -1;
+let cfgState = null;
+let bgStars = [];
+
+// Deterministic PRNG (mulberry32)
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 3D rotation around Y axis + slight camera elevation around X axis, ORTHOGRAPHIC projection
+function project3D(x, y, z, ang, tiltX, cx, cy, scale) {
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const rx = x * ca + z * sa;
+  const rz = -x * sa + z * ca;
+  const ct = Math.cos(tiltX), st = Math.sin(tiltX);
+  const ry = y * ct - rz * st;
+  const depth = y * st + rz * ct;
+  return { x: cx + rx * scale, y: cy - ry * scale, z: depth };
+}
+
+// Trapezoid vertical half-height as a linear function of local u in [-1, 1]
+// u = -1 is the tall side (if flip = 1) or short side (if flip = -1)
+function trapY(u, v, flip) {
+  const tallH = 0.88;
+  const shortH = 0.40;
+  const t = flip > 0 ? (u + 1) * 0.5 : (1 - u) * 0.5; // 0 at tall end, 1 at short end
+  const halfH = tallH + (shortH - tallH) * t;
+  return v * halfH;
+}
+
+// Build Ames window quad helper in local coordinates (z = zOff)
+function trapPt(u, v, zOff, flip) {
+  return [u * 1.02, trapY(u, v, flip), zOff];
+}
+
+function drawPoly(pts, fill, stroke, lineW) {
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    if (i === 0) ctx.moveTo(pts[i].x, pts[i].y);
+    else ctx.lineTo(pts[i].x, pts[i].y);
+  }
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lineW || 1; ctx.stroke(); }
+}
+
+function wrapText(text, maxW) {
+  const words = text.split(' '), lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+window.init = (cfg = {}) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.seconds || 16;
+  SEED = cfg.seed || 1;
+  HOOK = cfg.hook || 'CAN YOU SEE IT SPIN 360°?';
+  cv.width = W;
+  cv.height = H;
+
+  const r = rng(SEED * 7919 + 31);
+  // Integer number of full 360° revolutions over DUR => exact seamless loop
+  const turns = Math.max(2, Math.round(DUR / 4.5));
+  period = DUR / turns;
+
+  const flip = (SEED % 2 === 1) ? 1 : -1;
+  const tiltX = 0.14 + r() * 0.06; // subtle elevation so the 360° rod orbit forms an unmistakable ellipse
+  const dir = (SEED % 3 === 0) ? -1 : 1;
+  // Rod vector in local window frame: passes through center (0,0,0), sticking out perpendicular to window with slight vertical slant
+  const rodLen = 1.28;
+  const rodVec = [0.16 * flip, 0.20, 0.966]; // unit-length direction vector
+  const lenNorm = Math.hypot(rodVec[0], rodVec[1], rodVec[2]);
+  rodVec[0] /= lenNorm; rodVec[1] /= lenNorm; rodVec[2] /= lenNorm;
+
+  cfgState = { flip, tiltX, dir, rodLen, rodVec, turns };
+
+  // Subtle ambient background dust motes (deterministic, static or periodically drifting)
+  bgStars = [];
+  for (let i = 0; i < 48; i++) {
+    bgStars.push({
+      x: r(),
+      y: 0.14 + r() * 0.58,
+      sz: 0.9 + r() * 1.8,
+      phase: r() * Math.PI * 2,
+      cyan: r() > 0.45,
+    });
+  }
+
+  events = [];
+  lastQuarter = -1;
+};
+
+// Draw one half of the glowing Electric Cyan rod from s0 to s1 along rodVec
+function drawRodSegment(s0, s1, ang, S, cx, cy, scale) {
+  const rv = cfgState.rodVec;
+  const p0 = project3D(rv[0] * s0, rv[1] * s0, rv[2] * s0, ang, cfgState.tiltX, cx, cy, scale);
+  const p1 = project3D(rv[0] * s1, rv[1] * s1, rv[2] * s1, ang, cfgState.tiltX, cx, cy, scale);
+
+  ctx.save();
+  ctx.lineCap = 'round';
+
+  // Outer neon bloom
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.22)';
+  ctx.lineWidth = 28 * S;
+  ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+
+  // Mid glow
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.58)';
+  ctx.lineWidth = 14 * S;
+  ctx.shadowColor = '#00F0FF';
+  ctx.shadowBlur = 20 * S;
+  ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+
+  // Bright cyan body
+  ctx.shadowBlur = 8 * S;
+  ctx.strokeStyle = '#00F0FF';
+  ctx.lineWidth = 8.5 * S;
+  ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+
+  // Crisp white laser core
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#E8FFFF';
+  ctx.lineWidth = 3.2 * S;
+  ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+
+  // Glowing end-cap orb at the outer tip (s1)
+  const tip = Math.abs(s1) > Math.abs(s0) ? p1 : p0;
+  const orbGrad = ctx.createRadialGradient(tip.x, tip.y, 1 * S, tip.x, tip.y, 14 * S);
+  orbGrad.addColorStop(0, '#FFFFFF');
+  orbGrad.addColorStop(0.35, '#00F0FF');
+  orbGrad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+  ctx.fillStyle = orbGrad;
+  ctx.beginPath(); ctx.arc(tip.x, tip.y, 14 * S, 0, Math.PI * 2); ctx.fill();
+
+  ctx.restore();
+}
+
+// Draw the Ames Trapezoid Window (open panes, fake perspective mullions, gold highlights)
+function drawAmesWindow(ang, S, cx, cy, scale) {
+  const flip = cfgState.flip;
+  const tiltX = cfgState.tiltX;
+  const P = (u, v, z = 0) => {
+    const pt = trapPt(u, v, z, flip);
+    return project3D(pt[0], pt[1], pt[2], ang, tiltX, cx, cy, scale);
+  };
+
+  // Frame grid coordinates in local u (horizontal) and v (vertical)
+  // 3 columns x 2 rows of open windowpanes
+  // Spacing is slightly non-uniform (wider near tall end, narrower near short end) to strengthen fake perspective!
+  const uCols = flip > 0
+    ? [-1.0, -0.84, -0.34, -0.20, 0.24, 0.36, 0.86, 1.0]
+    : [-1.0, -0.86, -0.36, -0.24, 0.20, 0.34, 0.84, 1.0];
+  const vRows = [-1.0, -0.84, -0.075, 0.075, 0.84, 1.0];
+
+  // Subtle 3D thickness edge when near edge-on so the window never vanishes
+  const thickness = 0.042;
+  const facing = Math.cos(ang); // >0 front, <0 back
+  const zBack = facing >= 0 ? -thickness : thickness;
+  const zFront = facing >= 0 ? thickness : -thickness;
+
+  // 1. Draw subtle extruded outer rim for physical thickness
+  const outerCorners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (let i = 0; i < 4; i++) {
+    const a = outerCorners[i];
+    const b = outerCorners[(i + 1) % 4];
+    const q = [P(a[0], a[1], zBack), P(b[0], b[1], zBack), P(b[0], b[1], zFront), P(a[0], a[1], zFront)];
+    drawPoly(q, '#1E293B', 'rgba(255, 214, 10, 0.45)', 1.2 * S);
+  }
+
+  // 2. Draw fake perspective inner-pane depth bevels (painted on the window plane)
+  // This is the signature Ames Window cue: angled inner reveals painted thicker on the tall side
+  const panesU = [[uCols[1], uCols[2]], [uCols[3], uCols[4]], [uCols[5], uCols[6]]];
+  const panesV = [[vRows[1], vRows[2]], [vRows[3], vRows[4]]];
+
+  ctx.save();
+  for (let ci = 0; ci < 3; ci++) {
+    const [u0, u1] = panesU[ci];
+    for (let ri = 0; ri < 2; ri++) {
+      const [v0, v1] = panesV[ri];
+      // Inner reveal offset biased toward the short side (simulating looking into a deep rectangular window frame)
+      const du = (u1 - u0) * 0.16 * flip;
+      const dv = (v1 - v0) * 0.10;
+      const uIn = flip > 0 ? u1 - du : u0 - du;
+
+      // Painted side reveal (vertical inner wall of the pane)
+      if (flip > 0) {
+        const rev = [P(u1, v0, zFront * 0.5), P(uIn, v0 + dv, zFront * 0.5), P(uIn, v1 - dv, zFront * 0.5), P(u1, v1, zFront * 0.5)];
+        drawPoly(rev, 'rgba(255, 214, 10, 0.24)', 'rgba(255, 214, 10, 0.55)', 1.0 * S);
+      } else {
+        const rev = [P(u0, v0, zFront * 0.5), P(uIn, v0 + dv, zFront * 0.5), P(uIn, v1 - dv, zFront * 0.5), P(u0, v1, zFront * 0.5)];
+        drawPoly(rev, 'rgba(255, 214, 10, 0.24)', 'rgba(255, 214, 10, 0.55)', 1.0 * S);
+      }
+
+      // Painted top/bottom sill reveal
+      const sillV = ri === 0 ? v1 : v0;
+      const sillIn = ri === 0 ? v1 - dv : v0 + dv;
+      const sill = flip > 0
+        ? [P(u0, sillV, zFront * 0.5), P(u1, sillV, zFront * 0.5), P(uIn, sillIn, zFront * 0.5), P(u0 + du * 0.2, sillIn, zFront * 0.5)]
+        : [P(u0, sillV, zFront * 0.5), P(u1, sillV, zFront * 0.5), P(u1 - du * 0.2, sillIn, zFront * 0.5), P(uIn, sillIn, zFront * 0.5)];
+      drawPoly(sill, 'rgba(255, 214, 10, 0.14)', 'rgba(255, 214, 10, 0.38)', 0.9 * S);
+    }
+  }
+  ctx.restore();
+
+  // 3. Draw solid window frame bars (leaving the 6 panes genuinely OPEN so the cyan rod shows through!)
+  // Frame gradient painted linearly along u to enhance illusory depth (brighter on tall side, deeper gold-slate on short side)
+  const pTall = P(flip > 0 ? -1 : 1, 0, zFront);
+  const pShort = P(flip > 0 ? 1 : -1, 0, zFront);
+  const frameGrad = ctx.createLinearGradient(pTall.x, pTall.y, pShort.x, pShort.y);
+  frameGrad.addColorStop(0, '#F8FAFC');
+  frameGrad.addColorStop(0.45, '#CBD5E1');
+  frameGrad.addColorStop(1, '#64748B');
+
+  const drawBar = (ua, ub, va, vb) => {
+    const q = [P(ua, va, zFront), P(ub, va, zFront), P(ub, vb, zFront), P(ua, vb, zFront)];
+    drawPoly(q, frameGrad, 'rgba(255, 214, 10, 0.72)', 1.6 * S);
+  };
+
+  // Horizontal rails (bottom, middle transom, top)
+  drawBar(uCols[0], uCols[7], vRows[0], vRows[1]);
+  drawBar(uCols[0], uCols[7], vRows[2], vRows[3]);
+  drawBar(uCols[0], uCols[7], vRows[4], vRows[5]);
+
+  // Vertical stiles & mullions (4 bars)
+  drawBar(uCols[0], uCols[1], vRows[1], vRows[4]);
+  drawBar(uCols[2], uCols[3], vRows[1], vRows[4]);
+  drawBar(uCols[4], uCols[5], vRows[1], vRows[4]);
+  drawBar(uCols[6], uCols[7], vRows[1], vRows[4]);
+
+  // 4. Crisp Electric Gold outer contour highlight
+  ctx.save();
+  ctx.shadowColor = '#FFD60A';
+  ctx.shadowBlur = 12 * S;
+  const outer = [P(-1, -1, zFront), P(1, -1, zFront), P(1, 1, zFront), P(-1, 1, zFront)];
+  drawPoly(outer, null, '#FFD60A', 2.6 * S);
+  ctx.restore();
+
+  // 5. Central pivot collar where the cyan rod pierces the window
+  const ctr = project3D(0, 0, 0, ang, tiltX, cx, cy, scale);
+  ctx.save();
+  ctx.fillStyle = '#0B0F19';
+  ctx.strokeStyle = '#FFD60A';
+  ctx.lineWidth = 2.5 * S;
+  ctx.shadowColor = '#FFD60A';
+  ctx.shadowBlur = 10 * S;
+  ctx.beginPath(); ctx.arc(ctr.x, ctr.y, 9 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+function drawFrame(t) {
+  const S = W / 720;
+  const cx = W * 0.5;
+  const cy = H * 0.435;
+  const scale = 250 * S;
+
+  // Seamless periodic angle: ang(0) == ang(DUR) mod 2π
+  const phase = (t / period) * Math.PI * 2;
+  const ang = phase * cfgState.dir;
+
+  // Sound events every half revolution (subtle hypnotic pulse)
+  const quarter = Math.floor(t / (period * 0.5));
+  if (quarter !== lastQuarter) {
+    lastQuarter = quarter;
+    events.push({ t, type: 'bounce', pitchIndex: (quarter % 2 === 0) ? 2 : 5, intensity: 0.24 });
+  }
+
+  // 1. Crisp dark Kinetic Lab HQ background (#0B0F19)
+  ctx.fillStyle = '#0B0F19';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle ambient studio glow behind the illusion
+  const halo = ctx.createRadialGradient(cx, cy, scale * 0.1, cx, cy, scale * 1.55);
+  halo.addColorStop(0, 'rgba(0, 240, 255, 0.10)');
+  halo.addColorStop(0.55, 'rgba(255, 214, 10, 0.04)');
+  halo.addColorStop(1, 'rgba(11, 15, 25, 0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, W, H);
+
+  // Faint background precision dust motes (periodic shimmer -> seamless loop)
+  const loopAngle = (t / DUR) * Math.PI * 2;
+  for (const st of bgStars) {
+    const a = 0.16 + 0.14 * Math.sin(st.phase + loopAngle * 2);
+    ctx.fillStyle = st.cyan ? `rgba(0, 240, 255, ${a})` : `rgba(255, 214, 10, ${a * 0.85})`;
+    ctx.fillRect(st.x * W, st.y * H, st.sz * S, st.sz * S);
+  }
+
+  // 2. Faint vertical rotation spindle & 360° reference orbit ring (gives subtle anchor without breaking illusion)
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 214, 10, 0.14)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.setLineDash([5 * S, 7 * S]);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - scale * 1.05);
+  ctx.lineTo(cx, cy + scale * 1.05);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Faint horizontal 360° orbit ellipse traced by the cyan rod tips
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.14)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  const rOrbit = Math.hypot(cfgState.rodVec[0], cfgState.rodVec[2]) * cfgState.rodLen;
+  const yTip = cfgState.rodVec[1] * cfgState.rodLen;
+  for (let i = 0; i <= 72; i++) {
+    const a = (i / 72) * Math.PI * 2;
+    const p = project3D(Math.cos(a) * rOrbit, yTip, Math.sin(a) * rOrbit, 0, cfgState.tiltX, cx, cy, scale);
+    if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+
+  // 3. Exact 3D occlusion between the Ames Window plane (z_local = 0) and the two rod halves
+  // World-space Z of local point (0, 0, +1) after Y-rotation by ang is cos(ang).
+  // When cos(ang) >= 0, s > 0 is in FRONT of the window and s < 0 is BEHIND.
+  // When cos(ang) < 0, s < 0 is in FRONT of the window and s > 0 is BEHIND.
+  const L = cfgState.rodLen;
+  const frontSign = Math.cos(ang) >= 0 ? 1 : -1;
+
+  // Back half of rod (visible through the open windowpanes!)
+  drawRodSegment(0, -frontSign * L, ang, S, cx, cy, scale);
+
+  // The Ames Trapezoid Window
+  drawAmesWindow(ang, S, cx, cy, scale);
+
+  // Front half of rod (passes cleanly in front of the window frame!)
+  drawRodSegment(0, frontSign * L, ang, S, cx, cy, scale);
+
+  // 4. Soft studio vignette
+  const vg = ctx.createRadialGradient(cx, cy, H * 0.24, cx, cy, H * 0.72);
+  vg.addColorStop(0, 'rgba(11, 15, 25, 0)');
+  vg.addColorStop(1, 'rgba(5, 8, 15, 0.62)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  // 5. Safe-zone UI (strictly within y ∈ [12%H, 74%H])
+  ctx.save();
+  ctx.textAlign = 'center';
+
+  // Top Hook (starts around 15.2%H, ascenders >= 12.6%H)
+  ctx.font = `900 ${Math.round(40 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.shadowColor = 'rgba(0, 240, 255, 0.35)';
+  ctx.shadowBlur = 14 * S;
+  ctx.fillStyle = '#FFFFFF';
+  const hookLines = wrapText(HOOK, W * 0.84);
+  const hookStartY = H * 0.154;
+  hookLines.forEach((line, i) => {
+    ctx.fillText(line, W * 0.5, hookStartY + i * 48 * S);
+  });
+  ctx.shadowBlur = 0;
+
+  // Subtle 360° telemetry pill at 65.8%H
+  const deg = Math.round(((ang * 180 / Math.PI) % 360 + 360) % 360);
+  const pillW = 264 * S, pillH = 34 * S, pillX = cx - pillW * 0.5, pillY = H * 0.652;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.42)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.roundRect(pillX, pillY, pillW, pillH, 17 * S);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = `700 ${Math.round(16 * S)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.fillStyle = '#00F0FF';
+  ctx.fillText(`TRUE ROTATION  ${String(deg).padStart(3, '0')}°`, cx, pillY + 22.5 * S);
+
+  // Bottom subtle prompt at 71.2%H (well inside <= 74%H safe zone)
+  ctx.font = `700 ${Math.round(25 * S)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.fillStyle = 'rgba(255, 214, 10, 0.90)';
+  ctx.fillText('Focus on the cyan rod. Blink once.', cx, H * 0.712);
+
+  ctx.restore();
+}
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    drawFrame((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.9).slice(23));
+  }
+  return out;
+};
+window.getEvents = () => events;
+window.ready = true;
+</script>
