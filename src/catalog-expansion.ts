@@ -241,6 +241,11 @@ export const EXPANSION_JOBS: ExpansionJob[] = [
 export function pickNextExpansionJob(
   channel: ExpansionChannelId,
   publishedIds: Set<string>,
+  isEligible?: (job: ExpansionJob) => boolean,
 ): ExpansionJob | null {
-  return EXPANSION_JOBS.find((j) => j.channel === channel && !publishedIds.has(j.id)) ?? null;
+  return (
+    EXPANSION_JOBS.find(
+      (j) => j.channel === channel && !publishedIds.has(j.id) && (!isEligible || isEligible(j)),
+    ) ?? null
+  );
 }

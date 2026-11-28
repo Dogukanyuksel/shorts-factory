@@ -350,13 +350,14 @@ export async function renderNarrativeLongformVideo(
       console.warn("[narrative-longform] Kapak görseli üretim uyarısı:", thErr);
     }
 
-    // Kapalı Altyazı (CC — .srt) dosyası (kota harcamadan yerel arşiv + Studio yüklemesine hazır)
+    // Kapalı Altyazı (CC — .srt) dosyası (toplam milisaniyeden kesin hesaplanır; ,1000 taşması olmaz)
     const srtLines = timed.map((b, i) => {
       const fmtSrt = (sec: number) => {
-        const h = Math.floor(sec / 3600);
-        const m = Math.floor((sec % 3600) / 60);
-        const s = Math.floor(sec % 60);
-        const ms = Math.round((sec % 1) * 1000);
+        const totalMs = Math.round(Math.max(0, sec) * 1000);
+        const h = Math.floor(totalMs / 3_600_000);
+        const m = Math.floor((totalMs % 3_600_000) / 60_000);
+        const s = Math.floor((totalMs % 60_000) / 1000);
+        const ms = totalMs % 1000;
         return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
       };
       return `${i + 1}\n${fmtSrt(b.start)} --> ${fmtSrt(b.end)}\n${b.text}\n`;
@@ -442,7 +443,7 @@ export async function renderDerivedShortVideo(
 
   const browser = await chromium.launch({
     executablePath: findChrome(),
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    args: CHROMIUM_RENDER_ARGS,
   });
 
   try {
@@ -450,6 +451,7 @@ export async function renderDerivedShortVideo(
     const { timed, voiceMono, totalSec } = await synthesizeTimedBeats(selectedBeats, tmpDir, 0.14, 0.18, spec.channel);
 
     const page = await browser.newPage({ viewport: { width: 720, height: 1280 } });
+    await attachLocalEngines(page);
     await page.setContent(await readFile(scenePath, "utf8"));
     await page.waitForFunction(() => (globalThis as unknown as { ready?: boolean }).ready === true);
 

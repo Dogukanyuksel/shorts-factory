@@ -1366,10 +1366,12 @@
         visualPhase: 'overview-cutaway', caption: 'CLEAR MECHANICS', text: '', start: 0, end: DUR,
       };
     }
+    let active = BEATS[0];
     for (let i = 0; i < BEATS.length; i++) {
-      if (t >= BEATS[i].start && t < BEATS[i].end) return BEATS[i];
+      if (t >= BEATS[i].start) active = BEATS[i];
+      else break;
     }
-    return t < BEATS[0].start ? BEATS[0] : BEATS[BEATS.length - 1];
+    return active;
   }
 
   // --- Main Frame Renderer ---

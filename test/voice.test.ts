@@ -23,4 +23,10 @@ test("Kokoro-82M assigns 4 distinct US English neural voices (2M + 2F) + distinc
       `Co-Host for ${ch} should use opposite gender to break longform ear fatigue`,
     );
   }
+
+  const allEight = [
+    ...channels.map((c) => KOKORO_CHANNEL_VOICES[c].voice),
+    ...channels.map((c) => KOKORO_COHOST_VOICES[c].voice),
+  ];
+  assert.equal(new Set(allEight).size, 8, "All 4 primary + 4 co-host voices must be 8 distinct voice IDs");
 });

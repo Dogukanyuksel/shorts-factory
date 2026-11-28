@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { EXPANSION_JOBS } from "../src/catalog-expansion.js";
 import { ensureSensitiveDisclaimer, jaccardSimilarity, runPolicyGuard } from "../src/policy-guard.js";
 
 test("runPolicyGuard: asiri benzer basliklari yakalar ve hassas nislerde AI persona ihlalini engeller", () => {
@@ -32,4 +33,19 @@ test("runPolicyGuard: asiri benzer basliklari yakalar ve hassas nislerde AI pers
 
   const withDisc = ensureSensitiveDisclaimer("bio", "Inside the human heart.");
   assert.ok(withDisc.includes("not medical advice"));
+});
+
+test("runPolicyGuard: gercek tum Wealth ve Bio EXPANSION_JOBS isleri kendi feragatnamesiyle ok===true doner", () => {
+  const seenTitles: string[] = [];
+  for (const job of EXPANSION_JOBS) {
+    const desc = ensureSensitiveDisclaimer(job.channel, job.description);
+    const res = runPolicyGuard({
+      channel: job.channel,
+      title: job.title,
+      description: desc,
+      recentTitles: seenTitles,
+    });
+    assert.equal(res.ok, true, `${job.id} reddedildi: ${res.errors.join(" | ")}`);
+    seenTitles.push(job.title);
+  }
 });

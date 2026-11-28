@@ -26,7 +26,13 @@ import { ensureSensitiveDisclaimer, runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import { synthesizeVoice } from "./voice.js";
-import { assertThreeJsScene, attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
+import {
+  assertThreeJsScene,
+  attachLocalEngines,
+  CHROMIUM_RENDER_ARGS,
+  isLegacy2DAllowed,
+  isThreeJsSceneFileSync,
+} from "./webgl-helper.js";
 import { buildWordCaptionCanvasSnippet } from "./word-captions.js";
 import {
   addVideoToPlaylist,
@@ -300,9 +306,23 @@ async function main() {
     return;
   }
   const publishedIds = new Set(published.map((r) => r.id));
-  const job = pickNextExpansionJob(channel, publishedIds);
+  const recentTitles = published.filter((r) => r.channel === channel).slice(-60).map((r) => r.title);
+  const job = pickNextExpansionJob(channel, publishedIds, (cand) => {
+    const candPath = resolve("niches", "expansion", `${cand.episode}.html`);
+    if (!isLegacy2DAllowed() && !isThreeJsSceneFileSync(candPath)) {
+      return false;
+    }
+    const candDesc = ensureSensitiveDisclaimer(cand.channel, cand.description);
+    const pol = runPolicyGuard({
+      channel: cand.channel,
+      title: cand.title,
+      description: candDesc,
+      recentTitles,
+    });
+    return pol.ok;
+  });
   if (!job) {
-    console.log(`[expansion] "${channel}" için bekleyen yeni bölüm kalmadı.`);
+    console.log(`[expansion] ⏸️ "${channel}" için uygun (3D PBR + politika uyumlu) yeni bölüm kalmadı — yeni 3D sahne eklenene kadar bekleniyor.`);
     return;
   }
   const jobScenePath = resolve("niches", "expansion", `${job.episode}.html`);

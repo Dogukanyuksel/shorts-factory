@@ -12,7 +12,7 @@ test("pickNextJob (physics): ardışık iki video asla aynı simülasyon mekani�
   const seenNiches = new Set<string>();
   let prevNiche: string | null = null;
 
-  for (let i = 0; i < CURATED_PHYSICS_JOBS.length + 32; i++) {
+  for (let i = 0; i < CURATED_PHYSICS_JOBS.length; i++) {
     const job = pickNextJob("physics", published);
     assert.ok(job && job.channel === "physics", `Adım ${i} için physics işi üretilmeli`);
     assert.notEqual(job.niche, prevNiche, `Ardışık tekrar tespit edildi: ${job.niche}`);
@@ -25,6 +25,7 @@ test("pickNextJob (physics): ardışık iki video asla aynı simülasyon mekani�
     prevNiche = job.niche;
   }
   assert.equal(seenNiches.size, 32, "32 farklı fizik mekaniği rotasyonda olmalı");
+  assert.equal(pickNextJob("physics", published), null, "Sonsuz klon üretici varsayılan olarak kapalı olmalı");
 });
 
 test("pickNextJob (explainer): 45 bölümü eksiksiz sırayla verir, tüm HTML dosyaları mevcuttur ve sonra null döner", () => {

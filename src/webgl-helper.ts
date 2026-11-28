@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Page } from "playwright-core";
@@ -45,6 +45,12 @@ export async function attachLocalEngines(page: Page): Promise<void> {
 
 export function isLegacy2DAllowed(): boolean {
   return process.env.ALLOW_LEGACY_2D === "true";
+}
+
+export function isThreeJsSceneFileSync(scenePath: string): boolean {
+  if (!existsSync(scenePath)) return false;
+  const html = readFileSync(scenePath, "utf8");
+  return /data-engine=["']three["']|local\.shorts\/three\.module\.js/i.test(html);
 }
 
 export async function isThreeJsSceneFile(scenePath: string): Promise<boolean> {

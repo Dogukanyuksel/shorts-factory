@@ -4,6 +4,7 @@ export interface PolicyCheckInput {
   channel: PolicyChannelId;
   title: string;
   description: string;
+  scriptText?: string;
   recentTitles: string[];
 }
 
@@ -16,10 +17,13 @@ export interface PolicyCheckResult {
 }
 
 const FORBIDDEN_PERSONA_PATTERNS: RegExp[] = [
-  /\b(i am|i'm)\s+(a|your)\s+(doctor|physician|cardiologist|financial advisor|cpa|broker)\b/i,
+  /\b(i am|i'm|as)\s+(a|your)\s+(doctor|physician|cardiologist|financial advisor|cpa|broker)\b/i,
+  /\byour\s+(doctor|financial advisor)\b/i,
   /\bguaranteed\s+(returns?|profits?|millionaire|income)\b/i,
+  /\brisk[-\s]?free\s+(returns?|profits?|money|income)\b/i,
   /\bmedical\s+diagnosis\b/i,
-  /\bfinancial\s+advice\b(?!.*not\s+financial\s+advice)/i,
+  /(?<!not\s)\bfinancial\s+advice\b/i,
+  /(?<!not\s)\bmedical\s+advice\b/i,
 ];
 
 function tokenize(text: string): Set<string> {
@@ -72,7 +76,7 @@ export function runPolicyGuard(input: PolicyCheckInput): PolicyCheckResult {
   }
 
   if (input.channel === "wealth" || input.channel === "bio") {
-    const combined = `${input.title}\n${input.description}`;
+    const combined = `${input.title}\n${input.description}\n${input.scriptText ?? ""}`;
     for (const pat of FORBIDDEN_PERSONA_PATTERNS) {
       if (pat.test(combined)) {
         errors.push(`Hassas niş AI persona/iddia kuralı ihlali (${input.channel}): ${pat.source}`);

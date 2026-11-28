@@ -1400,13 +1400,23 @@ const INFINITE_ANGLES: Record<
  * - `physics`: Önce 12 farklı mekanikli küratörlü bölümü sırayla verir, sonra 12 mekaniği dönüşümlü sonsuz üretir.
  * - `explainer`: 30 How-It-Works bölümünü sırayla verir (hepsi bitince null döner).
  */
-export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): PublishJob | null {
+export function pickNextJob(
+  channel: ChannelId,
+  publishedIds: Set<string>,
+  isEligible?: (job: PublishJob) => boolean,
+): PublishJob | null {
   if (channel === "explainer") {
-    return EXPLAINER_JOBS.find((j) => !publishedIds.has(j.id)) ?? null;
+    return EXPLAINER_JOBS.find((j) => !publishedIds.has(j.id) && (!isEligible || isEligible(j))) ?? null;
   }
 
-  const curated = CURATED_PHYSICS_JOBS.find((j) => !publishedIds.has(j.id));
+  const curated = CURATED_PHYSICS_JOBS.find((j) => !publishedIds.has(j.id) && (!isEligible || isEligible(j)));
   if (curated) return curated;
+
+  // YouTube Help 1311392 "mass-produced / template" koruması:
+  // Sonsuz klon üretici varsayılan olarak KAPALI; yalnız ALLOW_INFINITE_PHYSICS=true ile açılır.
+  if (process.env.ALLOW_INFINITE_PHYSICS !== "true") {
+    return null;
+  }
 
   let index = CURATED_PHYSICS_JOBS.length;
   while (index < 10_000) {
@@ -1417,7 +1427,7 @@ export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): Publ
       const meta = INFINITE_ANGLES[niche];
       const hook = meta.hooks[index % meta.hooks.length];
       const narration = meta.narrations[index % meta.narrations.length];
-      return {
+      const candidate: PublishJob = {
         id,
         channel: "physics",
         niche,
@@ -1426,11 +1436,12 @@ export function pickNextJob(channel: ChannelId, publishedIds: Set<string>): Publ
         hook,
         narration,
         ...(SILENT_NICHES.has(niche) ? { silent: true } : {}),
-        title: `${meta.titlePrefix} #${seed - 199} #shorts`,
-        description: `Deterministic 60fps physics & math visualization exploring ${meta.topic} (Run #${seed - 199}). Every collision is synthesized in real time.\n\n#shorts #physics #simulation #science`,
+        title: `${meta.titlePrefix} — ${hook} #shorts`,
+        description: `Deterministic 60fps physics & math visualization exploring ${meta.topic}. Every collision is synthesized in real time.\n\n#shorts #physics #simulation #science`,
         tags: ["physics simulation", "science", "math", niche.replace("-", " "), "shorts"],
         categoryId: "28",
       };
+      if (!isEligible || isEligible(candidate)) return candidate;
     }
     index++;
   }

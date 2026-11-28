@@ -38,7 +38,7 @@ import {
 import { getNarrativeLongformBySlug } from "./longform-narrative.js";
 import { runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
-import { assertThreeJsScene, isLegacy2DAllowed, isThreeJsSceneFile } from "./webgl-helper.js";
+import { assertThreeJsScene, isLegacy2DAllowed, isThreeJsSceneFile, isThreeJsSceneFileSync } from "./webgl-helper.js";
 import { renderDerivedShortVideo } from "./render-narrative.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import {
@@ -485,6 +485,27 @@ async function main() {
     }
   }
 
+  const recentChannelTitles = state.published.filter((r) => r.channel === channel).slice(-60).map((r) => r.title);
+  const isJobEligible = (cand: PublishJob): boolean => {
+    const p =
+      cand.channel === "physics"
+        ? resolve("niches", cand.niche, "scene.html")
+        : resolve("niches", "how-it-works", "episodes", `${cand.episode}.html`);
+    if (!isLegacy2DAllowed() && !isThreeJsSceneFileSync(p)) return false;
+    const pol = runPolicyGuard({
+      channel: cand.channel,
+      title: cand.title,
+      description: cand.description,
+      recentTitles: recentChannelTitles,
+    });
+    return pol.ok;
+  };
+
+  if (votedJob && !isJobEligible(votedJob)) {
+    console.log(`⏭️ [3D/POLICY-GATE] Oylanan iş (${votedJob.id}) 3D veya politika kapısından geçmedi — atlanıyor.`);
+    votedJob = null;
+  }
+
   // Dinamik büyüme döngüsü: Kanal Müdürü'nün YT+IG birleşik skorla seçtiği 10K+ viral lideri her 2 slotta bir öne al!
   let directorBoostedJob: PublishJob | null = null;
   if (!votedJob && channel === "physics" && state.published.filter((r) => r.channel === "physics").length % 2 === 1) {
@@ -495,13 +516,8 @@ async function main() {
         const lastPhysId = [...state.published].reverse().find((r) => r.channel === "physics")?.id || "";
         for (const niche of strat.physics?.boostedNiches || []) {
           if (lastPhysId.startsWith(`${niche}-`)) continue;
-          const nicheScenePath = resolve("niches", niche, "scene.html");
-          if (!isLegacy2DAllowed() && !(await isThreeJsSceneFile(nicheScenePath))) {
-            console.log(`⏭️ [3D-GATE] Analiz "${niche}" sahnesini öne aldı ama henüz 3D PBR değil — 3D'ye çevrilmeden yayınlanmayacak.`);
-            continue;
-          }
           const candidate = pickJobByKey("physics", niche, publishedIds);
-          if (candidate) {
+          if (candidate && isJobEligible(candidate)) {
             directorBoostedJob = candidate;
             console.log(`🚀 [director-loop] YT+IG viral lideri (${niche}) dinamik olarak öne alındı!`);
             break;
@@ -513,10 +529,10 @@ async function main() {
     }
   }
 
-  const job = votedJob ?? directorBoostedJob ?? pickNextJob(channel, publishedIds);
+  const job = votedJob ?? directorBoostedJob ?? pickNextJob(channel, publishedIds, isJobEligible);
 
   if (!job) {
-    console.log(`[auto-publish] "${channel}" kanalı için bekleyen yeni video kalmadı.`);
+    console.log(`[auto-publish] ⏸️ "${channel}" kanalı için uygun (3D PBR + politika uyumlu) yeni video kalmadı — yeni 3D sahne eklenene kadar bekleniyor.`);
     return;
   }
 

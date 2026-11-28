@@ -68,24 +68,24 @@ export const KOKORO_CHANNEL_VOICES: Record<VoiceChannelId, KokoroVoiceConfig> = 
  */
 export const KOKORO_COHOST_VOICES: Record<VoiceChannelId, KokoroVoiceConfig> = {
   physics: {
-    voice: "af_bella",
+    voice: "af_nova",
     speed: 1.02,
-    label: "Bella (Co-Host — Physics Act 2)",
+    label: "Nova (Co-Host — Physics Act 2)",
   },
   explainer: {
-    voice: "af_heart",
+    voice: "af_sarah",
     speed: 1.0,
-    label: "Heart (Co-Host — Engineering Act 2)",
+    label: "Sarah (Co-Host — Engineering Act 2)",
   },
   wealth: {
-    voice: "am_michael",
+    voice: "am_adam",
     speed: 0.99,
-    label: "Michael (Co-Host — Wealth Act 2)",
+    label: "Adam (Co-Host — Wealth Act 2)",
   },
   bio: {
-    voice: "am_fenrir",
+    voice: "am_eric",
     speed: 1.0,
-    label: "Fenrir (Co-Host — Bio Act 2)",
+    label: "Eric (Co-Host — Bio Act 2)",
   },
 };
 
@@ -101,7 +101,7 @@ const OPENAI_CHANNEL_VOICES: Record<VoiceChannelId, { voice: string; instruction
     instructions: "Authoritative engineering documentary narrator. Measured, precise pacing. Clear American English.",
   },
   wealth: {
-    voice: "echo",
+    voice: "shimmer",
     instructions: "Calm, sharp financial analyst narrator. Confident, clear numerical emphasis. Clear American English.",
   },
   bio: {

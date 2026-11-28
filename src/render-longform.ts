@@ -8,6 +8,7 @@ import { chromium, type Browser } from "playwright-core";
 import { applyIntroSubBass, synthesizeEventsPcm, trimSilence, type SoundEvent } from "./audio.js";
 import { EXPLAINER_JOBS, PHYSICS_LABELS, PHYSICS_ROTATION, type ChannelId as ChannelKind, type PhysicsNiche } from "./catalog.js";
 import { synthesizeVoice } from "./voice.js";
+import { CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
 
 const require = createRequire(import.meta.url);
 const ffmpegPath: string = require("ffmpeg-static");
@@ -923,7 +924,7 @@ export async function renderLongformVideo(opts: {
 
   const browser = await chromium.launch({
     executablePath: findChrome(),
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    args: CHROMIUM_RENDER_ARGS,
   });
 
   const segmentFiles: string[] = [];

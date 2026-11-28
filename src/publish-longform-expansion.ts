@@ -6,6 +6,7 @@ import { syncPublishedStateFromRemote } from "./state-sync.js";
 import { EXPANSION_CHANNEL_META, type ExpansionChannelId } from "./catalog-expansion.js";
 import { pickNarrativeLongform } from "./longform-narrative.js";
 import { buildYouTubeNetworkFooter } from "./network-links.js";
+import { ensureSensitiveDisclaimer, runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
 import { renderNarrativeLongformVideo } from "./render-narrative.js";
 import {
@@ -96,6 +97,14 @@ async function main() {
   if (!spec) {
     console.log(`[longform-expansion] ${meta.brandName} için tüm 4-perdeli 16:9 bölümler yayınlandı.`);
     return;
+  }
+
+  const recentTitles = published.filter((r) => r.channel === channel).slice(-60).map((r) => r.title);
+  const safeDesc = ensureSensitiveDisclaimer(channel, spec.descriptionLead);
+  const scriptText = spec.beats.map((b) => b.text).join(" ");
+  const policy = runPolicyGuard({ channel, title: spec.title, description: safeDesc, scriptText, recentTitles });
+  if (!policy.ok) {
+    throw new Error(`[policy-guard] ${spec.id} reddedildi: ${policy.errors.join(" | ")}`);
   }
 
   console.log(`\n🎬 [longform-expansion] 4-Perdeli 16:9 Deep Dive hazırlanıyor: ${spec.id}`);
