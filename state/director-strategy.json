@@ -1,19 +1,18 @@
 {
-  "updatedAt": "2026-11-28T05:20:28.087Z",
+  "updatedAt": "2026-11-28T07:23:30.833Z",
   "physics": {
     "boostedNiches": [
-      "spin-illusion",
-      "chladni-sand",
-      "pi-collisions"
+      "pi-collisions",
+      "spin-illusion"
     ],
     "cooledNiches": [
       "giant-vs-swarm",
       "doubling-ladder"
     ],
     "topWinningTitles": [
+      "These Two Blocks Calculate Pi Just By Colliding #shorts",
       "100 Pendulums Dropped 0.001° Apart: Watch Second 7 #shorts",
-      "Your Mind Can Reverse This Spinning Cylinder #shorts",
-      "Sound Frequencies Turning 2,600 Sand Grains Into Geometry #shorts"
+      "Your Mind Can Reverse This Spinning Cylinder #shorts"
     ]
   },
   "explainer": {
