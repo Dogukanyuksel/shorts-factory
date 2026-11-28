@@ -1,20 +1,28 @@
 <!doctype html>
 <!--
-  Clear Mechanics — Potential vs Kinetic Energy (Pendulum + Live Conservation Bar Chart, 60fps deterministic)
+  Clear Mechanics — Potential vs Kinetic Energy (3D PBR Pendulum Gantry + Live Conservation Columns)
+  Y-LABS 3D Cinema Engine (Three.js PBR, 60fps deterministic)
 -->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#05070B;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#141414;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-
 const SCRIPT = [
-  { id: 'hook', text: 'Where does a pendulum\'s speed go when it stops at the top?', caption: 'POTENTIAL VS KINETIC' },
+  { id: 'hook', text: "Where does a pendulum's speed go when it stops at the top?", caption: 'POTENTIAL VS KINETIC' },
   { id: 'peak', text: 'At the highest point, speed drops to zero. All the energy is stored as potential energy from height.', caption: 'MAX POTENTIAL (mgh)' },
   { id: 'fall', text: 'As gravity pulls it down, height turns directly into speed — trading blue potential for red kinetic.', caption: 'ENERGY TRANSFER' },
   { id: 'bottom', text: 'At the very bottom, height hits zero and velocity peaks. Kinetic energy reaches one hundred percent!', caption: 'MAX KINETIC (½mv²)' },
@@ -23,6 +31,8 @@ const SCRIPT = [
 ];
 
 let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let pendPivot, bobMesh, bobMat, bobHalo, peBar, keBar, totBar;
 
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
@@ -34,7 +44,104 @@ function getLine(id, fallbackIdx) {
   return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
 }
 
-window.init = (cfg) => {
+function buildScene() {
+  stage = createStudioStage({
+    width: W,
+    height: H,
+    channel: 'explainer',
+    fov: 38,
+    fogDensity: 0.024,
+    floorY: -2.4,
+  });
+  const { scene } = stage;
+  const mats = createMaterials('explainer');
+
+  // Industrial Machined Steel Pendulum Gantry Frame
+  const gantry = new THREE.Group();
+  const topBeam = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.24, 0.44), mats.darkMetal);
+  topBeam.position.set(0, 2.55, 0);
+  gantry.add(topBeam);
+  gantry.add(addXrayEdges(new THREE.BoxGeometry(5.22, 0.26, 0.46), 0xff9500, 0.35)).position.set(0, 2.55, 0);
+
+  for (const sx of [-2.35, 2.35]) {
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 4.95, 18), mats.steel);
+    pillar.position.set(sx, 0.08, -0.15);
+    gantry.add(pillar);
+  }
+
+  // Pivot bearing collar
+  const pivotCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.55, 24), mats.primary);
+  pivotCollar.rotation.x = Math.PI / 2;
+  pivotCollar.position.set(0, 2.45, 0);
+  gantry.add(pivotCollar);
+  scene.add(gantry);
+
+  // Glowing 3D Arc Guide Track showing full swing path
+  const arcPts = [];
+  const L = 3.15;
+  const maxA = 0.88;
+  for (let i = 0; i <= 40; i++) {
+    const a = lerp(-maxA, maxA, i / 40);
+    arcPts.push(new THREE.Vector3(Math.sin(a) * L, 2.45 - Math.cos(a) * L, 0));
+  }
+  const arcCurve = new THREE.CatmullRomCurve3(arcPts);
+  const arcTube = new THREE.Mesh(new THREE.TubeGeometry(arcCurve, 48, 0.032, 8, false), mats.translucent(0x38bdf8, 0.42));
+  scene.add(arcTube);
+
+  // Pendulum Arm + Luminous PBR Bob
+  pendPivot = new THREE.Group();
+  pendPivot.position.set(0, 2.45, 0);
+  scene.add(pendPivot);
+
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, L, 16), mats.steel);
+  rod.position.y = -L * 0.5;
+  pendPivot.add(rod);
+
+  bobMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    emissive: 0x0284c7,
+    emissiveIntensity: 0.72,
+    metalness: 0.78,
+    roughness: 0.16,
+  });
+  bobMesh = new THREE.Mesh(new THREE.SphereGeometry(0.42, 32, 32), bobMat);
+  bobMesh.position.y = -L;
+  pendPivot.add(bobMesh);
+
+  bobHalo = new THREE.Mesh(new THREE.TorusGeometry(0.54, 0.032, 12, 36), mats.glow(0xff9500, 1.0));
+  bobHalo.position.y = -L;
+  pendPivot.add(bobHalo);
+
+  // 3D Live Energy Conservation Glass Columns in lower-rear stage (PE, KE, TOTAL=100%)
+  const colXs = [-1.45, 0.0, 1.45];
+  const colHex = [0x38bdf8, 0xff3b30, 0x00f0ff];
+  const barRefs = [];
+  for (let i = 0; i < 3; i++) {
+    const cg = new THREE.Group();
+    cg.position.set(colXs[i], -2.35, -1.35);
+
+    const shellGeo = new THREE.CylinderGeometry(0.32, 0.32, 2.1, 24, 1, true);
+    const shell = new THREE.Mesh(shellGeo, mats.xrayGlass);
+    shell.position.y = 1.05;
+    cg.add(shell);
+    const edge = addXrayEdges(new THREE.CylinderGeometry(0.33, 0.33, 2.1, 14, 1, true), colHex[i], 0.42);
+    edge.position.y = 1.05;
+    cg.add(edge);
+
+    const bar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.26, 0.26, 1.0, 20),
+      mats.glow(colHex[i], 0.75, 0.2, 0.45),
+    );
+    cg.add(bar);
+    scene.add(cg);
+    barRefs.push(bar);
+  }
+  [peBar, keBar, totBar] = barRefs;
+
+  built = true;
+}
+
+window.init = (cfg = {}) => {
   W = cfg.width || 720;
   H = cfg.height || 1280;
   FPS = cfg.fps || 60;
@@ -56,353 +163,94 @@ window.init = (cfg) => {
     { t: lTot.start + 0.2, type: 'bounce', pitchIndex: 10, intensity: 0.75 },
     { t: lLaw.start + 0.25, type: 'win', pitchIndex: 12, intensity: 0.95 },
   ];
+
+  if (!built) buildScene();
 };
 
-function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
-  let px = Math.round(basePx);
-  ctx.font = `${weight} ${px}px ${family}`;
-  const m = ctx.measureText(text).width || 1;
-  if (m > maxW) px = Math.max(11, Math.floor(px * (maxW / m)));
-  ctx.font = `${weight} ${px}px ${family}`;
-  return px;
-}
+function renderSceneAt(t) {
+  if (!built) buildScene();
 
-// Compute deterministic pendulum phase phi(t) synced to narration phases:
-// cos(phi) = +1/-1 -> peak (PE=100%, KE=0%)
-// cos(phi) = 0 -> bottom (PE=0%, KE=100%)
-function computePhase(t) {
-  const lHook = getLine('hook', 0);
   const lPeak = getLine('peak', 1);
-  const lFall = getLine('fall', 2);
   const lBot = getLine('bottom', 3);
   const lTot = getLine('total', 4);
 
-  if (t < lPeak.start) {
-    // Gentle opening swing ending near right peak (phi = 0 -> 2*PI)
-    const u = smooth(lHook.start, lPeak.start, t);
-    return lerp(-Math.PI * 0.65, 0, u);
+  let activeCaption = SCRIPT[0].caption;
+  for (let i = 0; i < SCRIPT.length; i++) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) activeCaption = ln.caption || SCRIPT[i].caption;
   }
-  if (t < lFall.start) {
-    // Hover gently near right peak (phi ~ 0) so viewer sees max height h and PE = 100%
-    const u = smooth(lPeak.start, lFall.start, t);
-    return lerp(0, 0.14, Math.sin(u * Math.PI));
-  }
-  if (t < lBot.start) {
-    // Swing down from right peak (phi = 0) to bottom (phi = PI/2)
-    return lerp(0, Math.PI * 0.5, smooth(lFall.start, lBot.start, t));
-  }
-  if (t < lTot.start) {
-    // Pass slowly through bottom (PE=0%, KE=100%) then up toward left peak
-    const u = smooth(lBot.start, lTot.start, t);
-    return Math.PI * 0.5 + u * Math.PI * 0.5;
-  }
-  // Smooth continuous harmonic swinging through Total & Law
-  const dt = t - lTot.start;
-  return Math.PI + dt * 2.15;
-}
 
-function drawArrow(x1, y1, x2, y2, color, lineW, headLen, S) {
-  const dx = x2 - x1, dy = y2 - y1;
-  const len = Math.hypot(dx, dy);
-  if (len < 2 * S) return;
-  const ang = Math.atan2(dy, dx);
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = lineW;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2 - Math.cos(ang) * headLen * 0.7, y2 - Math.sin(ang) * headLen * 0.7);
-  ctx.stroke();
+  // Smooth harmonic pendulum swing (5 complete swings over DUR)
+  const omega = (Math.PI * 2 * 5) / Math.max(1, DUR);
+  const maxAngle = 0.86;
+  const theta = maxAngle * Math.cos(omega * t);
+  pendPivot.rotation.z = theta;
 
-  ctx.beginPath();
-  ctx.moveTo(x2, y2);
-  ctx.lineTo(x2 - Math.cos(ang - 0.45) * headLen, y2 - Math.sin(ang - 0.45) * headLen);
-  ctx.lineTo(x2 - Math.cos(ang + 0.45) * headLen, y2 - Math.sin(ang + 0.45) * headLen);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawFrame(t) {
-  const S = W / 720;
-  const cx = W * 0.47;
-  const safeMaxW = W * 0.76;
-
-  // Pure #05070B dark scientific canvas
-  ctx.fillStyle = '#05070B';
-  ctx.fillRect(0, 0, W, H);
-
-  // Subtle dark coordinate grid
-  ctx.strokeStyle = 'rgba(148,163,184,0.045)';
-  ctx.lineWidth = 1 * S;
-  for (let x = 0; x < W; x += 44 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 44 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-
-  const lPeak = getLine('peak', 1);
-  const lFall = getLine('fall', 2);
-  const lBot = getLine('bottom', 3);
-  const lTot = getLine('total', 4);
-  const lLaw = getLine('law', 5);
-
-  const hlPeak = smooth(lPeak.start, lPeak.start + 0.35, t) * (1 - smooth(lFall.start, lFall.start + 0.35, t));
-  const hlBot = smooth(lBot.start, lBot.start + 0.35, t) * (1 - smooth(lTot.start, lTot.start + 0.35, t));
-  const hlTot = smooth(lTot.start, lTot.start + 0.35, t);
-
-  // === TOP TITLE (y = H*0.156 >= H*0.14) ===
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont('POTENTIAL vs KINETIC ENERGY', 31 * S, safeMaxW, '900');
-  ctx.fillStyle = '#f8fafc';
-  ctx.fillText('POTENTIAL vs KINETIC ENERGY', cx, H * 0.156);
-  ctx.restore();
-
-  // === UPPER HALF: PENDULUM PHYSICS ===
-  const pivotX = cx;
-  const pivotY = H * 0.218;
-  const rodL = 252 * S;
-  const thetaMax = 0.90; // ~51.5 deg
-
-  const phi = computePhase(t);
-  const theta = thetaMax * Math.cos(phi); // +thetaMax = right, -thetaMax = left
-  const dThetaSign = -Math.sin(phi); // velocity direction along arc
-
-  // Exact energy conservation: PE = h / h_max, KE = 1 - PE, Total = 1.0
-  const hCur = 1 - Math.cos(theta);
-  const hMax = 1 - Math.cos(thetaMax);
-  const peFrac = clamp(hCur / Math.max(1e-6, hMax), 0, 1);
+  // Exact physics conservation: PE = (1 - cos(theta)) / (1 - cos(maxAngle)), KE = 1 - PE
+  const peFrac = clamp((1 - Math.cos(theta)) / Math.max(1e-5, 1 - Math.cos(maxAngle)), 0, 1);
   const keFrac = clamp(1 - peFrac, 0, 1);
-  const vMag = Math.sqrt(keFrac); // proportional to true speed
 
-  const bobX = pivotX + Math.sin(theta) * rodL;
-  const bobY = pivotY + Math.cos(theta) * rodL;
-  const baseY = pivotY + rodL; // lowest point h = 0
-  const bobR = 26 * S;
+  // Bob shifts color smoothly between Electric Blue (PE) and Fiery Orange-Red (KE)
+  const colPE = new THREE.Color(0x38bdf8);
+  const colKE = new THREE.Color(0xff3b30);
+  bobMat.color.copy(colPE).lerp(colKE, keFrac);
+  bobMat.emissive.copy(colPE).lerp(colKE, keFrac);
+  bobHalo.rotation.set(t * 2.5, t * 3.2, 0);
+  bobHalo.scale.setScalar(0.95 + 0.22 * keFrac);
 
-  // Overhead mount bar
-  const barG = ctx.createLinearGradient(pivotX - 110 * S, pivotY - 12 * S, pivotX + 110 * S, pivotY + 6 * S);
-  barG.addColorStop(0, '#1e293b');
-  barG.addColorStop(0.5, '#64748b');
-  barG.addColorStop(1, '#1e293b');
-  ctx.fillStyle = barG;
-  ctx.beginPath(); ctx.roundRect(pivotX - 108 * S, pivotY - 12 * S, 216 * S, 14 * S, 7 * S); ctx.fill();
+  // Update 3D Conservation Columns
+  const maxBarH = 1.98;
+  const peH = Math.max(0.04, peFrac * maxBarH);
+  const keH = Math.max(0.04, keFrac * maxBarH);
+  peBar.scale.set(1, peH, 1);
+  peBar.position.y = peH * 0.5 + 0.04;
+  keBar.scale.set(1, keH, 1);
+  keBar.position.y = keH * 0.5 + 0.04;
+  totBar.scale.set(1, maxBarH, 1);
+  totBar.position.y = maxBarH * 0.5 + 0.04;
 
-  // Dotted sweep arc path
-  ctx.save();
-  ctx.strokeStyle = 'rgba(148,163,184,0.22)';
-  ctx.lineWidth = 2 * S;
-  ctx.setLineDash([6 * S, 7 * S]);
-  ctx.beginPath();
-  ctx.arc(pivotX, pivotY, rodL, Math.PI * 0.5 - thetaMax, Math.PI * 0.5 + thetaMax);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  // Dynamic camera choreography
+  const { camera } = stage;
+  const pTot = smooth(lTot.start, lTot.start + 1.0, t);
+  camera.position.set(
+    Math.sin(t * 0.4) * 1.9 + lerp(0, 0.7, pTot),
+    lerp(0.65, -0.1, pTot),
+    lerp(9.8, 9.2, pTot),
+  );
+  camera.lookAt(0, 0.0, -0.35);
 
-  // Horizontal dashed baseline at h = 0
-  ctx.strokeStyle = 'rgba(59,130,246,0.32)';
-  ctx.lineWidth = 1.8 * S;
-  ctx.setLineDash([8 * S, 6 * S]);
-  ctx.beginPath();
-  ctx.moveTo(pivotX - 235 * S, baseY);
-  ctx.lineTo(pivotX + 235 * S, baseY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
+  stage.composite(ctx, W, H);
 
-  // Subtle fading motion trail
-  for (let k = 1; k <= 8; k++) {
-    const phiPast = computePhase(Math.max(0, t - k * 0.025));
-    const thPast = thetaMax * Math.cos(phiPast);
-    const tx = pivotX + Math.sin(thPast) * rodL;
-    const ty = pivotY + Math.cos(thPast) * rodL;
-    ctx.fillStyle = `rgba(244,63,94,${((1 - k / 9) * 0.22 * vMag).toFixed(3)})`;
-    ctx.beginPath(); ctx.arc(tx, ty, bobR * (1 - k * 0.07), 0, Math.PI * 2); ctx.fill();
-  }
-
-  // Real-time BLUE vertical height indicator (h)
-  const hPx = baseY - bobY;
-  if (hPx > 4 * S) {
-    ctx.save();
-    const hLineX = bobX + (theta >= 0 ? 44 * S : -44 * S);
-    ctx.strokeStyle = '#60a5fa';
-    ctx.shadowColor = '#3b82f6';
-    ctx.shadowBlur = (10 + hlPeak * 16) * S;
-    ctx.lineWidth = (2.8 + hlPeak * 1.4) * S;
-    // Horizontal tick from bob to vertical indicator
-    ctx.setLineDash([4 * S, 4 * S]);
-    ctx.beginPath(); ctx.moveTo(bobX, bobY); ctx.lineTo(hLineX, bobY); ctx.stroke();
-    ctx.setLineDash([]);
-    // Vertical blue height line
-    ctx.beginPath(); ctx.moveTo(hLineX, baseY); ctx.lineTo(hLineX, bobY); ctx.stroke();
-    // End caps
-    ctx.beginPath();
-    ctx.moveTo(hLineX - 7 * S, baseY); ctx.lineTo(hLineX + 7 * S, baseY);
-    ctx.moveTo(hLineX - 7 * S, bobY); ctx.lineTo(hLineX + 7 * S, bobY);
-    ctx.stroke();
-    // Crisp italic 'h' label
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#93c5fd';
-    ctx.font = `italic 800 ${Math.round(25 * S)}px Georgia, serif`;
-    ctx.textAlign = theta >= 0 ? 'left' : 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('h', hLineX + (theta >= 0 ? 11 * S : -11 * S), (baseY + bobY) * 0.5);
-    ctx.restore();
-  }
-
-  // Pendulum rod
-  ctx.strokeStyle = '#cbd5e1';
-  ctx.lineWidth = 4 * S;
-  ctx.beginPath(); ctx.moveTo(pivotX, pivotY); ctx.lineTo(bobX, bobY); ctx.stroke();
-
-  // Pivot pin
-  ctx.fillStyle = '#f8fafc';
-  ctx.strokeStyle = '#38bdf8';
-  ctx.lineWidth = 2.5 * S;
-  ctx.beginPath(); ctx.arc(pivotX, pivotY, 8 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-  // Glowing RED tangential velocity vector arrow (v)
-  if (vMag > 0.04) {
-    // Unit tangent along increasing theta is (cos(theta), -sin(theta))
-    const sign = dThetaSign >= 0 ? 1 : -1;
-    const tx = Math.cos(theta) * sign;
-    const ty = -Math.sin(theta) * sign;
-    const vLen = vMag * 124 * S;
-    const vx2 = bobX + tx * vLen;
-    const vy2 = bobY + ty * vLen;
-    ctx.save();
-    ctx.shadowColor = '#f43f5e';
-    ctx.shadowBlur = (14 + hlBot * 16) * S;
-    drawArrow(bobX, bobY, vx2, vy2, '#fb7185', (4.5 + hlBot * 1.5) * S, 16 * S, S);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fda4af';
-    ctx.font = `italic 800 ${Math.round(26 * S)}px Georgia, serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('v', vx2 + tx * 18 * S, vy2 + ty * 18 * S - 6 * S);
-    ctx.restore();
-  }
-
-  // Split BLUE / RED Pendulum Bob
-  ctx.save();
-  ctx.translate(bobX, bobY);
-  // Outer glow shifts between blue (PE) and red (KE)
-  ctx.shadowColor = peFrac >= keFrac ? '#3b82f6' : '#f43f5e';
-  ctx.shadowBlur = 22 * S;
-  // Left/Upper Blue half (PE)
-  ctx.fillStyle = '#3b82f6';
-  ctx.beginPath(); ctx.arc(0, 0, bobR, Math.PI * 0.5, Math.PI * 1.5); ctx.closePath(); ctx.fill();
-  // Right/Lower Red half (KE)
-  ctx.fillStyle = '#f43f5e';
-  ctx.beginPath(); ctx.arc(0, 0, bobR, -Math.PI * 0.5, Math.PI * 0.5); ctx.closePath(); ctx.fill();
-  ctx.shadowBlur = 0;
-  // Glossy rim & specular dot
-  ctx.strokeStyle = '#f8fafc';
-  ctx.lineWidth = 3 * S;
-  ctx.beginPath(); ctx.arc(0, 0, bobR, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.42)';
-  ctx.beginPath(); ctx.arc(-7 * S, -8 * S, 6 * S, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-
-  // === LOWER HALF: LIVE 3-COLUMN BAR CHART (y: H*0.515 to H*0.765, safe <= H*0.78) ===
-  const chartW = Math.min(safeMaxW, 510 * S);
-  const chartLeft = cx - chartW * 0.5;
-  const chartTop = H * 0.525;
-  const chartBot = H * 0.708;
-  const chartH = chartBot - chartTop;
-
-  // Dashed horizontal gridlines (0%, 25%, 50%, 75%, 100%)
-  ctx.save();
-  ctx.font = `700 ${Math.round(15 * S)}px ui-monospace, monospace`;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  for (let g = 0; g <= 4; g++) {
-    const gy = lerp(chartBot, chartTop, g / 4);
-    ctx.strokeStyle = g === 4 ? 'rgba(34,211,238,0.38)' : 'rgba(148,163,184,0.16)';
-    ctx.lineWidth = g === 4 ? 2 * S : 1.3 * S;
-    ctx.setLineDash([7 * S, 7 * S]);
-    ctx.beginPath(); ctx.moveTo(chartLeft + 44 * S, gy); ctx.lineTo(chartLeft + chartW, gy); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = g === 4 ? '#22d3ee' : '#64748b';
-    ctx.fillText(`${g * 25}%`, chartLeft + 36 * S, gy);
-  }
-
-  // Baseline axis
-  ctx.strokeStyle = '#475569';
-  ctx.lineWidth = 2.6 * S;
-  ctx.beginPath();
-  ctx.moveTo(chartLeft + 44 * S, chartBot);
-  ctx.lineTo(chartLeft + chartW, chartBot);
-  ctx.stroke();
-
-  // 3 Bars: PE (Blue, mgh), KE (Coral-Red, ½mv²), Total (Cyan, E)
-  const bars = [
-    { name: 'PE', formula: 'mgh', val: peFrac, cTop: '#60a5fa', cBot: '#1d4ed8', glow: '#3b82f6', hl: hlPeak },
-    { name: 'KE', formula: '½mv²', val: keFrac, cTop: '#fb7185', cBot: '#be123c', glow: '#f43f5e', hl: hlBot },
-    { name: 'Total', formula: 'E', val: 1.0, cTop: '#22d3ee', cBot: '#0891b2', glow: '#06b6d4', hl: hlTot },
-  ];
-
-  const usableW = chartW - 60 * S;
-  const colW = usableW / 3;
-  const barW = Math.min(104 * S, colW * 0.66);
-
-  for (let i = 0; i < 3; i++) {
-    const b = bars[i];
-    const bxCenter = chartLeft + 52 * S + colW * (i + 0.5);
-    const bh = Math.max(4 * S, b.val * chartH);
-    const by = chartBot - bh;
-
-    // Bar fill with vertical gradient + glow
-    const bg = ctx.createLinearGradient(0, by, 0, chartBot);
-    bg.addColorStop(0, b.cTop);
-    bg.addColorStop(1, b.cBot);
-
-    ctx.save();
-    ctx.shadowColor = b.glow;
-    ctx.shadowBlur = (14 + b.hl * 18) * S;
-    ctx.fillStyle = bg;
-    ctx.beginPath();
-    ctx.roundRect(bxCenter - barW * 0.5, by, barW, bh, [12 * S, 12 * S, 2 * S, 2 * S]);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Highlight border when featured
-    if (b.hl > 0.1) {
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2.6 * S * b.hl;
-      ctx.stroke();
-    }
-
-    // Percentage value above bar
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.font = `800 ${Math.round(21 * S)}px ui-monospace, monospace`;
-    ctx.fillStyle = b.cTop;
-    ctx.fillText(`${Math.round(b.val * 100)}%`, bxCenter, Math.max(chartTop - 8 * S, by - 8 * S));
-
-    // Bar label below axis (PE / KE / Total)
-    ctx.textBaseline = 'top';
-    ctx.font = `900 ${Math.round(26 * S)}px -apple-system, sans-serif`;
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillText(b.name, bxCenter, chartBot + 12 * S);
-
-    // Formula below label (mgh / ½mv² / E) — safely above H*0.78
-    ctx.font = `italic 700 ${Math.round(21 * S)}px Georgia, serif`;
-    ctx.fillStyle = b.cTop;
-    ctx.fillText(b.formula, bxCenter, chartBot + 44 * S);
-    ctx.restore();
-  }
-
-  ctx.restore();
+  drawStudioHud(ctx, {
+    W,
+    H,
+    channel: 'explainer',
+    badge: 'CONSERVATION OF ENERGY · 3D PBR',
+    title: 'POTENTIAL VS KINETIC',
+    subtitle: 'mgh  +  ½mv²  =  100% CONSTANT',
+    caption: activeCaption,
+    metrics: [
+      { label: 'POTENTIAL (PE)', value: `${Math.round(peFrac * 100)}%`, color: '#38BDF8' },
+      { label: 'KINETIC (KE)', value: `${Math.round(keFrac * 100)}%`, color: '#FF3B30' },
+      { label: 'TOTAL ENERGY', value: '100%', color: '#00F0FF' },
+    ],
+    progress: t / Math.max(1, DUR),
+  });
 }
+
+window.renderFrame = (t) => {
+  renderSceneAt(t);
+  return cv.toDataURL('image/jpeg', 0.92).slice(23);
+};
 
 window.renderBatch = (startFrame, count) => {
   const out = [];
   for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
+    renderSceneAt((startFrame + i) / FPS);
     out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
   }
   return out;
 };
+
 window.ready = true;
 </script>

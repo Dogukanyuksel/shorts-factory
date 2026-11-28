@@ -1,18 +1,26 @@
 <!doctype html>
 <!--
-  Wealth Mechanics — Why Paying the Minimum on a $5,000 Credit Card Takes 16 Years (60fps deterministic)
+  Wealth Mechanics — Format 1 (3D Mechanical Finance): Why Paying the Minimum on a $5,000 Credit Card Takes 16 Years
+  Y-LABS 3D Cinema Engine (Three.js PBR Interlocking APR Ratchet Gears + Debt Load Block, 60fps deterministic)
 -->
 <meta charset="utf-8">
-<style>html,body{margin:0;background:#030a08;overflow:hidden}canvas{display:block}</style>
+<style>html,body{margin:0;background:#090D16;overflow:hidden}canvas{display:block}</style>
 <canvas id="c"></canvas>
-<script>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  easeOutCubic,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (a, b, t) => { const x = clamp((t - a) / Math.max(1e-5, b - a), 0, 1); return x * x * (3 - 2 * x); };
-const easeOutCubic = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
 
 const SCRIPT = [
   { id: 'hook', text: 'Have a five thousand dollar credit card balance at twenty-four percent APR? Paying the minimum is a mathematical trap.', caption: '$5,000 AT 24% APR' },
@@ -24,6 +32,8 @@ const SCRIPT = [
 ];
 
 let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let aprGear, minGear, turboGear, debtBlock, debtCore, debtCoreMat, sparks = [], aprShockRing;
 
 window.getScript = () => SCRIPT;
 window.getEvents = () => EVENTS;
@@ -33,6 +43,139 @@ function getLine(id, fallbackIdx) {
   if (found) return found;
   const seg = DUR / SCRIPT.length;
   return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+function make3DGear({ radius, teeth, thickness, bodyMat, accentMat }) {
+  const g = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, thickness, Math.max(24, teeth * 2)), bodyMat);
+  disc.rotation.x = Math.PI / 2;
+  g.add(disc);
+
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.34, radius * 0.34, thickness * 1.35, 20), accentMat);
+  hub.rotation.x = Math.PI / 2;
+  g.add(hub);
+
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.72, thickness * 0.14, 10, 32), accentMat);
+  rim.position.z = thickness * 0.52;
+  g.add(rim);
+
+  const toothW = (2 * Math.PI * radius) / (teeth * 2.1);
+  const toothH = radius * 0.17;
+  const tGeo = new THREE.BoxGeometry(toothW, toothH, thickness * 0.92);
+  for (let i = 0; i < teeth; i++) {
+    const a = (i / teeth) * Math.PI * 2;
+    const tm = new THREE.Mesh(tGeo, bodyMat);
+    tm.position.set(Math.cos(a) * (radius + toothH * 0.42), Math.sin(a) * (radius + toothH * 0.42), 0);
+    tm.rotation.z = a + Math.PI / 2;
+    g.add(tm);
+  }
+  return g;
+}
+
+function buildScene() {
+  stage = createStudioStage({
+    width: W,
+    height: H,
+    channel: 'wealth',
+    fov: 38,
+    fogDensity: 0.025,
+    floorY: -2.6,
+  });
+  const { scene } = stage;
+  const mats = createMaterials('wealth');
+
+  // Heavy mechanical chassis frame behind gears
+  const frameGeo = new THREE.BoxGeometry(5.8, 5.2, 0.28);
+  const frame = new THREE.Mesh(frameGeo, mats.darkMetal);
+  frame.position.set(0, 0.25, -0.65);
+  scene.add(frame);
+  const frameEdges = addXrayEdges(frameGeo, 0xffd60a, 0.24);
+  frameEdges.position.copy(frame.position);
+  scene.add(frameEdges);
+
+  // 1. Center Giant Crimson 24% APR Ratchet Gear
+  const aprMat = new THREE.MeshStandardMaterial({
+    color: 0x991b1b,
+    emissive: 0xdc2626,
+    emissiveIntensity: 0.42,
+    metalness: 0.78,
+    roughness: 0.26,
+  });
+  aprGear = make3DGear({
+    radius: 1.32,
+    teeth: 18,
+    thickness: 0.42,
+    bodyMat: aprMat,
+    accentMat: mats.glow(0xff3b30, 0.95),
+  });
+  aprGear.position.set(0, 0.55, 0);
+  scene.add(aprGear);
+
+  // 2. Left Small Weak Minimum-Payment Gear (steel + blue accent)
+  minGear = make3DGear({
+    radius: 0.72,
+    teeth: 10,
+    thickness: 0.36,
+    bodyMat: mats.steel,
+    accentMat: mats.glow(0x38bdf8, 0.75),
+  });
+  minGear.position.set(-1.95, 1.48, 0.05);
+  scene.add(minGear);
+
+  // 3. Right Emerald +$100/MO Turbo Overdrive Gear (slides in & crushes APR!)
+  const turboMat = new THREE.MeshStandardMaterial({
+    color: 0x15803d,
+    emissive: 0x22c55e,
+    emissiveIntensity: 0.55,
+    metalness: 0.82,
+    roughness: 0.20,
+  });
+  turboGear = make3DGear({
+    radius: 1.05,
+    teeth: 14,
+    thickness: 0.44,
+    bodyMat: turboMat,
+    accentMat: mats.glow(0x30d158, 1.1),
+  });
+  turboGear.position.set(3.8, 1.45, 0.05);
+  scene.add(turboGear);
+
+  // 4. Suspended $5,000 Debt Load Cage below the gears
+  debtBlock = new THREE.Group();
+  debtBlock.position.set(0, -1.65, 0.2);
+
+  const cageGeo = new THREE.BoxGeometry(2.8, 1.15, 0.95);
+  const cage = new THREE.Mesh(cageGeo, mats.xrayGlass);
+  debtBlock.add(cage);
+  debtBlock.add(addXrayEdges(cageGeo, 0xffd60a, 0.55));
+
+  debtCoreMat = new THREE.MeshStandardMaterial({
+    color: 0xff3b30,
+    emissive: 0xdc2626,
+    emissiveIntensity: 0.65,
+    metalness: 0.45,
+    roughness: 0.22,
+  });
+  debtCore = new THREE.Mesh(new THREE.BoxGeometry(2.62, 0.96, 0.78), debtCoreMat);
+  debtBlock.add(debtCore);
+  scene.add(debtBlock);
+
+  // 5. Glowing APR pulse shock ring
+  aprShockRing = new THREE.Mesh(new THREE.TorusGeometry(1.55, 0.045, 12, 48), mats.glow(0xff3b30, 1.2));
+  aprShockRing.position.set(0, 0.55, 0.28);
+  scene.add(aprShockRing);
+
+  // 6. Mechanical energy sparks flying off meshing teeth
+  sparks = [];
+  const spGeo = new THREE.OctahedronGeometry(0.08, 0);
+  const spMat = mats.glow(0xffd60a, 1.4);
+  for (let i = 0; i < 16; i++) {
+    const m = new THREE.Mesh(spGeo, spMat);
+    scene.add(m);
+    sparks.push({ mesh: m, seed: i * 1.73 });
+  }
+
+  built = true;
 }
 
 window.init = (cfg = {}) => {
@@ -57,81 +200,12 @@ window.init = (cfg = {}) => {
     { t: lRace.start + 0.20, type: 'win', pitchIndex: 11, intensity: 0.92 },
     { t: lVerd.start + 0.18, type: 'win', pitchIndex: 12, intensity: 0.95 },
   ];
+
+  if (!built) buildScene();
 };
 
-// Exact deterministic monthly amortization tables for $5,000 at 24% APR (2%/mo)
-// Standard bank minimum: max($38, 1% of balance + monthly interest) -> 192 months (16.0 yrs), $13,301 total paid
-// Extra +$100/mo: same formula + $100 -> 39 months (3.25 yrs), $6,917 total paid -> $6,384 saved!
-function buildSchedule(extraMonthly) {
-  const rows = [{ month: 0, balance: 5000, totalPaid: 0, totalInterest: 0 }];
-  let bal = 5000, paid = 0, intrSum = 0;
-  const r = 0.24 / 12;
-  for (let m = 1; m <= 240; m++) {
-    if (bal <= 0.01) {
-      rows.push({ month: m, balance: 0, totalPaid: paid, totalInterest: intrSum });
-      continue;
-    }
-    const intr = bal * r;
-    const minPmt = Math.max(38, bal * 0.01 + intr);
-    const pmt = Math.min(bal + intr, minPmt + extraMonthly);
-    bal = Math.max(0, bal + intr - pmt);
-    paid += pmt;
-    intrSum += intr;
-    rows.push({ month: m, balance: bal, totalPaid: paid, totalInterest: intrSum });
-  }
-  return rows;
-}
-
-const SCHED_MIN = buildSchedule(0);
-const SCHED_EXTRA = buildSchedule(100);
-const MIN_MONTHS = SCHED_MIN.findIndex((r) => r.balance <= 0.01);       // 192 (16.0 yrs)
-const EXTRA_MONTHS = SCHED_EXTRA.findIndex((r) => r.balance <= 0.01);   // 39 (3.3 yrs)
-const TOTAL_PAID_MIN = SCHED_MIN[MIN_MONTHS].totalPaid;                 // ~$13,301
-const TOTAL_PAID_EXTRA = SCHED_EXTRA[EXTRA_MONTHS].totalPaid;           // ~$6,917
-const TOTAL_SAVED = TOTAL_PAID_MIN - TOTAL_PAID_EXTRA;                  // ~$6,384
-
-function sampleSchedule(sched, monthFloat) {
-  const m = clamp(monthFloat, 0, sched.length - 1);
-  const i0 = Math.floor(m);
-  const i1 = Math.min(sched.length - 1, i0 + 1);
-  const f = m - i0;
-  return {
-    balance: lerp(sched[i0].balance, sched[i1].balance, f),
-    totalPaid: lerp(sched[i0].totalPaid, sched[i1].totalPaid, f),
-    totalInterest: lerp(sched[i0].totalInterest, sched[i1].totalInterest, f),
-  };
-}
-
-function fmtExact(v) {
-  return '$' + Math.max(0, Math.round(v)).toLocaleString('en-US');
-}
-
-function fmtMoney(v) {
-  const n = Math.max(0, Math.round(v));
-  if (n >= 10000) return '$' + (n / 1000).toFixed(1) + 'K';
-  return '$' + n.toLocaleString('en-US');
-}
-
-function fitFont(text, basePx, maxW, weight = '800', family = '-apple-system, BlinkMacSystemFont, sans-serif') {
-  let px = Math.round(basePx);
-  ctx.font = `${weight} ${px}px ${family}`;
-  const m = ctx.measureText(text).width || 1;
-  if (m > maxW) px = Math.max(10, Math.floor(px * (maxW / m)));
-  ctx.font = `${weight} ${px}px ${family}`;
-  return px;
-}
-
-function drawFrame(t) {
-  const S = W / 720;
-  // Strict Safe-Zone: x in [6.5%W, 84%W], y in [14%H, 74%H]
-  const safeL = W * 0.065;
-  const safeR = W * 0.84;
-  const safeW = safeR - safeL;
-  const cx = (safeL + safeR) * 0.5;
-
-  // Deep obsidian background with subtle crimson danger & emerald hope aura
-  ctx.fillStyle = '#030a08';
-  ctx.fillRect(0, 0, W, H);
+function renderSceneAt(t) {
+  if (!built) buildScene();
 
   const lRefill = getLine('refill', 1);
   const lMin = getLine('minpath', 2);
@@ -139,363 +213,110 @@ function drawFrame(t) {
   const lRace = getLine('race', 4);
   const lVerd = getLine('verdict', 5);
 
-  const pExtra = smooth(lExtra.start - 0.1, lExtra.start + 0.45, t);
-  const pVerd = smooth(lVerd.start, lVerd.start + 0.45, t);
+  let activeCaption = SCRIPT[0].caption;
+  for (let i = 0; i < SCRIPT.length; i++) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) activeCaption = ln.caption || SCRIPT[i].caption;
+  }
 
-  const bgG = ctx.createRadialGradient(cx, H * 0.36, 18 * S, cx, H * 0.44, W * 0.65);
-  bgG.addColorStop(0, pExtra > 0.3 ? 'rgba(16, 185, 129, 0.10)' : 'rgba(239, 68, 68, 0.11)');
-  bgG.addColorStop(0.55, 'rgba(239, 68, 68, 0.04)');
-  bgG.addColorStop(1, 'rgba(3, 10, 8, 0)');
-  ctx.fillStyle = bgG;
-  ctx.fillRect(0, 0, W, H);
+  const pExtra = smooth(lExtra.start, lExtra.start + 1.0, t);
+  const pRace = easeOutCubic(clamp((t - lRace.start) / Math.max(0.1, lVerd.start - lRace.start), 0, 1));
 
-  // Crisp subtle grid
-  ctx.strokeStyle = 'rgba(16, 185, 129, 0.04)';
-  ctx.lineWidth = 1 * S;
-  for (let x = 0; x < W; x += 40 * S) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 40 * S) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-
-  // Deterministic timeline for simulated month (0 -> 192)
-  let simMonth = 0;
-  if (t < lMin.start) {
-    simMonth = lerp(0, 4, smooth(0, lMin.start, t));
-  } else if (t < lExtra.start) {
-    simMonth = lerp(4, 36, smooth(lMin.start, lExtra.start, t));
-  } else if (t < lRace.start) {
-    simMonth = lerp(0, 39, smooth(lExtra.start, lRace.start, t));
-  } else if (t < lVerd.start) {
-    simMonth = lerp(39, MIN_MONTHS, easeOutCubic(clamp((t - lRace.start) / Math.max(0.1, lVerd.start - lRace.start), 0, 1)));
+  // Balance simulation: before extra -> trapped near $4,850-$5,000 with 80% monthly refill; after extra -> crushed to $0!
+  let balance = 5000;
+  if (t < lExtra.start) {
+    const cycle = (t * 1.15) % 1;
+    // Pay down a slice, then crimson APR wave yanks 80% back
+    const dip = cycle < 0.35 ? lerp(0, 420, cycle / 0.35) : lerp(420, 90, (cycle - 0.35) / 0.65);
+    balance = 5000 - dip;
   } else {
-    simMonth = MIN_MONTHS;
+    balance = lerp(4900, 0, pRace);
   }
 
-  const stateMin = sampleSchedule(SCHED_MIN, simMonth);
-  const stateExtra = sampleSchedule(SCHED_EXTRA, simMonth);
+  const balFrac = clamp(balance / 5000, 0.02, 1);
 
-  // Monthly drain-then-refill wave cycle (for the crimson tank visual)
-  const cycleFreq = t < lExtra.start ? 1.15 : 2.1;
-  const cyc = (t * cycleFreq) % 1; // 0..0.45 drain, 0.45..0.90 crimson APR refill
-  const drainPulse = smooth(0.05, 0.35, cyc) * (1 - smooth(0.45, 0.85, cyc));
-  const refillWave = smooth(0.42, 0.78, cyc) * (1 - smooth(0.85, 1.0, cyc));
-
-  // === 1. HEADER (y: 14.3%H .. 18.4%H) ===
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont('THE CREDIT CARD TRAP', 30 * S, safeW, '900');
-  ctx.fillStyle = '#fef2f2';
-  ctx.fillText('THE CREDIT CARD TRAP', cx, H * 0.155);
-
-  fitFont('$5,000 BALANCE · 24% APR · MINIMUM VS +$100/MO', 13 * S, safeW, '700', 'ui-monospace, monospace');
-  ctx.fillStyle = '#fca5a5';
-  ctx.fillText('$5,000 BALANCE · 24% APR · MINIMUM VS +$100/MO', cx, H * 0.178);
-  ctx.restore();
-
-  // === 2. SIDE-BY-SIDE LIVE DEBT TANKS (y: 19.6%H .. 48.2%H) ===
-  const tankGap = 16 * S;
-  const tankW = (safeW - tankGap) * 0.5;
-  const tankTop = H * 0.198;
-  const tankH = H * 0.284; // ends at H * 0.482
-
-  function drawDebtTank(x, title, subTitle, state, isExtra, activeAlpha) {
-    const frac = clamp(state.balance / 5000, 0, 1);
-    const paidOff = state.balance < 1;
-    const accent = isExtra ? '#10b981' : '#ef4444';
-    const glow = isExtra ? '#10b981' : '#dc2626';
-
-    ctx.save();
-    ctx.globalAlpha = activeAlpha;
-    ctx.fillStyle = isExtra ? 'rgba(6, 78, 59, 0.26)' : 'rgba(69, 10, 10, 0.34)';
-    ctx.strokeStyle = paidOff ? '#34d399' : (isExtra ? 'rgba(16, 185, 129, 0.65)' : 'rgba(239, 68, 68, 0.70)');
-    ctx.lineWidth = (paidOff ? 2.8 : 2.0) * S;
-    ctx.shadowColor = glow;
-    ctx.shadowBlur = (paidOff ? 18 : 10) * S;
-    ctx.beginPath();
-    ctx.roundRect(x, tankTop, tankW, tankH, 16 * S);
-    ctx.fill();
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Header inside tank
-    const tcx = x + tankW * 0.5;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    fitFont(title, 15 * S, tankW - 18 * S, '900', 'ui-monospace, monospace');
-    ctx.fillStyle = accent;
-    ctx.fillText(title, tcx, tankTop + 22 * S);
-
-    fitFont(subTitle, 11.5 * S, tankW - 18 * S, '700', 'ui-monospace, monospace');
-    ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(subTitle, tcx, tankTop + 40 * S);
-
-    // Inner glass cylinder for debt liquid
-    const cylX = x + 16 * S;
-    const cylY = tankTop + 56 * S;
-    const cylW = tankW - 32 * S;
-    const cylH = tankH - 122 * S;
-
-    ctx.fillStyle = 'rgba(2, 6, 10, 0.62)';
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
-    ctx.lineWidth = 1.4 * S;
-    ctx.beginPath();
-    ctx.roundRect(cylX, cylY, cylW, cylH, 12 * S);
-    ctx.fill();
-    ctx.stroke();
-
-    // Clip liquid inside cylinder
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(cylX + 2 * S, cylY + 2 * S, cylW - 4 * S, cylH - 4 * S, 10 * S);
-    ctx.clip();
-
-    // Visual drain/refill oscillation on Red tank while active
-    const visFrac = !isExtra && !paidOff
-      ? clamp(frac - drainPulse * 0.08 + refillWave * 0.065, 0.02, 0.99)
-      : frac;
-
-    if (visFrac > 0.005) {
-      const liqTop = cylY + cylH * (1 - visFrac);
-      const liqG = ctx.createLinearGradient(0, liqTop, 0, cylY + cylH);
-      if (isExtra) {
-        liqG.addColorStop(0, '#f59e0b');
-        liqG.addColorStop(1, 'rgba(180, 83, 9, 0.82)');
-      } else {
-        liqG.addColorStop(0, '#ef4444');
-        liqG.addColorStop(1, 'rgba(127, 29, 29, 0.90)');
-      }
-      ctx.fillStyle = liqG;
-      ctx.beginPath();
-      ctx.moveTo(cylX, cylY + cylH);
-      for (let s = 0; s <= 24; s++) {
-        const u = s / 24;
-        const wx = cylX + u * cylW;
-        const amp = (!isExtra ? (3.2 + refillWave * 4.5) : 2.5) * S;
-        const wy = liqTop + Math.sin(u * Math.PI * 2.5 + t * 5.8 + (isExtra ? 2 : 0)) * amp;
-        ctx.lineTo(wx, wy);
-      }
-      ctx.lineTo(cylX + cylW, cylY + cylH);
-      ctx.closePath();
-      ctx.fill();
-
-      // Glowing crimson APR refill surge band on the Minimum tank!
-      if (!isExtra && refillWave > 0.06 && !paidOff) {
-        ctx.fillStyle = `rgba(254, 202, 202, ${(refillWave * 0.52).toFixed(3)})`;
-        ctx.fillRect(cylX, liqTop, cylW, 20 * S);
-      }
-    }
-    ctx.restore(); // end clip
-
-    // Center overlay badge inside cylinder
-    if (paidOff) {
-      ctx.fillStyle = 'rgba(6, 95, 70, 0.90)';
-      ctx.strokeStyle = '#34d399';
-      ctx.lineWidth = 2 * S;
-      ctx.beginPath();
-      ctx.roundRect(cylX + 10 * S, cylY + cylH * 0.5 - 22 * S, cylW - 20 * S, 44 * S, 10 * S);
-      ctx.fill();
-      ctx.stroke();
-
-      fitFont('DEBT FREE!', 18 * S, cylW - 28 * S, '900', 'ui-monospace, monospace');
-      ctx.fillStyle = '#ecfdf5';
-      ctx.fillText('DEBT FREE!', tcx, cylY + cylH * 0.5 - 5 * S);
-      fitFont(isExtra ? '3.3 YEARS' : '16.0 YEARS', 12 * S, cylW - 28 * S, '800', 'ui-monospace, monospace');
-      ctx.fillStyle = isExtra ? '#6ee7b7' : '#fca5a5';
-      ctx.fillText(isExtra ? '3.3 YEARS' : '16.0 YEARS', tcx, cylY + cylH * 0.5 + 12 * S);
-    } else {
-      // Balance readout inside cylinder
-      fitFont(fmtExact(state.balance), 24 * S, cylW - 14 * S, '900', 'ui-monospace, monospace');
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = 'rgba(0,0,0,0.85)';
-      ctx.shadowBlur = 8 * S;
-      ctx.fillText(fmtExact(state.balance), tcx, cylY + cylH * 0.45);
-      ctx.shadowBlur = 0;
-
-      if (!isExtra && refillWave > 0.15) {
-        fitFont('▲ +24% APR REFILL', 11.5 * S, cylW - 12 * S, '900', 'ui-monospace, monospace');
-        ctx.fillStyle = '#fecaca';
-        ctx.fillText('▲ +24% APR REFILL', tcx, cylY + cylH * 0.66);
-      } else {
-        fitFont('REMAINING', 10.5 * S, cylW - 12 * S, '800', 'ui-monospace, monospace');
-        ctx.fillStyle = 'rgba(248, 250, 252, 0.80)';
-        ctx.fillText('REMAINING', tcx, cylY + cylH * 0.64);
-      }
-    }
-
-    // Bottom readout inside tank card: Total Paid & Interest
-    const botY1 = tankTop + tankH - 44 * S;
-    const botY2 = tankTop + tankH - 20 * S;
-    fitFont(`PAID: ${fmtExact(state.totalPaid)}`, 14 * S, tankW - 16 * S, '900', 'ui-monospace, monospace');
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillText(`PAID: ${fmtExact(state.totalPaid)}`, tcx, botY1);
-
-    fitFont(`INTEREST: ${fmtExact(state.totalInterest)}`, 12 * S, tankW - 16 * S, '800', 'ui-monospace, monospace');
-    ctx.fillStyle = isExtra ? '#6ee7b7' : '#f87171';
-    ctx.fillText(`INTEREST: ${fmtExact(state.totalInterest)}`, tcx, botY2);
-
-    ctx.restore();
+  // Gear rotation choreography
+  if (t < lExtra.start) {
+    // Ratchet tug-of-war: min gear tries to pull, APR gear yanks back harder
+    const tug = Math.sin(t * 4.5) * 0.35;
+    aprGear.rotation.z = -t * 1.45 + tug;
+    minGear.rotation.z = t * 2.6 - tug * 1.8;
+    aprShockRing.visible = true;
+    const pulse = (t * 1.3) % 1;
+    aprShockRing.scale.setScalar(0.85 + pulse * 0.65);
+  } else {
+    // Emerald Turbo gear slides in and overpowers the APR gear!
+    turboGear.position.x = lerp(4.2, 2.22, pExtra);
+    turboGear.rotation.z = t * 4.2;
+    aprGear.rotation.z = -t * 3.3;
+    minGear.rotation.z = t * 2.2;
+    aprShockRing.visible = pRace < 0.8;
+    aprShockRing.scale.setScalar(1.0 - pRace * 0.6);
   }
 
-  drawDebtTank(safeL, 'MINIMUM ONLY', '1% + INTEREST', stateMin, false, 1.0);
-  drawDebtTank(safeL + tankW + tankGap, '+$100 EXTRA', 'PRINCIPAL CRUSHER', stateExtra, true, lerp(0.32, 1.0, pExtra));
+  // Update debt block core width + color shift (crimson -> emerald zeroed)
+  debtCore.scale.set(balFrac, 1, 1);
+  debtCore.position.x = -(1 - balFrac) * 1.31;
+  const colRed = new THREE.Color(0xff3b30);
+  const colGreen = new THREE.Color(0x30d158);
+  debtCoreMat.color.copy(colRed).lerp(colGreen, pRace);
+  debtCoreMat.emissive.copy(colRed).lerp(colGreen, pRace);
 
-  // === 3. LIVE PAYOFF RACE CHART & SAVINGS VERDICT (y: 49.8%H .. 73.6%H) ===
-  const panelY = H * 0.498;
-  const panelH = H * 0.238; // ends at H * 0.736 <= 0.74
-  ctx.save();
-  ctx.fillStyle = 'rgba(5, 20, 16, 0.84)';
-  ctx.strokeStyle = pVerd > 0.2 ? 'rgba(52, 211, 153, 0.68)' : 'rgba(239, 68, 68, 0.28)';
-  ctx.lineWidth = (1.6 + pVerd * 1.2) * S;
-  ctx.beginPath();
-  ctx.roundRect(safeL, panelY, safeW, panelH, 16 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  // Panel top bar
-  const topBarY = panelY + 24 * S;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  fitFont('DEBT PAYOFF RACE (YEARS 0 → 16)', 13 * S, safeW * 0.64, '800', 'ui-monospace, monospace');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('DEBT PAYOFF RACE (YEARS 0 → 16)', safeL + 16 * S, topBarY);
-
-  // Year counter pill top-right
-  const yrStr = `YR ${(simMonth / 12).toFixed(1)}`;
-  const pillW = 86 * S, pillH = 24 * S;
-  const pillX = safeR - 14 * S - pillW;
-  ctx.fillStyle = 'rgba(239, 68, 68, 0.16)';
-  ctx.strokeStyle = 'rgba(248, 113, 113, 0.55)';
-  ctx.lineWidth = 1.2 * S;
-  ctx.beginPath();
-  ctx.roundRect(pillX, topBarY - pillH * 0.5, pillW, pillH, 12 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.textAlign = 'center';
-  fitFont(yrStr, 13 * S, pillW - 10 * S, '900', 'ui-monospace, monospace');
-  ctx.fillStyle = '#fef2f2';
-  ctx.fillText(yrStr, pillX + pillW * 0.5, topBarY);
-
-  // Chart area
-  const chL = safeL + 46 * S;
-  const chR = safeR - 16 * S;
-  const chTop = panelY + 50 * S;
-  const chBot = panelY + panelH - 72 * S;
-  const chW = chR - chL;
-  const chH = chBot - chTop;
-
-  const mToX = (m) => chL + clamp(m / MIN_MONTHS, 0, 1) * chW;
-  const bToY = (b) => chBot - clamp(b / 5000, 0, 1) * chH;
-
-  // Gridlines
-  const bTicks = [0, 2500, 5000];
-  ctx.font = `700 ${Math.round(11 * S)}px ui-monospace, monospace`;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  for (const bt of bTicks) {
-    const gy = bToY(bt);
-    ctx.strokeStyle = bt === 0 ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.12)';
-    ctx.lineWidth = bt === 0 ? 1.4 * S : 1 * S;
-    ctx.setLineDash(bt === 0 ? [] : [4 * S, 4 * S]);
-    ctx.beginPath(); ctx.moveTo(chL, gy); ctx.lineTo(chR, gy); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#64748b';
-    ctx.fillText(bt === 0 ? '$0' : `$${bt / 1000}K`, chL - 6 * S, gy);
+  // Flying sparks at active gear contact point
+  const spX = t < lExtra.start ? -1.15 : 1.25;
+  const spY = 1.15;
+  for (const s of sparks) {
+    const u = (t * 2.6 + s.seed) % 1;
+    const ang = (s.seed * 2.3) % (Math.PI * 2);
+    s.mesh.position.set(
+      spX + Math.cos(ang) * u * 1.4,
+      spY + Math.sin(ang) * u * 1.4 - u * u * 0.8,
+      0.35 + Math.sin(s.seed) * 0.25,
+    );
+    s.mesh.scale.setScalar((1 - u) * 1.2);
   }
 
-  // X-axis year ticks
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  for (const yt of [0, 4, 8, 12, 16]) {
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(`${yt}y`, mToX(yt * 12), chBot + 5 * S);
-  }
+  // Camera Choreography: orbital view -> macro on APR gear -> heroic wide shot as turbo gear locks in
+  const { camera } = stage;
+  camera.position.set(
+    Math.sin(t * 0.45) * 1.75 + lerp(0, 0.55, pExtra),
+    0.55 + Math.cos(t * 0.5) * 0.28,
+    lerp(9.6, 10.4, pExtra),
+  );
+  camera.lookAt(0, -0.1, 0);
 
-  // Draw curves up to simMonth
-  function drawDebtCurve(sched, strokeCol, glowCol, maxM, alpha) {
-    if (maxM <= 0.1) return;
-    const steps = 80;
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = strokeCol;
-    ctx.shadowColor = glowCol;
-    ctx.shadowBlur = 10 * S;
-    ctx.lineWidth = 3.4 * S;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    let lastX = chL, lastY = bToY(5000);
-    for (let i = 0; i <= steps; i++) {
-      const mf = lerp(0, maxM, i / steps);
-      const st = sampleSchedule(sched, mf);
-      const px = mToX(mf);
-      const py = bToY(st.balance);
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-      lastX = px; lastY = py;
-    }
-    ctx.stroke();
+  stage.composite(ctx, W, H);
 
-    // Leading dot
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(lastX, lastY, 4.5 * S, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = strokeCol;
-    ctx.lineWidth = 2 * S;
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  drawDebtCurve(SCHED_MIN, '#ef4444', '#dc2626', simMonth, 1.0);
-  if (pExtra > 0.05) {
-    drawDebtCurve(SCHED_EXTRA, '#10b981', '#10b981', Math.min(simMonth, EXTRA_MONTHS), pExtra);
-  }
-
-  // 3.3 YR finish marker for +$100 Extra
-  if (pExtra > 0.2 && simMonth >= EXTRA_MONTHS) {
-    const xFin = mToX(EXTRA_MONTHS);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(52, 211, 153, 0.7)';
-    ctx.lineWidth = 1.6 * S;
-    ctx.setLineDash([4 * S, 4 * S]);
-    ctx.beginPath(); ctx.moveTo(xFin, chTop); ctx.lineTo(xFin, chBot); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#34d399';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    fitFont('DONE: 3.3 YRS', 11.5 * S, 110 * S, '900', 'ui-monospace, monospace');
-    ctx.fillText('DONE: 3.3 YRS', xFin + 6 * S, chTop + 2 * S);
-    ctx.restore();
-  }
-
-  // Bottom Verdict Strip inside panel (strictly <= 73.6%H)
-  const verdY = panelY + panelH - 30 * S;
-  const pillBG = pVerd > 0.2 ? 'rgba(6, 95, 70, 0.65)' : 'rgba(15, 23, 42, 0.72)';
-  ctx.fillStyle = pillBG;
-  ctx.strokeStyle = pVerd > 0.2 ? '#34d399' : 'rgba(148, 163, 184, 0.22)';
-  ctx.lineWidth = 1.5 * S;
-  ctx.beginPath();
-  ctx.roundRect(safeL + 14 * S, verdY - 17 * S, safeW - 28 * S, 34 * S, 10 * S);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const stripText = pExtra < 0.2
-    ? 'MINIMUM PAYMENT: 16.0 YEARS · $13,301 TOTAL PAID'
-    : `+$100/MO SAVES ${fmtExact(TOTAL_SAVED)} & 12.7 YEARS!`;
-  fitFont(stripText, 14 * S, safeW - 44 * S, '900', 'ui-monospace, monospace');
-  ctx.fillStyle = pExtra < 0.2 ? '#fca5a5' : '#ecfdf5';
-  ctx.fillText(stripText, cx, verdY);
-
-  ctx.restore();
+  drawStudioHud(ctx, {
+    W,
+    H,
+    channel: 'wealth',
+    badge: t >= lExtra.start ? '+$100/MO OVERDRIVE · APR CRUSHED' : '24% APR RATCHET TRAP · 3D',
+    title: 'CREDIT CARD MINIMUM TRAP',
+    subtitle: t >= lExtra.start ? '3.3 YEARS · $6,400 INTEREST SAVED' : '$5,000 BALANCE → 16 YEARS AT MINIMUM',
+    caption: activeCaption,
+    metrics: [
+      { label: 'BALANCE', value: '$' + Math.round(balance).toLocaleString('en-US'), color: balance < 500 ? '#30D158' : '#FF3B30' },
+      { label: 'PAYOFF TIME', value: t >= lExtra.start ? '3.3 YRS' : '16.0 YRS', color: t >= lExtra.start ? '#30D158' : '#FFD60A' },
+      { label: 'TOTAL PAID', value: t >= lExtra.start ? '$6,917' : '$13,301', color: t >= lExtra.start ? '#30D158' : '#FF3B30' },
+    ],
+    progress: t / Math.max(1, DUR),
+  });
 }
 
-window.renderFrame = (t) => { drawFrame(t); };
+window.renderFrame = (t) => {
+  renderSceneAt(t);
+  return cv.toDataURL('image/jpeg', 0.92).slice(23);
+};
+
 window.renderBatch = (startFrame, count) => {
   const out = [];
   for (let i = 0; i < count; i++) {
-    drawFrame((startFrame + i) / FPS);
+    renderSceneAt((startFrame + i) / FPS);
     out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
   }
   return out;
 };
+
 window.ready = true;
 </script>
