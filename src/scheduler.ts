@@ -19,7 +19,16 @@ export type SlotDef = {
   inputs?: Record<string, string>;
   /** Aynı workflow birden çok slot türü çalıştırıyorsa (long-form), run başlığıyla ayırt et */
   titleFilter?: RegExp;
+  // 2 günde 1 çalışan slotlar: "odd" = ayın tek günleri (cron gün alanı: yıldız/2), "even" = çift günleri (cron "2-30/2")
+  days?: "odd" | "even";
 };
+
+/** Slot bu UTC gününde çalışır mı? (cron'daki tek/çift gün kuralıyla birebir) */
+export function slotRunsOnDay(slot: SlotDef, d: Date): boolean {
+  if (!slot.days) return true;
+  const dom = d.getUTCDate();
+  return slot.days === "odd" ? dom % 2 === 1 : dom % 2 === 0 && dom <= 30;
+}
 
 const everyTwoHours: Array<[number, number]> = Array.from({ length: 12 }, (_, i) => [i * 2, 23] as [number, number]);
 
@@ -27,9 +36,13 @@ export const SLOTS: SlotDef[] = [
   // Altın Denge (100% ABD Prime Time): günde 2 Short/kanal (09:xx & 14:xx New York / 06:xx & 11:xx LA)
   { key: "physics-shorts", workflow: "auto-publish-physics.yml", times: [[14, 7], [19, 7]], lookbackMin: 240 },
   { key: "explainer-shorts", workflow: "auto-publish-explainer.yml", times: [[14, 37], [19, 37]], lookbackMin: 240 },
+  // 4 kanallı ağ: Wealth & Bio shorts (cron ile birebir)
+  { key: "wealth-shorts", workflow: "auto-publish-wealth.yml", times: [[14, 17], [19, 17]], lookbackMin: 240 },
+  { key: "bio-shorts", workflow: "auto-publish-bio.yml", times: [[14, 47], [19, 47]], lookbackMin: 240 },
   {
     key: "longform-explainer",
     workflow: "auto-publish-longform.yml",
+    days: "odd",
     times: [[14, 15]],
     lookbackMin: 360,
     inputs: { channel: "explainer" },
@@ -38,10 +51,29 @@ export const SLOTS: SlotDef[] = [
   {
     key: "longform-physics",
     workflow: "auto-publish-longform.yml",
+    days: "even",
     times: [[15, 15]],
     lookbackMin: 360,
     inputs: { channel: "physics" },
     titleFilter: /Long-Form (physics|both)/,
+  },
+  {
+    key: "longform-wealth",
+    workflow: "publish-longform-expansion.yml",
+    days: "odd",
+    times: [[16, 30]],
+    lookbackMin: 360,
+    inputs: { channel: "wealth" },
+    titleFilter: /Long-Form Expansion wealth/,
+  },
+  {
+    key: "longform-bio",
+    workflow: "publish-longform-expansion.yml",
+    days: "even",
+    times: [[17, 30]],
+    lookbackMin: 360,
+    inputs: { channel: "bio" },
+    titleFilter: /Long-Form Expansion bio/,
   },
   { key: "engagement", workflow: "engagement.yml", times: everyTwoHours, lookbackMin: 110 },
   { key: "telegram-monitor", workflow: "telegram-monitor.yml", times: [[0, 15], [6, 15], [12, 15], [18, 15]], lookbackMin: 300 },
@@ -53,6 +85,7 @@ export function latestOccurrence(slot: SlotDef, now: Date): Date | null {
   for (const dayOffset of [0, -1]) {
     for (const [h, m] of slot.times) {
       const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + dayOffset, h, m, 0));
+      if (!slotRunsOnDay(slot, d)) continue;
       if (d.getTime() <= now.getTime() && (!best || d > best)) best = d;
     }
   }
@@ -64,9 +97,10 @@ export function latestOccurrence(slot: SlotDef, now: Date): Date | null {
 export function nextOccurrenceAll(slots: SlotDef[], now: Date): { slot: SlotDef; at: Date } | null {
   let best: { slot: SlotDef; at: Date } | null = null;
   for (const slot of slots) {
-    for (const dayOffset of [0, 1]) {
+    for (const dayOffset of [0, 1, 2]) {
       for (const [h, m] of slot.times) {
         const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + dayOffset, h, m, 0));
+        if (!slotRunsOnDay(slot, d)) continue;
         if (d.getTime() > now.getTime() && (!best || d < best.at)) best = { slot, at: d };
       }
     }

@@ -44,3 +44,21 @@ test("nextOccurrenceAll: en yakın gelecek slotu bulur (gün geçişi dahil)", a
   const b = nextOccurrenceAll(SLOTS, new Date("2026-11-26T23:40:00Z"))!;
   assert.equal(b.at.toISOString(), "2026-11-27T00:15:00.000Z");
 });
+
+test("4 kanal: Wealth/Bio zamanlayıcıda; uzun videolar tek/çift günlere göre", async () => {
+  const { latestOccurrence, nextOccurrenceAll, slotRunsOnDay } = await import("../src/scheduler.js");
+  const s = (k: string) => SLOTS.find((x) => x.key === k)!;
+  assert.ok(s("wealth-shorts") && s("bio-shorts") && s("longform-wealth") && s("longform-bio"));
+  // 28 Kasım (çift gün): explainer/wealth uzun video YOK, physics/bio VAR
+  const nov28 = new Date("2026-11-28T18:00:00Z");
+  assert.equal(latestOccurrence(s("longform-explainer"), nov28), null);
+  assert.equal(latestOccurrence(s("longform-physics"), nov28)?.toISOString(), "2026-11-28T15:15:00.000Z");
+  assert.equal(latestOccurrence(s("longform-bio"), nov28)?.toISOString(), "2026-11-28T17:30:00.000Z");
+  assert.equal(latestOccurrence(s("longform-wealth"), nov28), null);
+  // 31 → 1 geçişi: ikisi de tek gün (cron "*/2" ile aynı), çift gün slotu 31'de çalışmaz
+  assert.equal(slotRunsOnDay(s("longform-physics"), new Date("2026-12-31T15:15:00Z")), false);
+  assert.equal(slotRunsOnDay(s("longform-explainer"), new Date("2027-01-01T14:15:00Z")), true);
+  // Sıradaki slot hesabı gün filtresine uyar
+  const n = nextOccurrenceAll(SLOTS.filter((x) => x.key.startsWith("longform-")), new Date("2026-11-28T18:00:00Z"))!;
+  assert.equal(n.at.toISOString(), "2026-11-29T14:15:00.000Z");
+});

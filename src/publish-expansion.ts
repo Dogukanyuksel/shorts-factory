@@ -21,7 +21,9 @@ import {
   buildScrollStopHook,
   buildYouTubeNetworkFooter,
 } from "./network-links.js";
+import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
 import { runVideoQc } from "./qc.js";
+import { syncPublishedStateFromRemote } from "./state-sync.js";
 import { synthesizeVoice } from "./voice.js";
 import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
 import { buildWordCaptionCanvasSnippet } from "./word-captions.js";
@@ -282,10 +284,19 @@ async function main() {
   const privacy = (process.env.YOUTUBE_PRIVACY || "public") as "public" | "unlisted" | "private";
   const meta = EXPANSION_CHANNEL_META[channel];
 
+  // Başka bir run (zamanlayıcı / gecikmiş cron) bu arada yayın yaptıysa onu da gör
+  syncPublishedStateFromRemote(STATE_PATH);
   let published: ExpansionPublishedRecord[] = [];
   if (existsSync(STATE_PATH)) {
     const parsed = JSON.parse(await readFile(STATE_PATH, "utf8")) as { published?: ExpansionPublishedRecord[] };
     published = parsed.published ?? [];
+  }
+  // Çift yayın koruması: zamanlayıcı + gecikmiş cron aynı slotta 2 short yayınlamasın
+  const minGapHours = resolveMinGapHours();
+  const sinceLast = hoursSinceLastPublish(published, channel, "short");
+  if (!dryRun && minGapHours > 0 && sinceLast < minGapHours) {
+    console.log(`[expansion] "${channel}" son short ${sinceLast.toFixed(1)} saat önce (< ${minGapHours}); çift yayını önlemek için atlanıyor.`);
+    return;
   }
   const publishedIds = new Set(published.map((r) => r.id));
   const job = pickNextExpansionJob(channel, publishedIds);
