@@ -198,9 +198,9 @@ async function main() {
                   ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 22 * S); ctx.fill();
                   ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.2 * S; ctx.stroke();
                   ctx.textAlign = "center";
-                  fitText(ctx, "🔔 CLEAR MECHANICS • FULL 4-MIN ON YOUTUBE →", boxW - 26 * S, 15, 10, S, 900);
+                  fitText(ctx, "👇 FULL BREAKDOWN IN LINK BELOW • CLEAR MECHANICS", boxW - 26 * S, 15, 10, S, 900);
                   ctx.fillStyle = "#ffffff";
-                  ctx.fillText("🔔 CLEAR MECHANICS • FULL 4-MIN ON YOUTUBE →", W * 0.5, by + 28 * S);
+                  ctx.fillText("👇 FULL BREAKDOWN IN LINK BELOW • CLEAR MECHANICS", W * 0.5, by + 28 * S);
                 }
                 ctx.restore();
               }

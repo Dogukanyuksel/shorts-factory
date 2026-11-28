@@ -162,9 +162,9 @@ async function main() {
         console.warn("[longform-expansion] Kapak görseli uyarısı:", thErr);
       });
     }
-    const comment = `🎬 Which act blew your mind the most? Drop the timestamp below! Subscribe to ${meta.brandName} for our next 4-act 60fps deep dive.`;
+    const comment = `🎬 Which part changed how you think about this? Drop the timestamp below — and subscribe to ${meta.brandName} for the next deep dive.`;
     await postYouTubeTopLevelComment(uploaded.videoId, comment, token);
-    const plId = await ensureYouTubePlaylist(`${meta.brandName} — 4-Act Deep Dives`, `Full 16:9 60fps visual deep dives by ${meta.brandName}.`, token);
+    const plId = await ensureYouTubePlaylist(`${meta.brandName} — Deep Dives`, `Full 16:9 3D visual deep dives by ${meta.brandName}.`, token);
     if (plId) await addVideoToPlaylist(plId, uploaded.videoId, token);
   } catch (e) {
     console.warn("[longform-expansion] İlk yorum/playlist uyarısı:", e);

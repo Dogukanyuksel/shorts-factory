@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fetchWithRetry } from "./devops.js";
+import { applyPhoneticOverrides } from "./phonetic-overrides.js";
 
 export type VoiceChannelId = "physics" | "explainer" | "wealth" | "bio";
 
@@ -177,6 +178,7 @@ export async function synthesizeVoice(
   opts: { role?: VoiceRole } = {},
 ): Promise<string> {
   const role: VoiceRole = opts.role ?? "primary";
+  const spokenText = applyPhoneticOverrides(text);
   const openaiKey = process.env.OPENAI_API_KEY?.trim();
   if (openaiKey) {
     try {
@@ -192,7 +194,7 @@ export async function synthesizeVoice(
           body: JSON.stringify({
             model: "gpt-4o-mini-tts",
             voice: cfg.voice,
-            input: text,
+            input: spokenText,
             instructions: cfg.instructions,
             response_format: "mp3",
           }),
@@ -215,7 +217,7 @@ export async function synthesizeVoice(
     try {
       const tts = await getKokoro();
       const cfg = resolveKokoroConfig(channel, role);
-      const audio = await tts.generate(text, { voice: cfg.voice, speed: cfg.speed });
+      const audio = await tts.generate(spokenText, { voice: cfg.voice, speed: cfg.speed });
       const wavOut = outFile.endsWith(".wav") ? outFile : `${outFile}.wav`;
       await audio.save(wavOut);
       return wavOut;
@@ -235,7 +237,7 @@ export async function synthesizeVoice(
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ metin: text, ses: fallbackSes, dil: "en" }),
+        body: JSON.stringify({ metin: spokenText, ses: fallbackSes, dil: "en" }),
       },
       { retries: 3, baseDelayMs: 2000, timeoutMs: 25_000 },
     );
@@ -252,7 +254,7 @@ export async function synthesizeVoice(
 
   if (process.platform === "darwin") {
     const aiff = `${outFile}.aiff`;
-    await runBin("say", ["-v", "Samantha", "-r", "195", "-o", aiff, text]);
+    await runBin("say", ["-v", "Samantha", "-r", "195", "-o", aiff, spokenText]);
     return aiff;
   }
 
@@ -266,10 +268,10 @@ export async function synthesizeVoice(
 
   const wav = `${outFile}.wav`;
   try {
-    await runBin("espeak-ng", ["-v", "en-us", "-s", "170", "-w", wav, text]);
+    await runBin("espeak-ng", ["-v", "en-us", "-s", "170", "-w", wav, spokenText]);
     return wav;
   } catch {
-    await runBin("espeak", ["-v", "en-us", "-s", "170", "-w", wav, text]);
+    await runBin("espeak", ["-v", "en-us", "-s", "170", "-w", wav, spokenText]);
     return wav;
   }
 }

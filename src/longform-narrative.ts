@@ -891,7 +891,7 @@ export const NARRATIVE_LONGFORM_SPECS: NarrativeLongformSpec[] = [
         actTitle: "4. 432 Hz to 4,096 Hz Spectrum",
         visualPhase: "series-outro",
         caption: "SUBSCRIBE FOR NEXT SIMULATION",
-        text: "Sound isn't just something you hear — it is moving geometry. Subscribe to Kinetic Lab for our next 60fps physics deep dive.",
+        text: "Sound isn't just something you hear — it is moving geometry. Subscribe to Kinetic Lab to see the hidden physics behind everyday reality.",
       },
     ],
     derivedShorts: [
@@ -1227,7 +1227,7 @@ export const NARRATIVE_LONGFORM_SPECS: NarrativeLongformSpec[] = [
         actTitle: "4. Earth vs Sun vs Sagittarius A*",
         visualPhase: "series-outro",
         caption: "SUBSCRIBE FOR NEXT DEEP DIVE",
-        text: "Black holes are nature's ultimate physics laboratory. Subscribe to Kinetic Lab for our next 60fps simulation deep dive.",
+        text: "Black holes are nature's ultimate physics laboratory. Subscribe to Kinetic Lab to explore the next mind-bending simulation.",
       },
     ],
     derivedShorts: [
@@ -1300,7 +1300,7 @@ export const NARRATIVE_LONGFORM_SPECS: NarrativeLongformSpec[] = [
       { id: "w4-bridge", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "dividend-snowball-drip", caption: "DRIP DIVIDEND SNOWBALL", isBridge: true, text: "Put time, low fees, and automatic reinvestment together and watch the final phase take over." },
       { id: "w4-snowball", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "dividend-snowball-drip", caption: "$150/YR → $1,550/MO PASSIVE", text: "Every reinvested dividend buys more shares that pay their own dividends — growing a tiny trickle into over fifteen hundred dollars a month by year thirty." },
       { id: "w4-scorecard", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "final-blueprint-scorecard", caption: "4-PILLAR WEALTH BLUEPRINT", text: "Start early, eliminate high-APR drag, automate twenty percent, and never interrupt compounding during crashes." },
-      { id: "w4-outro", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "series-outro", caption: "SUBSCRIBE TO WEALTH MECHANICS", text: "Subscribe to Wealth Mechanics for daily sixty-frames-per-second breakdowns of how money actually works." },
+      { id: "w4-outro", actIndex: 3, actKind: "comparison", actTitle: "4. The Unstoppable Snowball", visualPhase: "series-outro", caption: "SUBSCRIBE TO WEALTH MECHANICS", text: "Subscribe to Wealth Mechanics so you never lose another dollar to invisible financial traps." },
     ],
     derivedShorts: [
       {
@@ -1369,7 +1369,7 @@ export const NARRATIVE_LONGFORM_SPECS: NarrativeLongformSpec[] = [
       { id: "bio4-bridge", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "glymphatic-brain-wash", caption: "THE BRAIN'S DISHWASHER", isBridge: true, text: "And every night when you finally close your eyes, your body switches on its most astonishing hidden maintenance cycle." },
       { id: "bio4-sleep", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "glymphatic-brain-wash", caption: "NEURONS SHRINK 60% TO FLUSH", text: "During deep sleep, brain cells shrink by up to sixty percent, opening microscopic channels so cerebrospinal fluid can flush out toxic metabolic plaques." },
       { id: "bio4-gut", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "gut-brain-vagus-highway", caption: "500M GUT NEURONS • 90% SEROTONIN", text: "Meanwhile, five hundred million gut neurons manufacture ninety percent of your serotonin and beam eighty percent of vagus nerve signals upward to your brain." },
-      { id: "bio4-outro", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "series-outro", caption: "SUBSCRIBE TO BIO MECHANICS", text: "Subscribe to Bio Mechanics for daily sixty-frames-per-second journeys inside the human machine." },
+      { id: "bio4-outro", actIndex: 3, actKind: "comparison", actTitle: "4. The Nightly Reset & Second Brain", visualPhase: "series-outro", caption: "SUBSCRIBE TO BIO MECHANICS", text: "Subscribe to Bio Mechanics to understand what is happening inside your body right now." },
     ],
     derivedShorts: [
       {

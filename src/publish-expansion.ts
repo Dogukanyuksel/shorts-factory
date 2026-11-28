@@ -144,7 +144,7 @@ async function renderExpansionEpisode(job: ExpansionJob, epNumber: number): Prom
         const durVal = ${JSON.stringify(totalSec)};
         const badgeText = ${JSON.stringify(epBadge)};
         const hookText = ${JSON.stringify(hookBanner)};
-        const handleText = ${JSON.stringify(`🔔 ${meta.brandName.toUpperCase()} • FOLLOW FOR DAILY 60FPS`)};
+        const handleText = ${JSON.stringify(`👇 FULL SIMULATION IN LINK BELOW • ${meta.brandName.toUpperCase()}`)};
         const accent = ${JSON.stringify(meta.accentHex)};
         ${wordCapSnippet}
         let frameIdx = 0;
@@ -409,9 +409,9 @@ async function main() {
 
   try {
     const token = await refreshAccessToken({ clientId, clientSecret, refreshToken });
-    const comment = `🔔 Subscribe to ${meta.brandName} for a new 60fps breakdown every day! What topic should we animate next?`;
+    const comment = `👇 Watch the full step-by-step breakdown in the Related Video link! Which mistake costs people the most?`;
     await postYouTubeTopLevelComment(uploaded.videoId, comment, token);
-    const plId = await ensureYouTubePlaylist(meta.playlistTitle, `${meta.brandName} — Daily 60fps Visual Breakdowns`, token);
+    const plId = await ensureYouTubePlaylist(meta.playlistTitle, `${meta.brandName} — Daily 3D Visual Breakdowns`, token);
     if (plId) await addVideoToPlaylist(plId, uploaded.videoId, token);
   } catch (e) {
     console.warn("[expansion] YouTube ilk yorum/playlist uyarısı:", e);
