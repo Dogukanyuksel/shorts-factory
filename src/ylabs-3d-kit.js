@@ -59,6 +59,15 @@ export const smooth = (a, b, t) => {
   return x * x * (3 - 2 * x);
 };
 export const easeOutCubic = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
+export const easeOutBack = (x, c1 = 1.70158) => {
+  const t = clamp(x, 0, 1) - 1;
+  return 1 + (c1 + 1) * t * t * t + c1 * t * t;
+};
+export const microShake = (t, eventT, amp = 0.08, dur = 0.16) => {
+  const dt = t - eventT;
+  if (dt < 0 || dt > dur) return 0;
+  return amp * Math.exp(-22 * dt) * Math.sin(48 * dt);
+};
 
 export function createStudioStage({
   width = 720,
