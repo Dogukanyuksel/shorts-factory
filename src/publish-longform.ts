@@ -6,6 +6,7 @@ import { hoursSinceLastPublish, resolveMinGapHours } from "./devops.js";
 import { assertUploadChannel, ChannelMismatchError } from "./channel-guard.js";
 import { enqueueDerivedShorts } from "./derive-shorts.js";
 import { pickNarrativeLongform } from "./longform-narrative.js";
+import { runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
 import { renderLongformVideo } from "./render-longform.js";
 import { renderNarrativeLongformVideo } from "./render-narrative.js";
@@ -176,6 +177,17 @@ async function main() {
   const refreshToken = resolveRefreshToken(channel);
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error(`YouTube API secret'ları eksik (${channel})!`);
+  }
+
+  const policy = runPolicyGuard({
+    channel,
+    title: rendered.title,
+    description: fullDescription,
+    recentTitles: state.published.slice(-60).map((p) => p.title),
+  });
+  for (const w of policy.warnings) console.warn(`[policy-guard] ⚠️ ${w}`);
+  if (!policy.ok) {
+    throw new Error(`[policy-guard] Yayın engellendi: ${policy.errors.join(" | ")}`);
   }
 
   console.log(`[publish-longform] YouTube'a yükleniyor (${privacy})...`);

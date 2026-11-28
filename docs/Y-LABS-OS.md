@@ -1,81 +1,64 @@
-# 🏭 Y-LABS OS — Otonom 4-Kanal Medya & Büyüme İşletim Sistemi (v2.0 Spec)
+# Y-LABS OS v2.2 — Otonom 4 Kanallı Medya İşletim Sistemi
 
-> **Amaç:** *Kinetic Lab*, *Clear Mechanics*, *Wealth Mechanics* ve *Bio Mechanics* kanallarının her birini **1 Şubat 2027** öncesi **1.000 Abone + 4.000 Geçerli İzlenme Saati (YPP)** eşiğine ulaştırmak ve yüksek RPM'li global (ABD/İngilizce) sürdürülebilir gelir motoruna dönüştürmek.
-> **Tasarım Felsefesi:** Akademik süsleme yok; her kural kodda denetlenebilir **sayısal kısıtlarla** tanımlanır.
-
----
-
-## 1. AKTİF 4 KANAL & MARKA KİTLERİ (ABD Prime Time)
-
-| Kanal | YouTube / Instagram | Renk Paleti (BG / Primary / Accent) | Görsel Motor & RPM Hedefi |
-| :--- | :--- | :--- | :--- |
-| **Kinetic Lab HQ** | `@kineticlabshorts` / `@kineticlab.motion` | `#0B0F19` / `#00F0FF` / `#FF3B30` | 60fps 2D/3D Fizik Simülasyonu (`$3–$6 RPM`) |
-| **Clear Mechanics** | `@clearmechanicsshorts` / `@clearmechanics.lab` | `#141414` / `#FF9500` / `#FFFFFF` | Three.js 3B PBR X-Ray & Mühendislik (`$5–$9 RPM`) |
-| **Wealth Mechanics** | `@wealthmechanicsshorts` / `@wealthmechanics.hq` | `#090D16` / `#FFD60A` / `#30D158` | Bileşik Matematik & Finans Data-Viz (`$12–$22 RPM`) |
-| **Bio Mechanics** | `@biomechanicshq` / `@biomechanics.hq` | `#0D1117` / `#34C759` / `#FF2D55` | Biyolüminesans Anatomi & Kuvvet Vektörü (`$8–$14 RPM`) |
+> **Yaşayan İşletim Sistemi:** Her araştırma, her canlı yayın verisi ve her politika güncellemesi bu dokümanı ve kaynak kodu doğrudan evrimleştirir. Her kural kanıt düzeyine göre etiketlenir: **`[RESMİ]`** (YouTube / platform belgesi), **`[VERİ]`** (ölçülmüş araştırma/analitik), **`[GÖRÜŞ]`** (stüdyo uzlaşısı / deney).
 
 ---
 
-## 2. SAYISAL ÜRETİM KURALLARI (Her Karede Zorunlu)
+## 1. Stratejik Hedef ve YPP Eşikleri `[RESMİ]`
 
-| Parametre | Shorts (9:16 — 1080×1920, 60fps) | Pillar Uzun Video (16:9 — 1920×1080, 60fps) |
-| :--- | :--- | :--- |
-| **Süre Bandı** | `30–42 sn` | `5–6 dk` (monotonlaşma olmadan max saat getirisi) |
-| **İlk Kanca (Hook)** | `0.0–1.75 sn` sessiz görsel kırılma + Prediction Error | `0.0–5.0 sn` kapak vaadini anında görselle doğrulama (sıfır intro) |
-| **Görsel Ritim** | Her `3.5–5.0 sn` yeni aksiyon / veri katmanı | Her `15–25 sn` faz değişimi + her `60 sn` bölüm ödülü |
-| **Geçiş Süresi** | `transitionMs >= 350` (sert 1-2 sn sıçrama yasak) | `transitionMs >= 350` cross-dissolve + kamera easing |
-| **Odak Sınırı** | `maxFocalElements <= 2` (merkez %40 güvenli alan) | `maxFocalElements <= 2` + Spotlight (%100 aktif / %35 pasif) |
-| **Altyazı Kuralı** | `2–3 kelime/parça` Word-Pop + aktif kelime Accent glow | **Tam metin altyazı YASAK** — yalnızca 2–3 kelimelik vurgu etiketi |
-| **Ses & Akustik** | `acousticLeadMs = 50` (SFX görselden 50 ms önce), `-14 LUFS`, auto-ducking | `acousticLeadMs = 50`, `-14 LUFS`, konuşma aralarında BGM swell |
-| **Döngü / Çıkış** | Seamless Loop (`t=0 === t=DUR`) + İkili Seçim Yorum Kancası | Son 15 sn **Oturum Köprüsü (Session Bridge)** → kanalın 2. videosu |
-| **Yayın Ritmi** | Günde **2 Short / kanal** (`UTC 14:xx` & `19:xx`) | **2 günde 1 Uzun Video / kanal** (`MIN_PUBLISH_GAP_HOURS = 40`) |
+- **Ağ Yapısı:** 4 İngilizce (ABD Prime Time / Tier-1 RPM) kanal **eşzamanlı** büyütülür; kanal kapatılmaz, render ve üretim odağı haftalık performansa göre dinamik kaydırılır.
+- **Faz 1 — 1 Şubat 2027 Sprinti `[RESMİ]`:** 1 Şubat 2027 öncesinde **1.000 abone + 4.000 saat genel izlenme** eşiğini yakalayan her kanal, eşiği geçtiği gün YPP başvurusu yapar.
+- **Faz 2 — 1 Şubat 2027 Sonrası Bileşik Motor `[RESMİ]`:** YouTube 1 Şubat 2027'de YPP giriş eşiğini **8.000 saat / 20M Shorts izlenmesine** çıkarır. Kurduğumuz 6–8 dakikalık 4-Perdeli derin videolar her iki eşiğe de doğrudan hizmet eder.
 
 ---
 
-## 3. ✅ MEVCUT SİSTEMDE CANLI OLANLAR (`origin/main`)
+## 2. 4 Kanallı Marka ve Kokoro-82M (\$0/ay) Ses Mimarisi
 
-1. **Tam Otonom 4-Kanal Yayın Hattı (GitHub Actions — 0 Sunucu Maliyeti):**
-   - 2 ayrı Google Cloud projesi (her kanal çifti için ayrı 10.000 YouTube API kotası) + `Channel Guard` yanlış kanal kilidi.
-   - 4 kanalın tamamında **YouTube Shorts + Instagram Reels** paralel yayını + 4'lü kardeş ağ çapraz linkleri (`src/network-links.ts` — IG'de `@` yalnızca gerçek IG hesaplarında).
-   - **Altın Ritim (v1.5):** Tüm kanallarda günde 2 Short + 2 günde 1 16:9 Uzun Video + `40 saat` `narrative-*` uzun video aralık koruması (`src/devops.ts`).
-2. **Çift Motorlu Deterministik 60fps Render Hattı:**
-   - Saf HTML5 Canvas (30 Kinetic Lab nişi, 44 Clear Mechanics bölümü, 9 Wealth + 10 Bio bölümü, 8 adet 4-perdeli 16:9 Deep Dive).
-   - Offline **Three.js 3B WebGL PBR** motoru (`src/webgl-helper.ts`, SwiftShader, `gyroscope-3d` & `car-differential-3d`).
-3. **Retention & Büyüme Modülleri:**
-   - 60fps **Word-Pop Dinamik Altyazı** (`src/word-captions.ts` — 2–3 kelime, yay animasyonu, sıfır GPU).
-   - İlk `1.75 sn` sessiz Scroll-Stop kanca + kesintisiz Loop yüzer rozet + 2026 DM paylaşım tetikleyicisi.
-   - Prosedürel SFX + konuşmada otomatik ducking'li telifsiz synth BGM + `-14 LUFS` (`src/audio.ts`).
-   - 1 Pillar 16:9 → 3 Vitrin Short otomatik huni kuyruğu (`src/derive-shorts.ts`) + Telegram 1-dokunuş Studio Related Video linki.
-   - `1280×720` otomatik kapak yükleme (`thumbnails.set` — `src/youtube.ts`).
-4. **Otonom Yönetim & Koruma:**
-   - **6 Saatlik 4-Kanallı Direktör (`src/channel-director.ts`):** YT + IG metrikleri, toplam izlenme ağırlıklı `viralScore`, kazanan formatı her 2 slotta 1 otomatik öne alma + Telegram strateji kartı.
-   - **Watchdog (`src/scheduler.ts` — her 10 dk)**, **Organik Yorum Yanıtı (her 2 saat)**, **QC Gate (`src/qc.ts`)**, kayıpsız paralel state birleştirme (`src/safe-git-push.ts`) ve **47/47 unit test**.
+YouTube'un **"tekrarlayan / şablon seri üretim" (`Help 1311392`) `[RESMİ]`** ret riskini kırmak ve kanal bazlı marka hafızası (brand recall) oluşturmak için 4 kanal **2 Erkek + 2 Kadın** dengesinde 4 benzersiz ABD İngilizcesi nöral ses kullanır (`src/voice.ts`):
+
+| Kanal | YouTube / Instagram | İmza Ses (Shorts + Perde 1/3/4) | Kalite Notu | Uzun Video Perde-2 Co-Host |
+| :--- | :--- | :--- | :---: | :--- |
+| **1. Kinetic Lab HQ** (`physics`) | `@kineticlabshorts` / `@kineticlab.motion` | `am_fenrir` (Erkek · 1.04x) | C+ | `af_bella` (Kadın) |
+| **2. Clear Mechanics** (`explainer`) | `@clearmechanicsshorts` / `@clearmechanics.lab` | `am_michael` (Erkek · 1.00x) | C+ | `af_heart` (Kadın) |
+| **3. Wealth Mechanics** (`wealth`) | `@wealthmechanicsshorts` / `@wealthmechanics.hq` | `af_bella` (Kadın · 0.98x) | **A-** | `am_michael` (Erkek) |
+| **4. Bio Mechanics** (`bio`) | `@biomechanicshq` / `@biomechanics.hq` | `af_heart` (Kadın · 1.00x) | **A** | `am_fenrir` (Erkek) |
+
+### Ses Motoru Kuralları
+1. **Birincil (\$0/ay, Apache-2.0):** `kokoro-js` (`onnx-community/Kokoro-82M-v1.0-ONNX`, `q8`, CPU). Ağırlıklar (~92 MB) `~/.cache/kokoro-82m` altında tutulur ve 6 GitHub Actions yayın iş akışında `actions/cache@v4` ile önbelleklenir.
+2. **Uzun Video Co-Host Kuralı `[GÖRÜŞ]`:** Shorts'larda kanalın tek imza sesi sabit kalır (marka hafızası). 6–8 dakikalık 4-Perdeli uzun videolarda **Perde 2** karşı cinsiyette Co-Host tarafından seslendirilerek 2. dakikadaki kulak yorgunluğu kırılır; Perde 1, 3 ve 4 ana imza seste kalır.
+3. **Üretim Yasağı:** Robotik `espeak-ng` üretimde kesinlikle yasaktır (`DRY_RUN=true` hariç). Microsoft'un resmî olmayan `Edge TTS` uç noktası kullanılmaz.
 
 ---
 
-## 4. 🚀 YENİ EKLENECEK MODÜLLER (Y-LABS OS v2.0 Yol Haritası)
+## 3. Yayın Ritmi ve Çoklu Platform Dağıtımı
 
-1. **Gerçek Sinematik 16:9 Kapak Stüdyosu (`assets/thumbnails/*.jpg`):**
-   - Canvas "slayt" kapağı yerine her 16:9 amiral video için **AI görüntü üretim modeli (`generate_image`) + keskin 2–3 kelimelik (başlığı tekrar etmeyen) 3-Öğe Göz-Takibi kapağı** → hedef `%7–12 CTR`.
-2. **Sıfır Robotik Ses Kilidi (`src/voice.ts`):**
-   - Birincil Yüksel Medya Nöral TTS API + yedek olarak **`espeak-ng` yasağı** yerine ücretsiz **Microsoft Edge Neural TTS (`en-US-AndrewMultilingualNeural`)** emniyet ağı.
-3. **50 ms Akustik Öncelik (`src/audio.ts`):**
-   - Tüm çarpışma/kırılma/geçiş SFX olaylarının görsel kareden **50 ms önce (`Math.max(0, ev.t - 0.05)`)** tetiklenmesi.
-4. **Sinematik `350 ms` Cross-Dissolve + Spotlight Yönetmenliği:**
-   - Sert 1–2 sn sahne sıçramalarını bitirmek için tüm yeni uzun/kısa sahnelerde `350 ms` yumuşak geçiş + aktif parça `%100` parlak / pasif arka plan `%35` karartma.
-5. **5–6 Dakikalık "Midpoint Twist + Session Bridge" Pillar Motoru:**
-   - Monotonlaşmadan yüksek AVD tutan, ortasında ters köşe barındıran ve son 15 sn'de kanalın 2. videosuna bağlanan 5–6 dakikalık amiral videolar (10–12 tutarlı videoyla kümülatif 4.000 saat).
-6. **Render Sonrası Görsel/Ses QA + Veri-Güdümlü Eleme Döngüsü:**
-   - `src/qc.ts` içine otomatik kare taşma/donuk kare/ses-senkron denetimi.
-   - Haftalık YouTube Studio *"Stayed to Watch"* verisiyle `< %60` formatları kuyruktan eleme ve `> %70` kanıtlanmış kazananları 5–6 dakikalık Pillar videoya yükseltme.
-7. **Opsiyonel Offline `matter-js` 2D Fizik Köprüsü:**
-   - `three.module.js` gibi `matter.min.js`'yi `webgl-helper.ts`'ye bağlayıp gelecek Kinetic Lab sahnelerinde gerçek rigid-body fizik motoru kullanımı.
+- **Altın Ritim `[VERİ]`:** Kanal başına **günde 2 Short** (ABD Prime Time `UTC 14:xx` ve `19:xx`) + **2 günde 1 Uzun Video (16:9)** (tek/çift günlere dağıtılmış, `MIN_PUBLISH_GAP_HOURS=40`).
+- **Platformlar:** Her Short **YouTube Shorts + Instagram Reels** olarak yayınlanır. Facebook Reels varsayılan olarak kapalıdır (`ENABLE_FACEBOOK_REELS=true` verilmedikçe çalışmaz).
+- **Çapraz Ağ Linkleri (`src/network-links.ts`):** Instagram açıklamalarında YouTube kanal adının başına asla `@` konmaz; `@` yalnız 4 gerçek kardeş Instagram hesabımız için kullanılır.
 
 ---
 
-## 5. ❌ BİLİNÇLİ OLARAK REDDEDİLENLER (Neden Almıyoruz?)
+## 4. İçerik, Tutma (Retention) ve Politika Kalkanları
 
-- **`Remotion` + `WhisperX` + `fal.ai` / `ChatCut`:** GPU/lisans maliyeti ve 3× yavaş render yaratır; mevcut saf Canvas + Three.js + `word-captions.ts` motorumuz ücretsiz CPU runner'da çok daha hızlı ve deterministiktir.
-- **8+ Dakikalık Saf Prosedürel Video:** 5–6 dakikadan sonra prosedürel grafikte görsel monotonluk ve TTS tonlama düzleşmesi başlar; ideal nokta **5–6 dk**dır.
-- **Varsayılan Facebook Reels:** `ENABLE_FACEBOOK_REELS=true` verilmedikçe kapalı (`src/facebook.ts`).
-- **Aynı Gün 4–6 Video Basmak:** Spam/cannibalization riskini sıfırlamak için günde 2 Short + 2 günde 1 Uzun **Altın Ritim** kilitlidir.
+1. **Shorts (`1080×1920`, 60fps, 28–42 sn) `[GÖRÜŞ/VERİ]`:**
+   - İlk 2 saniyede görsel kırılma + üst Safe-Zone sessiz kanca rozeti (`0–1.75 sn`).
+   - 2–3 kelimelik dinamik Canvas Word-Pop altyazı (`src/word-captions.ts`) + kanal vurgu rengi.
+   - Bağımsız Shorts kesintisiz döngüyle (loop) biter; uzun videodan türetilen Vitrin Shorts'lar son bölümde ilgili uzun videoya yönlendirir `[RESMİ]`.
+2. **4-Perdeli Uzun Videolar (`1920×1080`, hedef 6–8 dk) `[GÖRÜŞ]`:**
+   - Tek konu üzerinde 4 bütünlüklü perde: Kanca → Çekirdek Mekanizma (Co-Host) → Limit/Arıza Durumu → Sentez.
+   - İlk 5 saniyede kapaktaki vaat doğrudan gösterilir `[RESMİ]`.
+   - Her uzun video için **3 farklı `1280×720` kapak varyantı** (`-thumb.jpg`, `-thumb-B.jpg`, `-thumb-C.jpg` — Studio `Test & Compare` için) + yerel `.srt` kapalı altyazı dosyası otomatik üretilir.
+3. **Politika & Benzerlik Kapısı (`src/policy-guard.ts`) `[RESMİ]`:**
+   - Tüm 4 kanalda (Shorts + Uzun Video) yüklemeden önce çalışır.
+   - Son 60 başlıkla Jaccard n-gram benzerliği `>= 0.78` ise yayını durdurur, `>= 0.62` ise uyarır.
+   - `wealth` ve `bio` kanallarında "yapay zekâ doktor/yatırım danışmanı" kimliğini engeller ve `"For educational purposes only"` ibaresini otomatik garanti eder.
+4. **Ses & Teknik Kalite (`src/audio.ts`, `src/qc.ts`):**
+   - `-14 LUFS` ses normalizasyonu, `50 ms` kırılma / `25 ms` sekme akustik öncelik, H.264 `yuv420p` 60fps/30fps deterministik render.
+   - `src/channel-director.ts` 4 kanalın tamamını izler; 10K+ patlama yapan konuları `boostedNiches[0]` olarak kilitleyip klon frekansını artırır.
+
+---
+
+## 5. Gelişim Günlüğü (Living Changelog)
+- **v2.0:** 4 kanallı ağ + 4-Perdeli 16:9 derin videolar + Altın Ritim zamanlayıcısı.
+- **v2.1:** Word-Pop altyazılar, `policy-guard.ts`, 3 kapak varyantı, yerel `.srt` üretimi, 4-kanal Channel Director, robotik TTS yasağı.
+- **v2.2 (Aktif):** **Kokoro-82M (\$0/ay)** entegrasyonu, **2 Erkek + 2 Kadın** imza ses dengesi (`am_fenrir`, `am_michael`, `af_bella` A-, `af_heart` A), uzun videolarda **Perde-2 Co-Host** karşı cinsiyet ses değişimi, tüm 4 kanalda zorunlu `runPolicyGuard` kapısı, GitHub Actions model önbellekleme.

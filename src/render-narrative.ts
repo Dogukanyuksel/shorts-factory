@@ -72,6 +72,7 @@ async function synthesizeTimedBeats(
   interBeatGapSec: number,
   bridgeGapSec: number,
   channel: "physics" | "explainer" | "wealth" | "bio",
+  enableCoHost = false,
 ): Promise<{ timed: TimedNarrativeBeat[]; voiceMono: Int16Array; totalSec: number }> {
   const chunks: Int16Array[] = [new Int16Array(Math.round(0.25 * SAMPLE_RATE))];
   const timed: TimedNarrativeBeat[] = [];
@@ -79,7 +80,8 @@ async function synthesizeTimedBeats(
 
   for (let i = 0; i < beats.length; i++) {
     const b = beats[i];
-    const audioIn = await synthesizeVoice(b.text, join(tmpDir, `b${i}.mp3`), channel);
+    const role = enableCoHost && b.actIndex === 1 ? "cohost" : "primary";
+    const audioIn = await synthesizeVoice(b.text, join(tmpDir, `b${i}.mp3`), channel, { role });
     const rawMono = join(tmpDir, `b${i}.raw`);
     await runCmd(ffmpegPath, ["-y", "-i", audioIn, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", rawMono]);
     const buf = await readFile(rawMono);
@@ -125,9 +127,9 @@ export async function renderNarrativeLongformVideo(
   });
 
   try {
-    console.log(`\n[narrative-longform] ${spec.title} (${spec.beats.length} beat, 4 perde, sinematik nefes aralıkları) seslendiriliyor...`);
+    console.log(`\n[narrative-longform] ${spec.title} (${spec.beats.length} beat, 4 perde, Perde 2 Co-Host ses) seslendiriliyor...`);
     // İzleyiciyi aralıksız sesle boğmadan, her beat arasında 2.6 sn ve perde geçişlerinde 4.2 sn görsel+müzik nefes payı
-    const { timed, voiceMono, totalSec } = await synthesizeTimedBeats(spec.beats, tmpDir, 2.6, 4.2, spec.channel);
+    const { timed, voiceMono, totalSec } = await synthesizeTimedBeats(spec.beats, tmpDir, 2.6, 4.2, spec.channel, true);
 
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     await attachLocalEngines(page);

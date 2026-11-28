@@ -1,28 +1,36 @@
-# Shorts Factory — 4-Channel Autonomous Production Spec
+# Y-LABS OS v2.2 — 4-Channel Autonomous Production Spec
 
-> **Single Source of Truth:** Static architectural rules, channel brand kits, and production contracts live in Git (`CLAUDE.md`). Daily publish logs, analytics snapshots, and queues stay strictly in `state/`.
+> **Living Single Source of Truth:** Static architectural rules, channel brand kits, voice identities, and policy contracts live in Git (`CLAUDE.md` + `docs/Y-LABS-OS.md`). Daily publish logs, analytics snapshots, and queues stay strictly in `state/`. Every research finding and production lesson evolves this OS.
 
-## 1. Active 4-Channel Network (English / US Prime Time — Pre–Feb 1, 2027 YPP Goal)
+## 1. Strategic Objective & YPP Thresholds `[RESMİ]`
+- **4-Channel Simultaneous Growth:** All 4 channels run in parallel in US Prime Time (English / Tier-1 RPM).
+- **Phase 1 — Feb 1, 2027 Sprint `[RESMİ]`:** Push toward **1,000 subscribers + 4,000 public watch hours** before February 1, 2027. Apply the exact day any channel crosses threshold.
+- **Phase 2 — Post–Feb 1, 2027 Compound Engine `[RESMİ]`:** YouTube doubles YPP entry thresholds to **8,000 public watch hours / 20M Shorts views** on Feb 1, 2027. Every 6–8 min Pillar Deep Dive compounds directly toward both 4,000h and 8,000h.
+
+## 2. Active 4-Channel Network & Kokoro-82M Voice Matrix (\$0/mo, Apache-2.0)
+Each channel has a **unique signature US English neural voice** (`src/voice.ts`, 2 Male + 2 Female balance) to maximize brand recall and eliminate "inauthentic / template mass-production" risk (`YouTube Help 1311392` `[RESMİ]`):
+
 - **`physics` → Kinetic Lab HQ:** YT `@kineticlabshorts` | IG `@kineticlab.motion`
-  - **Brand Kit:** BG `#0B0F19`, Primary `#00F0FF` (Electric Cyan), Accent `#FF3B30`. Style: 2D/3D physics simulations, vector arrows, velocity/acceleration counters, technical grid.
+  - **Voice:** `am_fenrir` (Male, 1.04x — Energetic Science) | **Long-form Act-2 Co-Host:** `af_bella`
+  - **Brand Kit:** BG `#0B0F19`, Primary `#00F0FF`, Accent `#FF3B30`. 2D/3D physics simulations, vector arrows, live telemetry.
 - **`explainer` → Clear Mechanics:** YT `@clearmechanicsshorts` | IG `@clearmechanics.lab`
-  - **Brand Kit:** BG `#141414` (Anthracite), Primary `#FF9500` (Industrial Orange), Accent `#FFFFFF` + `#38bdf8`. Style: 3D Three.js WebGL PBR exploded views, X-ray translucent metal, part callouts.
-- **`wealth` → Wealth Mechanics ($12–$22 RPM):** YT `@wealthmechanicsshorts` | IG `@wealthmechanics.hq`
-  - **Brand Kit:** BG `#090D16` (Financial Night), Primary `#FFD60A` (Gold), Accent `#30D158` / `#10b981` (Growth Green). Style: Dynamic compound curves, odometer counters, clean financial typography.
-- **`bio` → Bio Mechanics ($8–$14 RPM):** YT `@biomechanicshq` | IG `@biomechanics.hq`
-  - **Brand Kit:** BG `#0D1117` (Dark Carbon), Primary `#34C759` (Bio Green), Accent `#FF2D55` (Tension Crimson). Style: Bioluminescent anatomical cutaways, force vectors, angle protractors, live telemetry.
+  - **Voice:** `am_michael` (Male, 1.00x — Engineering Documentary) | **Long-form Act-2 Co-Host:** `af_heart`
+  - **Brand Kit:** BG `#141414`, Primary `#FF9500`, Accent `#FFFFFF` + `#38bdf8`. Three.js WebGL PBR exploded views, X-ray metal, callouts.
+- **`wealth` → Wealth Mechanics (\$12–\$22 RPM):** YT `@wealthmechanicsshorts` | IG `@wealthmechanics.hq`
+  - **Voice:** `af_bella` (Female, **Grade A-**, 0.98x — Sharp Financial Analyst) | **Long-form Act-2 Co-Host:** `am_michael`
+  - **Brand Kit:** BG `#090D16`, Primary `#FFD60A`, Accent `#30D158`. Compound curves, odometer counters, clean financial math.
+- **`bio` → Bio Mechanics (\$8–\$14 RPM):** YT `@biomechanicshq` | IG `@biomechanics.hq`
+  - **Voice:** `af_heart` (Female, **Grade A**, 1.00x — Warm Medical Narrator) | **Long-form Act-2 Co-Host:** `am_fenrir`
+  - **Brand Kit:** BG `#0D1117`, Primary `#34C759`, Accent `#FF2D55`. Bioluminescent anatomical cutaways, force vectors, live telemetry.
 
-## 2. Strict Shorts/Reels Production Rules (1080×1920, 60fps, 28–42s)
-1. **0.0–2.0s Scroll-Stopper Hook:** Immediate visual break (collision, shocking stat, or 3D zoom) + 1-sentence curiosity hook + high-contrast top Safe-Zone silent hook pill (target `Viewed vs Swiped Away > 70%`).
-2. **Pattern Interrupt Every 3–4s:** Visual state must change every 3–4 seconds (camera angle, new data layer, vector highlight, phase transition). Static screens are forbidden.
-3. **Subtitles & Safe Zone:** 2–3 words max at once, active word highlighted in channel accent color. Keep all key UI within `x ∈ [6%W, 84%W]`, `y ∈ [14%H, 74%H]`. Never nest functions inside `page.evaluate` (`tsx` `__name` helper) — inject overlays via `page.addScriptTag`.
-4. **Seamless Loop:** Final spoken line bridges semantically back to the opening line, and final frame returns smoothly to frame 0 (no static full-screen blocker at the end; sleek floating glass pill only).
-5. **Multi-Platform Distribution (1 Render → 3 Platforms):** Every Short publishes to **YouTube Shorts + Instagram Reels + Facebook Reels** (`src/facebook.ts`). Never put `@` in front of YouTube channel names on Instagram; use `@` strictly for our 4 real sister Instagram handles (`src/network-links.ts`).
+> **TTS Fallback & Ban:** Primary is **Kokoro-82M** (`kokoro-js`, cached in `~/.cache/kokoro-82m`). Optional `OPENAI_API_KEY` overrides if ever configured. Fallback is `haber.yukselmedya.com`. **Robotic `espeak-ng` is strictly BANNED in production** (`DRY_RUN=true` local test only). Never use unofficial Edge TTS endpoints.
 
-## 3. 4-Act 16:9 Long-Form Architecture (4,000 Watch-Hour YPP Engine)
-- Every flagship 16:9 video (`1920×1080`, 4:00–4:45) covers **1 single topic across 4 cohesive acts** (Hook → Core Mechanism → Failure/Limit State → Comparative Summary) with explicit Narrative Bridges and visual phase shifts every 20–30s.
-- Publishing a 4-Act video automatically enqueues 3 standalone Showcase Shorts into `state/derived-shorts-queue.json`.
+## 3. Publishing Rhythm & Distribution
+- **Golden Rhythm:** **2 Shorts/day** per channel in US Prime Time (`UTC 14:xx`, `19:xx`) + **1 Long-Form 16:9 every 2 days** per channel (alternating odd/even days, `MIN_PUBLISH_GAP_HOURS=40`).
+- **Distribution:** Every Short publishes to **YouTube Shorts + Instagram Reels** (`ENABLE_FACEBOOK_REELS` defaults to `false`). Never put `@` in front of YouTube handles on Instagram; use `@` strictly for our 4 real sister Instagram handles (`src/network-links.ts`).
 
-## 4. Safety & Verification
-- Always verify channel ownership via `src/channel-guard.ts` / `getMyChannel()`.
-- Normalize audio to `-14 LUFS`, H.264 `yuv420p`, run `src/qc.ts`, and verify `npm run typecheck && npm test` + `git pull --rebase origin main` before pushing.
+## 4. Production, Retention & Policy Guardrails
+1. **Shorts (`1080×1920`, 60fps, 28–42s) `[GÖRÜŞ/VERİ]`:** Immediate visual motion in first 2s + silent top Safe-Zone hook pill (`0–1.75s`) + 2–3 word Canvas Word-Pop captions (`src/word-captions.ts`) + visual state shift every 3–5s. Standalone Shorts end with a seamless loop; Showcase Shorts derived from 16:9 videos end with an explicit CTA to the Related Video `[RESMİ]`.
+2. **Long-Form Pillars (`1920×1080`, 6–8 min target) `[GÖRÜŞ]`:** 4 cohesive Acts on 1 deep topic (Hook → Core Mechanism [Act-2 Co-Host voice shift] → Failure/Limit State → Synthesis). First 5s immediately delivers the thumbnail promise `[RESMİ]`. Auto-generates **3 distinct `1280×720` thumbnail variants** (A/B/C for Studio `Test & Compare`) + local `.srt` Closed Captions file.
+3. **Policy & Anti-Template Gate (`src/policy-guard.ts`) `[RESMİ]`:** Runs before upload on ALL 4 channels. Blocks duplicate/template titles (`Jaccard >= 0.78`), blocks AI advisor/doctor personas in Wealth/Bio, and enforces educational disclaimers (`ensureSensitiveDisclaimer`).
+4. **Safety & Verification:** Always verify channel ownership (`src/channel-guard.ts`), never nest arrow functions inside `page.evaluate()` (`tsx` `__name` bug), normalize audio to `-14 LUFS`, run `src/qc.ts`, and verify `npm run typecheck && npm test` + `git pull --rebase origin main` before pushing.

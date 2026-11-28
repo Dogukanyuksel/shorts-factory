@@ -33,8 +33,11 @@ export interface KokoroVoiceConfig {
 }
 
 /**
- * 4 kanal = 4 tamamen farklı ABD İngilizcesi nöral ses (Kokoro-82M, Apache-2.0, $0/ay).
- * YouTube'un "şablon / seri üretim" riskini kırmak için her kanalın kendi özgün ses kimliği vardır.
+ * Y-LABS OS v2.2 — 4 kanal = 4 benzersiz ABD İngilizcesi nöral imza ses (2 Erkek + 2 Kadın, $0/ay Kokoro-82M).
+ * - Kinetic Lab (physics): am_fenrir (Erkek, C+)
+ * - Clear Mechanics (explainer): am_michael (Erkek, C+)
+ * - Wealth Mechanics (wealth): af_bella (Kadın, Grade A- — keskin finans analisti)
+ * - Bio Mechanics (bio): af_heart (Kadın, Grade A — sıcak tıp/biyoloji anlatıcısı)
  */
 export const KOKORO_CHANNEL_VOICES: Record<VoiceChannelId, KokoroVoiceConfig> = {
   physics: {
@@ -48,16 +51,45 @@ export const KOKORO_CHANNEL_VOICES: Record<VoiceChannelId, KokoroVoiceConfig> = 
     label: "Michael (US Male — Engineering Documentary)",
   },
   wealth: {
-    voice: "am_onyx",
+    voice: "af_bella",
     speed: 0.98,
-    label: "Onyx (US Male — Deep Financial Analyst)",
+    label: "Bella (US Female, Grade A- — Sharp Financial Analyst)",
   },
   bio: {
     voice: "af_heart",
     speed: 1.0,
-    label: "Heart (US Female — Warm Medical Narrator)",
+    label: "Heart (US Female, Grade A — Warm Medical Narrator)",
   },
 };
+
+/**
+ * Uzun videolarda (6-8 dk 4-Perdeli Derin Belgesel) 2. Perdede kulak yorgunluğunu kırmak için
+ * karşı cinsiyette yardımcı belgesel anlatıcısı (Co-Host). Shorts'larda kullanılmaz; marka sesi sabit kalır.
+ */
+export const KOKORO_COHOST_VOICES: Record<VoiceChannelId, KokoroVoiceConfig> = {
+  physics: {
+    voice: "af_bella",
+    speed: 1.02,
+    label: "Bella (Co-Host — Physics Act 2)",
+  },
+  explainer: {
+    voice: "af_heart",
+    speed: 1.0,
+    label: "Heart (Co-Host — Engineering Act 2)",
+  },
+  wealth: {
+    voice: "am_michael",
+    speed: 0.99,
+    label: "Michael (Co-Host — Wealth Act 2)",
+  },
+  bio: {
+    voice: "am_fenrir",
+    speed: 1.0,
+    label: "Fenrir (Co-Host — Bio Act 2)",
+  },
+};
+
+export type VoiceRole = "primary" | "cohost";
 
 const OPENAI_CHANNEL_VOICES: Record<VoiceChannelId, { voice: string; instructions: string }> = {
   physics: {
@@ -108,12 +140,15 @@ async function getKokoro(): Promise<KokoroInstance> {
   return kokoroSingleton;
 }
 
-function resolveKokoroConfig(channel: VoiceChannelId): KokoroVoiceConfig {
-  const base = KOKORO_CHANNEL_VOICES[channel] || KOKORO_CHANNEL_VOICES.explainer;
-  const envKey = `KOKORO_VOICE_${channel.toUpperCase()}`;
-  const override = process.env[envKey]?.trim();
-  if (override) {
-    return { ...base, voice: override as KokoroVoiceConfig["voice"] };
+function resolveKokoroConfig(channel: VoiceChannelId, role: VoiceRole = "primary"): KokoroVoiceConfig {
+  const table = role === "cohost" ? KOKORO_COHOST_VOICES : KOKORO_CHANNEL_VOICES;
+  const base = table[channel] || table.explainer;
+  if (role === "primary") {
+    const envKey = `KOKORO_VOICE_${channel.toUpperCase()}`;
+    const override = process.env[envKey]?.trim();
+    if (override) {
+      return { ...base, voice: override as KokoroVoiceConfig["voice"] };
+    }
   }
   return base;
 }
@@ -129,9 +164,9 @@ function runBin(bin: string, args: string[]): Promise<void> {
 }
 
 /**
- * Y-LABS OS v2.1 Çoklu Nöral Seslendirme Motoru:
- * 1) OPENAI_API_KEY tanımlıysa: kanal başına 4 farklı OpenAI nöral belgesel sesi (ash / onyx / echo / nova)
- * 2) Varsayılan $0/ay birincil: Kokoro-82M (Apache-2.0, 4 farklı ABD İngilizcesi nöral ses: am_fenrir / am_michael / am_onyx / af_heart)
+ * Y-LABS OS v2.2 Çoklu Nöral Seslendirme Motoru:
+ * 1) OPENAI_API_KEY tanımlıysa: kanal başına 4 farklı OpenAI nöral belgesel sesi
+ * 2) Varsayılan $0/ay birincil: Kokoro-82M (Apache-2.0, 2 Erkek + 2 Kadın imza ses + uzun videoda 2. Perde Co-Host)
  * 3) Yedek nöral API: haber.yukselmedya.com (3 deneme + üstel bekleme)
  * 4) Üretimde robotik `espeak-ng` YASAKTIR (yalnızca DRY_RUN=true veya ALLOW_ROBOTIC_TTS=true yerel testte).
  */
@@ -139,7 +174,9 @@ export async function synthesizeVoice(
   text: string,
   outFile: string,
   channel: VoiceChannelId = "explainer",
+  opts: { role?: VoiceRole } = {},
 ): Promise<string> {
+  const role: VoiceRole = opts.role ?? "primary";
   const openaiKey = process.env.OPENAI_API_KEY?.trim();
   if (openaiKey) {
     try {
@@ -177,14 +214,14 @@ export async function synthesizeVoice(
   if (process.env.DISABLE_KOKORO !== "true") {
     try {
       const tts = await getKokoro();
-      const cfg = resolveKokoroConfig(channel);
+      const cfg = resolveKokoroConfig(channel, role);
       const audio = await tts.generate(text, { voice: cfg.voice, speed: cfg.speed });
       const wavOut = outFile.endsWith(".wav") ? outFile : `${outFile}.wav`;
       await audio.save(wavOut);
       return wavOut;
     } catch (err) {
       console.warn(
-        `[voice] Kokoro-82M uyarısı (${channel}), yedek nöral API'ye geçiliyor:`,
+        `[voice] Kokoro-82M uyarısı (${channel}/${role}), yedek nöral API'ye geçiliyor:`,
         err instanceof Error ? err.message : String(err),
       );
     }

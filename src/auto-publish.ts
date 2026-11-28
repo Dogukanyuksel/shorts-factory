@@ -36,6 +36,7 @@ import {
   saveDerivedShortsQueue,
 } from "./derive-shorts.js";
 import { getNarrativeLongformBySlug } from "./longform-narrative.js";
+import { runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
 import { renderDerivedShortVideo } from "./render-narrative.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
@@ -547,6 +548,17 @@ async function main() {
   }
 
   const kit = getEngagementKit(job);
+  const fullDesc = `${kit.enrichedDescription}\n\n${buildYouTubeNetworkFooter(channel)}`;
+  const policy = runPolicyGuard({
+    channel,
+    title: job.title,
+    description: fullDesc,
+    recentTitles: state.published.slice(-60).map((p) => p.title),
+  });
+  for (const w of policy.warnings) console.warn(`[policy-guard] ⚠️ ${w}`);
+  if (!policy.ok) {
+    throw new Error(`[policy-guard] Yayın engellendi: ${policy.errors.join(" | ")}`);
+  }
 
   console.log(`[auto-publish] YouTube'a yükleniyor (${privacyStatus})...`);
   let result: Awaited<ReturnType<typeof uploadVideoToYouTube>>;
@@ -555,7 +567,7 @@ async function main() {
       mp4Path,
       {
         title: job.title,
-        description: `${kit.enrichedDescription}\n\n${buildYouTubeNetworkFooter(channel)}`,
+        description: fullDesc,
         tags: job.tags,
         categoryId: job.categoryId,
         privacyStatus,
