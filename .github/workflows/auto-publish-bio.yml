@@ -3,7 +3,7 @@ name: Auto-Publish Bio Mechanics Shorts (3x Daily US Prime Time)
 on:
   schedule:
     # 100% ABD Prime Time (UTC 14:47, 19:47, 00:47)
-    - cron: "47 0,14,19 * * *"
+    - cron: "47 14,19 * * *"
   workflow_dispatch:
     inputs:
       dry_run:

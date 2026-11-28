@@ -2,8 +2,11 @@ name: Publish Wealth & Bio 16:9 Deep Dive (4,000h YPP Accelerator)
 
 on:
   schedule:
-    # Salı & Cuma UTC 17:30 (ABD Doğu 12:30 / Batı 09:30 / TR 20:30)
-    - cron: "30 17 * * 2,5"
+    # Her 2 günde 1 uzun video / kanal:
+    # UTC 16:30 (tek günler) -> Wealth Mechanics
+    # UTC 17:30 (çift günler) -> Bio Mechanics
+    - cron: "30 16 */2 * *"
+    - cron: "30 17 2-30/2 * *"
   workflow_dispatch:
     inputs:
       channel:
@@ -33,7 +36,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-longform-expansion-${{ inputs.channel || 'wealth' }}
+  group: publish-longform-expansion-${{ inputs.channel || (github.event.schedule == '30 17 2-30/2 * *' && 'bio' || 'wealth') }}
   cancel-in-progress: false
 
 jobs:
@@ -61,7 +64,7 @@ jobs:
 
       - name: 4-Perdeli 16:9 Deep Dive üret ve yayınla
         env:
-          CHANNEL_ID: ${{ inputs.channel || 'wealth' }}
+          CHANNEL_ID: ${{ inputs.channel || (github.event.schedule == '30 17 2-30/2 * *' && 'bio' || 'wealth') }}
           YOUTUBE_CLIENT_ID_EXPANSION: ${{ secrets.YOUTUBE_CLIENT_ID_EXPANSION }}
           YOUTUBE_CLIENT_SECRET_EXPANSION: ${{ secrets.YOUTUBE_CLIENT_SECRET_EXPANSION }}
           YOUTUBE_REFRESH_TOKEN_WEALTH: ${{ secrets.YOUTUBE_REFRESH_TOKEN_WEALTH }}

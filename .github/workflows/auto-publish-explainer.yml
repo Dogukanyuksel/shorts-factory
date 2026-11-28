@@ -3,7 +3,7 @@ name: Auto-Publish How-It-Works Shorts (3x Daily — 6h Spaced)
 on:
   schedule:
     # 100% ABD Prime Time (UTC 14:37, 19:37, 00:37 → New York 09:37, 14:37, 19:37 / LA 06:37, 11:37, 16:37)
-    - cron: "37 0,14,19 * * *"
+    - cron: "37 14,19 * * *"
   workflow_dispatch:
     inputs:
       dry_run:

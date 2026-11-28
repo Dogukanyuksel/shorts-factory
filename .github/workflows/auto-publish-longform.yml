@@ -2,15 +2,15 @@ name: Auto-Publish Daily 16:9 Long-Form (Both Channels)
 
 # Watchdog hangi kanalın koşusu olduğunu bu başlıktan ayırt eder ("Long-Form explainer|physics|both")
 run-name: >-
-  Long-Form ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (github.event.schedule == '15 14 * * *' && 'explainer' || 'physics') }}
+  Long-Form ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (github.event.schedule == '15 14 */2 * *' && 'explainer' || 'physics') }}
 
 on:
   schedule:
-    # Her gün 1 uzun video / kanal (PC kapalıyken 7/24 bulutta):
-    # UTC 14:15 (17:15 TRT) -> Clear Mechanics (Explainer)
-    # UTC 15:15 (18:15 TRT) -> Kinetic Lab (Physics)
-    - cron: "15 14 * * *"
-    - cron: "15 15 * * *"
+    # Her 2 günde 1 uzun video / kanal (spam koruması + 40 saat minimum aralık):
+    # UTC 14:15 (tek günler) -> Clear Mechanics (Explainer)
+    # UTC 15:15 (çift günler) -> Kinetic Lab (Physics)
+    - cron: "15 14 */2 * *"
+    - cron: "15 15 2-30/2 * *"
   workflow_dispatch:
     inputs:
       channel:
@@ -44,7 +44,7 @@ permissions:
 jobs:
   publish-explainer-longform:
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '15 14 * * *') ||
+      (github.event_name == 'schedule' && github.event.schedule == '15 14 */2 * *') ||
       (github.event_name == 'workflow_dispatch' && (inputs.channel == 'explainer' || inputs.channel == 'both'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -99,7 +99,7 @@ jobs:
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           # Watchdog yeniden denemesi + cron aynı gün 2 uzun video yayınlamasın
-          MIN_PUBLISH_GAP_HOURS: "12"
+          MIN_PUBLISH_GAP_HOURS: "40"
           FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:longform:explainer
 
@@ -145,7 +145,7 @@ jobs:
 
   publish-physics-longform:
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '15 15 * * *') ||
+      (github.event_name == 'schedule' && github.event.schedule == '15 15 2-30/2 * *') ||
       (github.event_name == 'workflow_dispatch' && (inputs.channel == 'physics' || inputs.channel == 'both'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -198,7 +198,7 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN_PHYSICS }}
           YOUTUBE_PRIVACY: ${{ inputs.privacy || 'public' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
-          MIN_PUBLISH_GAP_HOURS: "12"
+          MIN_PUBLISH_GAP_HOURS: "40"
           FORCE_PUBLISH: ${{ inputs.force == true && 'true' || 'false' }}
         run: npm run publish:longform:physics
 
