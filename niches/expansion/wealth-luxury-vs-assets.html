@@ -1,0 +1,344 @@
+<!doctype html>
+<!--
+  Wealth Mechanics — Split-Screen Story Format: Luxury First vs Assets First ($30,000 Test)
+  Y-LABS 3D Cinema Engine (Three.js PBR Upper/Lower 3D Diorama Comparison, 60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#090D16;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+  easeOutCubic,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const SCRIPT = [
+  { id: 'hook', text: 'Two people start with the exact same thirty thousand dollars. One buys luxury first — the other buys an asset.', caption: 'LUXURY VS ASSETS' },
+  { id: 'year1', text: 'Year one: the luxury buyer drives off in a brand-new thirty thousand dollar car, draining their cash to zero.', caption: 'YEAR 1 · $30K SPENT' },
+  { id: 'asset1', text: 'Meanwhile, the asset buyer locks that thirty thousand into a cash-flowing asset — and keeps driving an old car.', caption: 'ASSET GENERATING CASH' },
+  { id: 'year3', text: 'By year three, depreciation slices the luxury car down to eighteen thousand while the asset quietly prints monthly gold.', caption: 'YEAR 3 · VALUE SPLITS' },
+  { id: 'year5', text: 'Year five: the luxury car is worth eleven thousand dollars. The asset buyer? Their asset grew to forty-eight thousand — and buys the car for free!', caption: 'YEAR 5 · ASSET BUYS CAR' },
+  { id: 'law', text: 'Buy liabilities first and you work for your stuff. Buy assets first and your assets buy your luxury.', caption: 'PATIENCE BEATS PAYMENTS' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 23, LINES = [], EVENTS = [];
+let stage = null, built = false;
+
+// Upper stage (Luxury First) & Lower stage (Assets First)
+let topCarGroup, topCarMat, topCoins = [];
+let botHouseGroup, botHouseCore, botCarGroup, botCashOrbs = [];
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+function make3DCar(bodyMat, rimMat, glowHex) {
+  const g = new THREE.Group();
+  // Sleek low-slung coupe chassis
+  const lower = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.48, 1.05), bodyMat);
+  lower.position.y = 0.36;
+  g.add(lower);
+  // Sloped cabin roof
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.38, 0.92), bodyMat);
+  cabin.position.set(-0.12, 0.72, 0);
+  g.add(cabin);
+  // Headlight + taillight glow strips
+  const headMat = new THREE.MeshStandardMaterial({ color: glowHex, emissive: glowHex, emissiveIntensity: 1.4 });
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.86), headMat);
+  head.position.set(1.21, 0.4, 0);
+  g.add(head);
+  // 4 wheels
+  const wheelGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.16, 20);
+  wheelGeo.rotateX(Math.PI / 2);
+  const wPos = [[-0.75, 0.24, 0.54], [0.75, 0.24, 0.54], [-0.75, 0.24, -0.54], [0.75, 0.24, -0.54]];
+  for (const [x, y, z] of wPos) {
+    const w = new THREE.Mesh(wheelGeo, rimMat);
+    w.position.set(x, y, z);
+    g.add(w);
+  }
+  return g;
+}
+
+function make3DAssetHouse(mats) {
+  const g = new THREE.Group();
+  const baseGeo = new THREE.BoxGeometry(1.55, 1.15, 1.35);
+  const shell = new THREE.Mesh(baseGeo, mats.xrayGlass);
+  shell.position.y = 0.58;
+  g.add(shell);
+  const edges = addXrayEdges(baseGeo, 0xffd60a, 0.65);
+  edges.position.y = 0.58;
+  g.add(edges);
+
+  // Pitched roof pyramid
+  const roofGeo = new THREE.ConeGeometry(1.25, 0.75, 4);
+  roofGeo.rotateY(Math.PI / 4);
+  const roof = new THREE.Mesh(roofGeo, mats.translucent(0xffd60a, 0.32));
+  roof.position.y = 1.52;
+  g.add(roof);
+  const roofEdge = addXrayEdges(roofGeo, 0xffd60a, 0.75);
+  roofEdge.position.y = 1.52;
+  g.add(roofEdge);
+
+  // Glowing gold interior value core
+  const core = new THREE.Mesh(
+    new THREE.BoxGeometry(1.15, 0.85, 0.95),
+    mats.glow(0xffd60a, 0.85, 0.2, 0.65),
+  );
+  core.position.y = 0.55;
+  g.add(core);
+  return { group: g, core };
+}
+
+function buildScene() {
+  stage = createStudioStage({
+    width: W,
+    height: H,
+    channel: 'wealth',
+    fov: 38,
+    fogDensity: 0.022,
+    addGrid: false,
+  });
+  const { scene } = stage;
+  const mats = createMaterials('wealth');
+
+  // === UPPER STAGE (y = +1.15): LUXURY FIRST ===
+  const topFloor = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.08, 2.2), mats.darkMetal);
+  topFloor.position.set(0, 0.88, 0);
+  scene.add(topFloor);
+  scene.add(addXrayEdges(new THREE.BoxGeometry(6.42, 0.1, 2.22), 0xff3b30, 0.35)).position.set(0, 0.88, 0);
+
+  topCarMat = new THREE.MeshStandardMaterial({
+    color: 0xe2e8f0,
+    emissive: 0x334155,
+    emissiveIntensity: 0.25,
+    metalness: 0.88,
+    roughness: 0.2,
+  });
+  topCarGroup = make3DCar(topCarMat, mats.steel, 0xff3b30);
+  topCarGroup.position.set(0.45, 0.92, 0);
+  scene.add(topCarGroup);
+
+  // Stacked gold coins beside Luxury buyer (shrinks from 6 -> 0!)
+  topCoins = [];
+  const coinGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.11, 20);
+  for (let i = 0; i < 6; i++) {
+    const c = new THREE.Mesh(coinGeo, mats.gold);
+    c.position.set(-1.75, 0.98 + i * 0.13, 0.1);
+    scene.add(c);
+    topCoins.push(c);
+  }
+
+  // === LOWER STAGE (y = -1.65): ASSETS FIRST ===
+  const botFloor = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.08, 2.2), mats.darkMetal);
+  botFloor.position.set(0, -1.92, 0);
+  scene.add(botFloor);
+  scene.add(addXrayEdges(new THREE.BoxGeometry(6.42, 0.1, 2.22), 0x30d158, 0.42)).position.set(0, -1.92, 0);
+
+  const builtHouse = make3DAssetHouse(mats);
+  botHouseGroup = builtHouse.group;
+  botHouseCore = builtHouse.core;
+  botHouseGroup.position.set(-1.15, -1.88, 0);
+  scene.add(botHouseGroup);
+
+  // Asset-funded golden/emerald luxury car that materializes at Year 5!
+  const botCarMat = new THREE.MeshStandardMaterial({
+    color: 0x30d158,
+    emissive: 0x15803d,
+    emissiveIntensity: 0.45,
+    metalness: 0.86,
+    roughness: 0.18,
+  });
+  botCarGroup = make3DCar(botCarMat, mats.gold, 0xffd60a);
+  botCarGroup.position.set(1.15, -1.88, 0);
+  botCarGroup.scale.setScalar(0.001);
+  scene.add(botCarGroup);
+
+  // Luminous gold cash-flow orbs streaming from asset to fund the car
+  botCashOrbs = [];
+  const orbGeo = new THREE.SphereGeometry(0.11, 14, 14);
+  const orbMat = mats.glow(0xffd60a, 1.3);
+  for (let i = 0; i < 12; i++) {
+    const o = new THREE.Mesh(orbGeo, orbMat);
+    scene.add(o);
+    botCashOrbs.push({ mesh: o, offset: i / 12 });
+  }
+
+  built = true;
+}
+
+window.init = (cfg = {}) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 23;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lY1 = getLine('year1', 1);
+  const lA1 = getLine('asset1', 2);
+  const lY3 = getLine('year3', 3);
+  const lY5 = getLine('year5', 4);
+  const lLaw = getLine('law', 5);
+
+  EVENTS = [
+    { t: lY1.start + 0.15, type: 'bounce', pitchIndex: 3, intensity: 0.60 },
+    { t: lA1.start + 0.15, type: 'bounce', pitchIndex: 5, intensity: 0.65 },
+    { t: lY3.start + 0.15, type: 'bounce', pitchIndex: 7, intensity: 0.75 },
+    { t: lY5.start + 0.15, type: 'break', pitchIndex: 10, intensity: 0.92 },
+    { t: lLaw.start + 0.20, type: 'win', pitchIndex: 12, intensity: 0.96 },
+  ];
+
+  if (!built) buildScene();
+};
+
+function renderSceneAt(t) {
+  if (!built) buildScene();
+
+  const lY1 = getLine('year1', 1);
+  const lY3 = getLine('year3', 3);
+  const lY5 = getLine('year5', 4);
+
+  let activeCaption = SCRIPT[0].caption;
+  for (let i = 0; i < SCRIPT.length; i++) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) activeCaption = ln.caption || SCRIPT[i].caption;
+  }
+
+  // Deterministic timeline: Year 0 -> Year 5
+  const yearProg = easeOutCubic(clamp((t - lY1.start) / Math.max(0.1, lY5.end - lY1.start), 0, 1));
+  const simYear = lerp(0, 5, yearProg);
+
+  const carVal = Math.round(lerp(30000, 11200, yearProg));
+  const assetVal = Math.round(lerp(30000, 48500, yearProg));
+
+  // Upper Luxury Car: loses shine & sinks slightly as depreciation hits
+  const colBright = new THREE.Color(0xe2e8f0);
+  const colDull = new THREE.Color(0x475569);
+  topCarMat.color.copy(colBright).lerp(colDull, yearProg);
+  topCarMat.roughness = lerp(0.16, 0.78, yearProg);
+  topCarGroup.rotation.y = Math.sin(t * 0.6) * 0.22;
+
+  // Luxury buyer's cash coins drain away
+  const remainingCoins = Math.max(0, Math.round(lerp(6, 0, smooth(lY1.start, lY3.start, t))));
+  for (let i = 0; i < topCoins.length; i++) {
+    topCoins[i].visible = i < remainingCoins;
+  }
+
+  // Lower Asset House: pulses brighter and grows
+  const coreScale = lerp(0.72, 1.15, yearProg) + 0.04 * Math.sin(t * 5);
+  botHouseCore.scale.set(1, coreScale, 1);
+  botHouseGroup.rotation.y = Math.sin(t * 0.45) * 0.18;
+
+  // Cash flow orbs stream from asset to materialize the free car at Year 4-5!
+  const carPop = smooth(lY3.end, lY5.start + 1.2, t);
+  botCarGroup.scale.setScalar(Math.max(0.001, carPop * 0.92));
+  botCarGroup.rotation.y = -0.2 + Math.sin(t * 0.7) * 0.2;
+
+  for (const o of botCashOrbs) {
+    const u = (t * 0.75 + o.offset) % 1;
+    o.mesh.position.set(
+      lerp(-1.15, 1.15, u),
+      -1.15 + Math.sin(u * Math.PI) * 0.75,
+      Math.sin(u * Math.PI * 2) * 0.25,
+    );
+    o.mesh.scale.setScalar(Math.sin(u * Math.PI) * (0.65 + 0.6 * yearProg));
+  }
+
+  // Clean front-isometric camera framing BOTH Upper & Lower stages cleanly inside 24%H..60%H
+  const { camera } = stage;
+  camera.position.set(Math.sin(t * 0.35) * 1.0, -0.1, 11.8);
+  camera.lookAt(0, -1.05, 0);
+
+  stage.composite(ctx, W, H);
+
+  // Split-Screen Center Divider + Clean Upper/Lower Labels (strictly inside Safe-Zone)
+  const S = W / 720;
+  const safeL = W * 0.065;
+  const safeR = W * 0.84;
+  const cx = (safeL + safeR) * 0.5;
+  const midY = H * 0.445;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 214, 10, 0.32)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(safeL, midY);
+  ctx.lineTo(safeR, midY);
+  ctx.stroke();
+
+  // Center YEAR badge
+  const yw = 104 * S, yh = 26 * S;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.92)';
+  ctx.strokeStyle = '#FFD60A';
+  ctx.lineWidth = 1.6 * S;
+  ctx.beginPath();
+  ctx.roundRect(cx - yw * 0.5, midY - yh * 0.5, yw, yh, 13 * S);
+  ctx.fill();
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.round(13 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#FFD60A';
+  ctx.fillText(`YEAR ${simYear.toFixed(1)}`, cx, midY);
+
+  // Upper tag: LUXURY FIRST
+  ctx.textAlign = 'left';
+  ctx.font = `900 ${Math.round(13 * S)}px ui-monospace, monospace`;
+  ctx.fillStyle = '#FF3B30';
+  ctx.fillText(`▲ LUXURY FIRST  ·  CAR $${carVal.toLocaleString('en-US')}`, safeL + 6 * S, H * 0.235);
+
+  // Lower tag: ASSETS FIRST
+  ctx.fillStyle = '#30D158';
+  ctx.fillText(`▼ ASSETS FIRST  ·  NET $${assetVal.toLocaleString('en-US')}`, safeL + 6 * S, H * 0.485);
+  ctx.restore();
+
+  drawStudioHud(ctx, {
+    W,
+    H,
+    channel: 'wealth',
+    badge: 'SAME $30,000 · TWO MOVES · 3D',
+    title: 'LUXURY VS ASSETS FIRST',
+    subtitle: 'DEPRECIATING CAR VS CASH-FLOWING ASSET',
+    caption: activeCaption,
+    metrics: [
+      { label: 'LUXURY BUYER', value: '$' + Math.round(carVal / 1000) + 'K', color: '#FF3B30' },
+      { label: 'ASSET BUYER', value: '$' + Math.round(assetVal / 1000) + 'K', color: '#30D158' },
+      { label: 'GAP AT YR 5', value: '+$37K', color: '#FFD60A' },
+    ],
+    progress: t / Math.max(1, DUR),
+  });
+}
+
+window.renderFrame = (t) => {
+  renderSceneAt(t);
+  return cv.toDataURL('image/jpeg', 0.92).slice(23);
+};
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    renderSceneAt((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+
+window.ready = true;
+</script>

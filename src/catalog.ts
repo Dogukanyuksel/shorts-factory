@@ -679,6 +679,16 @@ export const EXPLAINER_JOBS: ExplainerJob[] = [
     categoryId: "27",
   },
   {
+    id: "explainer-countersteering-3d",
+    channel: "explainer",
+    episode: "countersteering-3d",
+    title: "To Turn Left on a Motorcycle, You Must Steer RIGHT First (3D) #shorts",
+    description:
+      "At highway speed, pushing the left handlebar briefly steers the front wheel RIGHT — tipping the motorcycle into a left lean so the curved tire carves the corner.\n\n#shorts #countersteering #motorcyclephysics #engineering",
+    tags: ["countersteering", "motorcycle physics", "how it works", "engineering", "shorts"],
+    categoryId: "27",
+  },
+  {
     id: "explainer-extreme-gear-ratio",
     channel: "explainer",
     episode: "extreme-gear-ratio",

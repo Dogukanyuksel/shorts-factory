@@ -65,6 +65,16 @@ export const EXPANSION_JOBS: ExpansionJob[] = [
     categoryId: "27",
   },
   {
+    id: "wealth-luxury-vs-assets",
+    channel: "wealth",
+    episode: "wealth-luxury-vs-assets",
+    title: "Same $30,000. Luxury First vs Assets First (5-Year Result) #shorts",
+    description:
+      "Two people start with $30,000: one buys a brand-new car that drops to $11,200 in 5 years, while the other buys a cash-flowing asset that grows to $48,500 and funds the car later.\n\n(Educational math simulation only — not financial advice.)\n\n#shorts #wealth #assets #personalfinance",
+    tags: ["luxury vs assets", "assets vs liabilities", "personal finance", "wealth mechanics", "shorts"],
+    categoryId: "27",
+  },
+  {
     id: "wealth-50-30-20-rule",
     channel: "wealth",
     episode: "wealth-50-30-20-rule",

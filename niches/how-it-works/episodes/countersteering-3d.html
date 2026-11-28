@@ -1,0 +1,315 @@
+<!doctype html>
+<!--
+  Clear Mechanics — To Turn Left, Steer RIGHT First (Motorcycle Countersteering 3D PBR + Yellow Callout Pills)
+  Y-LABS 3D Cinema Engine (Three.js PBR, 60fps deterministic)
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#141414;overflow:hidden}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module" data-engine="three">
+import * as THREE from 'https://local.shorts/three.module.js';
+import {
+  createStudioStage,
+  createMaterials,
+  addXrayEdges,
+  drawStudioHud,
+  clamp,
+  lerp,
+  smooth,
+} from 'https://local.shorts/ylabs-3d-kit.js';
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const SCRIPT = [
+  { id: 'hook', text: 'At highway speed, if you want to turn left on a motorcycle, you must steer RIGHT first!', caption: 'TURN LEFT → STEER RIGHT' },
+  { id: 'push', text: 'Push the left handlebar forward. The front tire briefly points right — kicking the wheels out from under you.', caption: '1. PUSH LEFT BAR' },
+  { id: 'lean', text: 'Instantly, gravity tips the entire bike smoothly into a deep left lean toward your turn.', caption: '2. BIKE LEANS LEFT' },
+  { id: 'carve', text: 'Once leaned, the curved tire profile and front geometry naturally turn the wheel back left to carve the corner!', caption: '3. TIRE CARVES LEFT' },
+  { id: 'gyro', text: 'Without this countersteer kick, spinning gyroscopic wheels fight to stay upright and you drift straight off the road.', caption: 'GYROSCOPIC STABILITY' },
+  { id: 'law', text: 'Push left to go left. Push right to go right. Pure physics saving riders every single corner.', caption: 'PUSH LEFT → GO LEFT' },
+];
+
+let W = 720, H = 1280, FPS = 60, DUR = 22, LINES = [], EVENTS = [];
+let stage = null, built = false;
+let bikeLeanGroup, steerPivot, frontWheel, rearWheel, roadStripes = [], pushArrow, leanArc;
+
+window.getScript = () => SCRIPT;
+window.getEvents = () => EVENTS;
+
+function getLine(id, fallbackIdx) {
+  const found = LINES.find((l) => l.id === id);
+  if (found) return found;
+  const seg = DUR / SCRIPT.length;
+  return { id, start: fallbackIdx * seg, end: (fallbackIdx + 1) * seg, caption: SCRIPT[fallbackIdx].caption };
+}
+
+function makeMotoWheel(mats) {
+  const wg = new THREE.Group();
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x1a1d24, metalness: 0.18, roughness: 0.72 });
+  const tire = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.20, 18, 36), tireMat);
+  tire.rotation.y = Math.PI / 2;
+  wg.add(tire);
+
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.50, 0.055, 12, 32), mats.primary);
+  rim.rotation.y = Math.PI / 2;
+  wg.add(rim);
+
+  // Brake disc
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.04, 24), mats.steel);
+  disc.rotation.z = Math.PI / 2;
+  disc.position.x = 0.14;
+  wg.add(disc);
+
+  // 5 spokes
+  for (let i = 0; i < 5; i++) {
+    const sp = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.96, 0.06), mats.steel);
+    sp.rotation.x = (i * Math.PI) / 5;
+    wg.add(sp);
+  }
+  return wg;
+}
+
+function buildScene() {
+  stage = createStudioStage({
+    width: W,
+    height: H,
+    channel: 'explainer',
+    fov: 40,
+    fogDensity: 0.028,
+    floorY: -1.35,
+  });
+  const { scene } = stage;
+  const mats = createMaterials('explainer');
+
+  // Moving highway lane stripes on floor
+  roadStripes = [];
+  const stGeo = new THREE.BoxGeometry(0.14, 0.02, 1.3);
+  const stMat = mats.glow(0xffd60a, 0.65);
+  for (let i = 0; i < 10; i++) {
+    const s = new THREE.Mesh(stGeo, stMat);
+    s.position.set(0, -1.32, -10 + i * 2.4);
+    scene.add(s);
+    roadStripes.push(s);
+  }
+
+  // Root lean group pivoted at tire contact patch (y = -1.32)
+  bikeLeanGroup = new THREE.Group();
+  bikeLeanGroup.position.set(0, -1.32, 0);
+  scene.add(bikeLeanGroup);
+
+  // Main Tubular Trellis Frame + Engine Block
+  const engineGeo = new THREE.BoxGeometry(0.62, 0.72, 1.15);
+  const engine = new THREE.Mesh(engineGeo, mats.darkMetal);
+  engine.position.set(0, 1.05, 0.15);
+  bikeLeanGroup.add(engine);
+  const engEdge = addXrayEdges(engineGeo, 0xff9500, 0.45);
+  engEdge.position.copy(engine.position);
+  bikeLeanGroup.add(engEdge);
+
+  // Sculpted Fuel Tank + Tail Section (Crimson-Orange Accent)
+  const tankMat = new THREE.MeshStandardMaterial({
+    color: 0xdc2626,
+    emissive: 0x7f1d1d,
+    emissiveIntensity: 0.35,
+    metalness: 0.82,
+    roughness: 0.22,
+  });
+  const tank = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.44, 1.25), tankMat);
+  tank.position.set(0, 1.62, -0.05);
+  bikeLeanGroup.add(tank);
+
+  // Rear Swingarm + Rear Wheel
+  const swing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 1.25), mats.steel);
+  swing.position.set(0, 0.92, 1.05);
+  bikeLeanGroup.add(swing);
+
+  rearWheel = makeMotoWheel(mats);
+  rearWheel.position.set(0, 0.92, 1.55);
+  bikeLeanGroup.add(rearWheel);
+
+  // Front Steering Assembly (pivots around steering head rake angle!)
+  steerPivot = new THREE.Group();
+  steerPivot.position.set(0, 1.65, -1.08);
+  steerPivot.rotation.x = 0.38; // 22 deg rake
+  bikeLeanGroup.add(steerPivot);
+
+  // Dual Inverted Gold PBR Forks
+  for (const fx of [-0.24, 0.24]) {
+    const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.048, 1.38, 16), mats.gold);
+    fork.position.set(fx, -0.35, 0);
+    steerPivot.add(fork);
+  }
+
+  // Handlebar (wider so countersteer rotation is unmistakable!)
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 1.65, 16), mats.steel);
+  bar.rotation.z = Math.PI / 2;
+  bar.position.set(0, 0.32, 0.05);
+  steerPivot.add(bar);
+
+  // Glowing Left Push Grip Highlight
+  const leftGrip = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.068, 0.34, 16), mats.glow(0xffd60a, 1.3));
+  leftGrip.rotation.z = Math.PI / 2;
+  leftGrip.position.set(-0.68, 0.32, 0.05);
+  steerPivot.add(leftGrip);
+
+  // Front Wheel mounted at bottom of forks
+  frontWheel = makeMotoWheel(mats);
+  frontWheel.position.set(0, -0.95, 0);
+  steerPivot.add(frontWheel);
+
+  // Glowing forward push force arrow on left grip
+  pushArrow = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.48, 14), mats.glow(0xffd60a, 1.4));
+  pushArrow.rotation.x = -Math.PI / 2;
+  pushArrow.position.set(-0.68, 0.32, -0.45);
+  steerPivot.add(pushArrow);
+
+  // Glowing Lean Arc Ring around bike
+  leanArc = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.032, 10, 48, Math.PI * 0.45), mats.glow(0x38bdf8, 1.0));
+  leanArc.position.set(0, 0.9, 0);
+  leanArc.rotation.z = Math.PI * 0.28;
+  scene.add(leanArc);
+
+  built = true;
+}
+
+window.init = (cfg = {}) => {
+  W = cfg.width || 720;
+  H = cfg.height || 1280;
+  FPS = cfg.fps || 60;
+  DUR = cfg.duration || 22;
+  LINES = cfg.lines || [];
+  cv.width = W;
+  cv.height = H;
+
+  const lPush = getLine('push', 1);
+  const lLean = getLine('lean', 2);
+  const lCarve = getLine('carve', 3);
+  const lGyro = getLine('gyro', 4);
+  const lLaw = getLine('law', 5);
+
+  EVENTS = [
+    { t: lPush.start + 0.14, type: 'bounce', pitchIndex: 4, intensity: 0.72 },
+    { t: lLean.start + 0.14, type: 'break', pitchIndex: 7, intensity: 0.88 },
+    { t: lCarve.start + 0.14, type: 'bounce', pitchIndex: 9, intensity: 0.82 },
+    { t: lGyro.start + 0.14, type: 'bounce', pitchIndex: 10, intensity: 0.75 },
+    { t: lLaw.start + 0.18, type: 'win', pitchIndex: 12, intensity: 0.95 },
+  ];
+
+  if (!built) buildScene();
+};
+
+function drawCalloutPill(text, sx, sy, S, col = '#FFD60A') {
+  ctx.save();
+  ctx.font = `900 ${Math.round(12.5 * S)}px ui-monospace, monospace`;
+  const tw = ctx.measureText(text).width + 20 * S;
+  const th = 26 * S;
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.roundRect(sx - tw * 0.5, sy - th * 0.5, tw, th, 13 * S);
+  ctx.fill();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#090D16';
+  ctx.fillText(text, sx, sy);
+  ctx.restore();
+}
+
+function renderSceneAt(t) {
+  if (!built) buildScene();
+
+  const lPush = getLine('push', 1);
+  const lLean = getLine('lean', 2);
+  const lCarve = getLine('carve', 3);
+  const lGyro = getLine('gyro', 4);
+
+  let activeCaption = SCRIPT[0].caption;
+  for (let i = 0; i < SCRIPT.length; i++) {
+    const ln = getLine(SCRIPT[i].id, i);
+    if (t >= ln.start) activeCaption = ln.caption || SCRIPT[i].caption;
+  }
+
+  // High-speed wheel rotation + moving road stripes
+  frontWheel.rotation.x = -t * 14.0;
+  rearWheel.rotation.x = -t * 14.0;
+  for (let i = 0; i < roadStripes.length; i++) {
+    roadStripes[i].position.z = ((i * 2.4 + t * 8.5) % 24) - 12;
+  }
+
+  // Countersteering physics choreography:
+  // 1) Push phase -> steer RIGHT (-0.32 rad) while bike starts tipping LEFT
+  // 2) Lean phase -> deep LEFT lean (+0.52 rad)
+  // 3) Carve phase -> front wheel turns smoothly back LEFT (+0.26 rad) to carve corner!
+  const pPush = smooth(lPush.start, lPush.start + 0.9, t);
+  const pLean = smooth(lLean.start, lLean.start + 1.1, t);
+  const pCarve = smooth(lCarve.start, lCarve.start + 1.1, t);
+
+  const steerAngle = lerp(0, -0.34, pPush) + lerp(0, 0.60, pCarve);
+  const leanAngle = lerp(0, 0.50, pLean);
+
+  steerPivot.rotation.y = steerAngle;
+  bikeLeanGroup.rotation.z = leanAngle;
+  pushArrow.visible = pPush > 0.05 && pCarve < 0.7;
+  pushArrow.position.z = -0.45 - 0.14 * Math.sin(t * 9);
+
+  // Camera Choreography: 3/4 front-top view -> close-up on handlebar countersteer -> wide lean shot
+  const { camera } = stage;
+  const camAng = lerp(-0.52, 0.42, t / Math.max(1, DUR));
+  camera.position.set(
+    Math.sin(camAng) * 6.4 - 0.5,
+    lerp(2.4, 1.5, pLean),
+    Math.cos(camAng) * 6.4 + 1.8,
+  );
+  camera.lookAt(0, -0.35, -0.2);
+
+  stage.composite(ctx, W, H);
+
+  // @dav.trackhub style high-contrast Yellow Callout Pills projected from 3D bike parts!
+  const S = W / 720;
+  const pts = [
+    { v: new THREE.Vector3(-0.75, 1.95, -1.1), lbl: 'PUSH LEFT BAR', show: pPush > 0.1, col: '#FFD60A' },
+    { v: new THREE.Vector3(0.1, 0.15, -1.3), lbl: steerAngle < 0 ? 'WHEEL → RIGHT' : 'CARVES LEFT', show: true, col: steerAngle < 0 ? '#FF9500' : '#38BDF8' },
+    { v: new THREE.Vector3(0.4, 1.25, 0.5), lbl: `LEAN ${Math.round(leanAngle * 57.3)}° LEFT`, show: pLean > 0.15, col: '#30D158' },
+  ];
+  for (const pt of pts) {
+    if (!pt.show) continue;
+    const wp = pt.v.clone().applyMatrix4(bikeLeanGroup.matrixWorld);
+    wp.project(camera);
+    const sx = clamp((wp.x * 0.5 + 0.5) * W, W * 0.16, W * 0.76);
+    const sy = clamp((-wp.y * 0.5 + 0.5) * H, H * 0.24, H * 0.58);
+    drawCalloutPill(pt.lbl, sx, sy, S, pt.col);
+  }
+
+  drawStudioHud(ctx, {
+    W,
+    H,
+    channel: 'explainer',
+    badge: 'COUNTERSTEERING PHYSICS · 3D',
+    title: 'TO TURN LEFT, STEER RIGHT',
+    subtitle: 'PUSH LEFT BAR → BIKE LEANS LEFT → CARVE',
+    caption: activeCaption,
+    metrics: [
+      { label: 'STEER ANGLE', value: `${Math.round(-steerAngle * 57.3)}°`, color: '#FF9500' },
+      { label: 'LEAN ANGLE', value: `${Math.round(leanAngle * 57.3)}° L`, color: '#38BDF8' },
+      { label: 'SPEED', value: '95 KM/H', color: '#FFD60A' },
+    ],
+    progress: t / Math.max(1, DUR),
+  });
+}
+
+window.renderFrame = (t) => {
+  renderSceneAt(t);
+  return cv.toDataURL('image/jpeg', 0.92).slice(23);
+};
+
+window.renderBatch = (startFrame, count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    renderSceneAt((startFrame + i) / FPS);
+    out.push(cv.toDataURL('image/jpeg', 0.92).slice(23));
+  }
+  return out;
+};
+
+window.ready = true;
+</script>

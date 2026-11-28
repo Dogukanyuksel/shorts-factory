@@ -27,8 +27,8 @@ test("pickNextJob (physics): ardışık iki video asla aynı simülasyon mekani�
   assert.equal(seenNiches.size, 32, "32 farklı fizik mekaniği rotasyonda olmalı");
 });
 
-test("pickNextJob (explainer): 44 bölümü eksiksiz sırayla verir, tüm HTML dosyaları mevcuttur ve sonra null döner", () => {
-  assert.equal(EXPLAINER_JOBS.length, 44);
+test("pickNextJob (explainer): 45 bölümü eksiksiz sırayla verir, tüm HTML dosyaları mevcuttur ve sonra null döner", () => {
+  assert.equal(EXPLAINER_JOBS.length, 45);
   const published = new Set<string>();
   for (let i = 0; i < EXPLAINER_JOBS.length; i++) {
     const job = pickNextJob("explainer", published);
