@@ -26,7 +26,7 @@ import { ensureSensitiveDisclaimer, runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import { synthesizeVoice } from "./voice.js";
-import { attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
+import { assertThreeJsScene, attachLocalEngines, CHROMIUM_RENDER_ARGS } from "./webgl-helper.js";
 import { buildWordCaptionCanvasSnippet } from "./word-captions.js";
 import {
   addVideoToPlaylist,
@@ -305,6 +305,8 @@ async function main() {
     console.log(`[expansion] "${channel}" için bekleyen yeni bölüm kalmadı.`);
     return;
   }
+  const jobScenePath = resolve("niches", "expansion", `${job.episode}.html`);
+  await assertThreeJsScene(jobScenePath, job.id);
 
   const clientId = (
     channel === "wealth"

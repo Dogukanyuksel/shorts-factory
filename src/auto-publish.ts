@@ -38,6 +38,7 @@ import {
 import { getNarrativeLongformBySlug } from "./longform-narrative.js";
 import { runPolicyGuard } from "./policy-guard.js";
 import { runVideoQc } from "./qc.js";
+import { assertThreeJsScene, isLegacy2DAllowed, isThreeJsSceneFile } from "./webgl-helper.js";
 import { renderDerivedShortVideo } from "./render-narrative.js";
 import { syncPublishedStateFromRemote } from "./state-sync.js";
 import {
@@ -299,7 +300,11 @@ async function main() {
   const derivedItem = pickNextDerivedShort(derivedQueue, channel, publishedIds);
   if (derivedItem) {
     const parentSpec = getNarrativeLongformBySlug(derivedItem.parentSlug);
-    if (parentSpec) {
+    const parentHtmlPath = parentSpec ? resolve("niches", "longform-deep-dive", `${parentSpec.slug}.html`) : "";
+    const parentIs3D = parentHtmlPath ? await isThreeJsSceneFile(parentHtmlPath) : false;
+    if (parentSpec && !parentIs3D && !isLegacy2DAllowed()) {
+      console.log(`⏭️ [3D-GATE] Huni Vitrin Short (${derivedItem.id}) ana sahnesi henüz 3D PBR değil — 3D'ye çevrilmeden yayınlanmayacak, sıradaki 3D sahneye geçiliyor.`);
+    } else if (parentSpec) {
       console.log(`\n🎯 [auto-publish] Huni Vitrin Short seçildi: ${derivedItem.id} (ana video: ${derivedItem.parentVideoId})`);
       const mp4Path = await renderDerivedShortVideo(parentSpec, derivedItem, { fps: 60 });
       const qc = await runVideoQc(mp4Path);
@@ -490,6 +495,11 @@ async function main() {
         const lastPhysId = [...state.published].reverse().find((r) => r.channel === "physics")?.id || "";
         for (const niche of strat.physics?.boostedNiches || []) {
           if (lastPhysId.startsWith(`${niche}-`)) continue;
+          const nicheScenePath = resolve("niches", niche, "scene.html");
+          if (!isLegacy2DAllowed() && !(await isThreeJsSceneFile(nicheScenePath))) {
+            console.log(`⏭️ [3D-GATE] Analiz "${niche}" sahnesini öne aldı ama henüz 3D PBR değil — 3D'ye çevrilmeden yayınlanmayacak.`);
+            continue;
+          }
           const candidate = pickJobByKey("physics", niche, publishedIds);
           if (candidate) {
             directorBoostedJob = candidate;
@@ -509,6 +519,12 @@ async function main() {
     console.log(`[auto-publish] "${channel}" kanalı için bekleyen yeni video kalmadı.`);
     return;
   }
+
+  const jobScenePath =
+    job.channel === "physics"
+      ? resolve("niches", job.niche, "scene.html")
+      : resolve("niches", "how-it-works", "episodes", `${job.episode}.html`);
+  await assertThreeJsScene(jobScenePath, job.id);
 
   console.log(`\n[auto-publish] Kanal=${channel} | Video=${job.id}`);
   console.log(`[auto-publish] Başlık: ${job.title}`);

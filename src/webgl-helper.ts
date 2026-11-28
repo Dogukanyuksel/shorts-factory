@@ -42,3 +42,27 @@ export async function attachLocalEngines(page: Page): Promise<void> {
     await route.abort();
   });
 }
+
+export function isLegacy2DAllowed(): boolean {
+  return process.env.ALLOW_LEGACY_2D === "true";
+}
+
+export async function isThreeJsSceneFile(scenePath: string): Promise<boolean> {
+  if (!existsSync(scenePath)) return false;
+  const html = await readFile(scenePath, "utf8");
+  return /data-engine=["']three["']|local\.shorts\/three\.module\.js/i.test(html);
+}
+
+/**
+ * 3D-Only Publish Gate: Hiçbir sahne Three.js 3D PBR'ye çevrilmeden (veya ALLOW_LEGACY_2D=true
+ * açıkça verilmeden) yayına gönderilemez. Analiz sırayı değiştirse bile 2D sahneleri engeller.
+ */
+export async function assertThreeJsScene(scenePath: string, label: string): Promise<void> {
+  if (isLegacy2DAllowed()) return;
+  const is3D = await isThreeJsSceneFile(scenePath);
+  if (!is3D) {
+    throw new Error(
+      `[3D-GATE] "${label}" (${scenePath}) henüz Three.js 3D PBR değil! 3D'ye çevrilmeden yayına gönderilmez (override: ALLOW_LEGACY_2D=true).`,
+    );
+  }
+}
